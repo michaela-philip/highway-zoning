@@ -9,12 +9,15 @@ ipums = pd.read_csv('data/output/ipums_ga.csv')
 
 ipums['black'] = np.where(ipums['race'] == 2, 1, 0)
 ipums['white'] = np.where(ipums['race'] == 1, 1, 0)
+ipums['valueh'] = np.where(ipums['valueh'] == 9999999, np.nan, ipums['valueh']).astype(float)
+ipums['valueh'] = np.where(ipums['valueh'] == 9999998, np.nan, ipums['valueh']).astype(float)
+
 
 ipums['enumdist'] = ipums['enumdist'].astype(str).str[-3:]
+ed_gis.rename(columns={'ed': 'enumdist'}, inplace=True)
 ed_gis['enumdist'] = ed_gis['enumdist'].astype(str).str.zfill(3)
 
 ipums_agg = ipums.groupby('enumdist')[['ownershp', 'rent', 'valueh', 'black', 'white', 'incwage']].mean().reset_index()
-ed_gis.rename(columns={'ed': 'enumdist'}, inplace=True)
 
 ##now overlay digitized zoning map and highway maps whenever they exist 
 zoning = gpd.read_file('data/input/1945zoning/1945zoning.shp')
@@ -71,11 +74,20 @@ ed = classify_ed(ed_gis, zoning)
 ipums_ed = ipums_agg.merge(ed, on = 'enumdist', how = 'right')
 ipums_ed = gpd.GeoDataFrame(ipums_ed, geometry='geometry')
 
-#calculate summary statistics
+#recalculate stats from ed shapefile
 ipums_ed['bpct'] = ipums_ed['bpop'] / ipums_ed['totalpop']
 ipums_ed['immpct'] = ipums_ed['immpop'] / ipums_ed['totalpop']
-
 ipums_ed[['bpct', 'immpct', 'meansei', 'incwage', 'ownershp', 'valueh']].describe()
 
+#summary stats by zone
+outcomes = ['ownershp', 'valueh','bpct', 'medsei', 'totalpop']
+ipums_ed_zone = ipums_ed.groupby('zone')[outcomes].mean().reset_index()
+print(ipums_ed_zone.to_latex(float_format="%.2f", index = False))
 
-###merge in 1952 hwy shapefile###
+#summary stats by hwy presence
+hwy52 = gpd.read_file('data/input/1952hwy/1952hwy.shp')
+ed_hwy = gpd.sjoin(ipums_ed, hwy52, how = 'left', predicate = 'intersects')
+outcomes = ['bpct', 'medsei', 'totalpop', 'pct_residential', 'pct_industrial']
+ed_hwy['Status'] = ed_hwy['Status'].fillna('No Highway')
+ed_hwy_status = ed_hwy.groupby('Status')[outcomes].mean().reset_index()
+print(ed_hwy_status.to_latex(float_format="%.2f", index = False))

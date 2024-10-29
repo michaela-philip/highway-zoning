@@ -1,0 +1,14 @@
+---
+title: "Zoning and Highway Placement: Summary Stats"
+author: "Michaela Philip"
+execute:
+  echo: false
+jupyter: python3
+---
+
+
+```{python}
+from data_code.merge_data import ipums_ed_zone, ed_hwy_status
+print(ipums_ed_zone)
+print(ed_hwy_status)
+```
