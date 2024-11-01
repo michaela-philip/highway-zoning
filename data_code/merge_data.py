@@ -93,11 +93,15 @@ ed = classify_ed(ed_gis, zoning)
 ed['poppct'] = ed['totalpop'] / (ed['totalpop'].sum())
 ed['maj_black'] = np.where(ed['bpct'] > 50, 1, 0) # black population above median 
 ed['med_black'] = np.where(ed['bpct'] > (ed['bpct'].median()), 1, 0) # majority black population
+ed['anyres'] = np.where((ed['zone'] == 'residential') | (ed['zone'] == 'sub_residential') | (ed['zone'] == 'public'), 1, 0) # indicator for any type of residential zoning
+ed['industrial'] = np.where(ed['zone'] == 'industrial', 1, 0) # indicator for industrial zoning
 
 # merge in highway data as of 1952
 # should eventually rewrite as function so that I can add in all hwy shapefiles
 hwy52 = gpd.read_file('data/input/1952hwy/1952hwy.shp')
-ed_hwy52 = gpd.sjoin(ed, hwy52, how = 'left', predicate = 'intersects')
-ed_hwy52['Status'] = ed_hwy52['Status'].fillna('No Highway')
-ed_hwy52['Projected'] = np.where(ed_hwy52['Status'] == 'Projected', 1, 0)
-ed_hwy52['Constructed'] = np.where(ed_hwy52['Status'] == 'Constructed', 1, 0)
+hwy57 = gpd.read_file('data/input/1957hwy/1957hwy.shp')
+
+ed_hwy57 = gpd.sjoin(ed, hwy57, how = 'left', predicate = 'intersects')
+ed_hwy57['Status'] = ed_hwy57['Status'].fillna('No Highway')
+ed_hwy57['Projected'] = np.where(ed_hwy57['Status'] == 'Projected', 1, 0)
+ed_hwy57['Constructed'] = np.where(ed_hwy57['Status'] == 'Constructed', 1, 0)
