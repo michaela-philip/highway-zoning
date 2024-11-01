@@ -98,5 +98,6 @@ ed['med_black'] = np.where(ed['bpct'] > (ed['bpct'].median()), 1, 0) # majority 
 # should eventually rewrite as function so that I can add in all hwy shapefiles
 hwy52 = gpd.read_file('data/input/1952hwy/1952hwy.shp')
 ed_hwy52 = gpd.sjoin(ed, hwy52, how = 'left', predicate = 'intersects')
+ed_hwy52['Status'] = ed_hwy52['Status'].fillna('No Highway')
 ed_hwy52['Projected'] = np.where(ed_hwy52['Status'] == 'Projected', 1, 0)
 ed_hwy52['Constructed'] = np.where(ed_hwy52['Status'] == 'Constructed', 1, 0)
