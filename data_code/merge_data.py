@@ -93,8 +93,8 @@ ed = classify_ed(ed_gis, zoning)
 ed['poppct'] = ed['totalpop'] / (ed['totalpop'].sum())
 ed['maj_black'] = np.where(ed['bpct'] > 50, 1, 0) # black population above median 
 ed['med_black'] = np.where(ed['bpct'] > (ed['bpct'].median()), 1, 0) # majority black population
-ed['anyres'] = np.where((ed['zone'] == 'residential') | (ed['zone'] == 'sub_residential') | (ed['zone'] == 'public'), 1, 0) # indicator for any type of residential zoning
-ed['industrial'] = np.where(ed['zone'] == 'industrial', 1, 0) # indicator for industrial zoning
+ed['zone_min'] = np.where((ed['zone'] == 'residential') | (ed['zone'] == 'sub_residential') | (ed['zone'] == 'public'), 'Any Residential', 
+                         np.where((ed['zone'] == 'school') | (ed['zone'] == 'uncategorized'), 'Other', ed['zone'])) # condensed zoning variable
 
 # merge in highway data as of 1952
 # should eventually rewrite as function so that I can add in all hwy shapefiles
