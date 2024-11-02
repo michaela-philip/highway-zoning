@@ -8,7 +8,44 @@ jupyter: python3
 
 
 ```{python}
-from data_code.merge_data import ipums_ed_zone, ed_hwy_status
-print(ipums_ed_zone)
-print(ed_hwy_status)
+from data_code.merge_data import ed, ed_hwy57
+```
+
+```{python}
+#summary stats by zone
+outcomes = ['poppct', 'bpct', 'medsei', 'immpct']
+agg_funcs = {col: 'mean' for col in outcomes if col != 'poppct'}
+agg_funcs['poppct'] = 'sum'
+ed_zone = ed.groupby('zone').agg(agg_funcs).reset_index()
+print(ed_zone)
+print(ed_zone.to_latex(float_format="%.2f", index = False))
+```
+
+```{python}
+#summary stats by hwy presence
+outcomes = ['poppct', 'bpct', 'medsei', 'pct_residential', 'pct_industrial', 'pct_sub_residential']
+agg_funcs = {col: 'mean' for col in outcomes if col != 'poppct'}
+agg_funcs['poppct'] = 'sum'
+ed_hwy57_status = ed_hwy57.groupby('Status').agg(agg_funcs).reset_index()
+print(ed_hwy57_status)
+print(ed_hwy57_status.to_latex(float_format="%.2f", index = False))
+```
+
+```{python}
+#summary stats by race
+outcomes = ['medsei', 'poppct', 'pct_residential', 'pct_industrial', 'pct_sub_residential', 'Projected', 'Constructed']
+agg_funcs = {col: 'mean' for col in outcomes if col != 'poppct'}
+agg_funcs['poppct'] = 'sum'
+ed_hwy57_majblack = ed_hwy57.groupby('maj_black').agg(agg_funcs).reset_index()
+print(ed_hwy57_majblack)
+```
+
+```{python}
+#summary stats by race and zoning
+outcomes = ['poppct', 'Projected', 'Constructed']
+agg_funcs = {col: 'mean' for col in outcomes if col != 'poppct'}
+agg_funcs['poppct'] = 'sum'
+ed_hwy57_majblack_zone = ed_hwy57.groupby(['zone_min', 'maj_black']).agg(agg_funcs).reset_index()
+print(ed_hwy57_majblack_zone)
+print(ed_hwy57_majblack_zone.to_latex(float_format = "%.2f", index = False))
 ```
