@@ -90,11 +90,19 @@ def classify_ed(data, zoning):
 ed = classify_ed(ed_gis, zoning)
 
 # add more relevant variables
-ed['poppct'] = ed['totalpop'] / (ed['totalpop'].sum())
+ed['poppct'] = (ed['totalpop'] / (ed['totalpop'].sum())) * 100
 ed['maj_black'] = np.where(ed['bpct'] > 50, 1, 0) # black population above median 
 ed['med_black'] = np.where(ed['bpct'] > (ed['bpct'].median()), 1, 0) # majority black population
 ed['zone_min'] = np.where((ed['zone'] == 'residential') | (ed['zone'] == 'sub_residential') | (ed['zone'] == 'public'), 'Any Residential', 
                          np.where((ed['zone'] == 'school') | (ed['zone'] == 'uncategorized'), 'Other', ed['zone'])) # condensed zoning variable
+
+# transform for consistency in tables
+ed['pct_residential'] = 100 * ed['pct_residential']
+ed['pct_industrial'] = 100 * ed['pct_industrial']
+ed['pct_sub_residential'] = 100 * ed['pct_sub_residential']
+ed['pct_public'] = 100 * ed['pct_public']
+ed['pct_schools'] = 100 * ed['pct_schools']
+ed['pct_uncategorized'] = 100 * ed['pct_uncategorized']
 
 # merge in highway data as of 1952
 # should eventually rewrite as function so that I can add in all hwy shapefiles
@@ -103,5 +111,5 @@ hwy57 = gpd.read_file('data/input/1957hwy/1957hwy.shp')
 
 ed_hwy57 = gpd.sjoin(ed, hwy57, how = 'left', predicate = 'intersects')
 ed_hwy57['Status'] = ed_hwy57['Status'].fillna('No Highway')
-ed_hwy57['Projected'] = np.where(ed_hwy57['Status'] == 'Projected', 1, 0)
-ed_hwy57['Constructed'] = np.where(ed_hwy57['Status'] == 'Constructed', 1, 0)
+ed_hwy57['Projected'] = (np.where(ed_hwy57['Status'] == 'Projected', 1, 0)) * 100
+ed_hwy57['Constructed'] = (np.where(ed_hwy57['Status'] == 'Constructed', 1, 0)) * 100
