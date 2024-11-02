@@ -1,2 +1,3 @@
 data/*
 highway-zoning-gis/*
+*.pyc
