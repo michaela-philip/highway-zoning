@@ -66,7 +66,27 @@ def classify_ed(data, zoning):
     ed['pct_schools'] = ed['area_schools'] / ed['area']
     ed['pct_uncategorized'] = ed['area_uncategorized'] / ed['area']
 
+    # drop all ed that are entirely uncategorized
+    ed = ed[ed['pct_uncategorized'] != 1.00]
+
     # simple categorization - may be worth also having a more complex one
+    # categorizing by highest percentage that is NOT uncategorized
+    def assign_grade_5(row):
+        if row['pct_residential'] > max(row['pct_sub_residential'], row['pct_industrial'], row['pct_public'], row['pct_schools']):
+            return 'residential'
+        if row['pct_sub_residential'] > max(row['pct_residential'], row['pct_industrial'], row['pct_public'], row['pct_schools']):
+            return 'sub_residential'
+        if row['pct_industrial'] > max(row['pct_residential'], row['pct_sub_residential'], row['pct_public'], row['pct_schools']):
+            return 'industrial'
+        if row['pct_public'] > max(row['pct_residential'], row['pct_sub_residential'], row['pct_industrial'], row['pct_schools']):
+            return 'public'
+        if row['pct_schools'] > max(row['pct_residential'], row['pct_sub_residential'], row['pct_industrial'], row['pct_public']):
+            return 'school'
+        else:
+            print(f"ED {row['ed']} doesn't fit a category because Residential = {row['pct_residential']}, Sub Residential = {row['pct_sub_residential']}, Industrial = {row['pct_industrial']}, Public = {row['pct_public']},  Schools = {row['pct_school']}, Uncategorized = {row['pct_uncategorized']}")
+            return None
+        
+    # same but leaving in an uncategorized option
     def assign_grade_6(row):
         if row['pct_residential'] > max(row['pct_sub_residential'], row['pct_industrial'], row['pct_public'], row['pct_uncategorized'], row['pct_schools']):
             return 'residential'
@@ -84,15 +104,15 @@ def classify_ed(data, zoning):
             print(f"ED {row['ed']} doesn't fit a category because Residential = {row['pct_residential']}, Sub Residential = {row['pct_sub_residential']}, Industrial = {row['pct_industrial']}, Public = {row['pct_public']},  Schools = {row['pct_school']}, Uncategorized = {row['pct_uncategorized']}")
             return None
         
-    ed['zone'] = ed.apply(assign_grade_6, axis = 1)
+    ed['zone'] = ed.apply(assign_grade_5, axis = 1)
     return ed
 
 ed = classify_ed(ed_gis, zoning)
 
 # add more relevant variables
 ed['poppct'] = (ed['totalpop'] / (ed['totalpop'].sum())) * 100
-ed['maj_black'] = np.where(ed['bpct'] > 50, 1, 0) # black population above median 
-ed['med_black'] = np.where(ed['bpct'] > (ed['bpct'].median()), 1, 0) # majority black population
+ed['maj_black'] = np.where(ed['bpct'] > 50, 1, 0) # majority black population
+ed['med_black'] = np.where(ed['bpct'] > (ed['bpct'].median()), 1, 0) # black population above median 
 ed['zone_min'] = np.where((ed['zone'] == 'residential') | (ed['zone'] == 'sub_residential') | (ed['zone'] == 'public'), 'Any Residential', 
                          np.where((ed['zone'] == 'school') | (ed['zone'] == 'uncategorized'), 'Other', ed['zone'])) # condensed zoning variable
 
