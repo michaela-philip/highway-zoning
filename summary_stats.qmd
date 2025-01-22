@@ -49,3 +49,19 @@ ed_hwy57_majblack_zone = ed_hwy57.groupby(['zone_min', 'maj_black']).agg(agg_fun
 print(ed_hwy57_majblack_zone)
 print(ed_hwy57_majblack_zone.to_latex(float_format = "%.2f", index = False))
 ```
+
+```{python}
+#make a 2x2
+import pandas as pd
+table = pd.pivot_table(ed_hwy57, values = ['Constructed','Projected'], index='zone_min', columns = 'maj_black', aggfunc='mean')
+print(table)
+print(table.to_latex(float_format = "%.2f", index = True))
+```
+
+```{python}
+outcomes = ['Projected', 'Constructed']
+agg_funcs = {col: 'mean' for col in outcomes if col != 'poppct'}
+agg_funcs['poppct'] = 'sum'
+tab2 = ed_hwy57.groupby(['maj_black']).agg(agg_funcs).reset_index()
+print(tab2)
+```
