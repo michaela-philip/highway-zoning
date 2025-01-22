@@ -133,3 +133,10 @@ ed_hwy57 = gpd.sjoin(ed, hwy57, how = 'left', predicate = 'intersects')
 ed_hwy57['Status'] = ed_hwy57['Status'].fillna('No Highway')
 ed_hwy57['Projected'] = (np.where(ed_hwy57['Status'] == 'Projected', 1, 0)) * 100
 ed_hwy57['Constructed'] = (np.where(ed_hwy57['Status'] == 'Constructed', 1, 0)) * 100
+
+agg_funcs = {col: 'first' for col in ed_hwy57.columns if col not in ['Projected', 'Constructed']}
+agg_funcs['Projected'] = 'max'
+agg_funcs['Constructed'] = 'max'
+ed_hwy57 = ed_hwy57.groupby(['ed']).agg(agg_funcs).reset_index()
+
+ed_hwy57 = ed_hwy57.set_geometry('geometry')
