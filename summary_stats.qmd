@@ -22,6 +22,31 @@ print(ed_zone.to_latex(float_format="%.2f", index = False))
 ```
 
 ```{python}
+#summary stats by zone_min (Table 1)
+outcomes = ['poppct', 'bpct', 'meansei', 'Constructed']
+agg_funcs = {col: 'mean' for col in outcomes if col != 'poppct'}
+agg_funcs['poppct'] = 'sum'
+ed_zone = ed_hwy57.groupby('zone_min').agg(agg_funcs).reset_index()
+ed_zone['count'] = ed_hwy57.groupby('zone_min').size().values
+
+ed_zone = ed_zone.T
+
+print(ed_zone)
+print(ed_zone.to_latex(float_format="%.2f", index = True))
+```
+
+```{python}
+#overall summary stats
+ed_overall = ed_hwy57.agg(agg_funcs).reset_index().T
+ed_overall['count'] = len(ed_hwy57)
+
+ed_overall = ed_overall.T
+
+print(ed_overall)
+print(ed_overall.to_latex(float_format="%.2f", index = False))
+```
+
+```{python}
 #summary stats by hwy presence
 outcomes = ['poppct', 'bpct', 'medsei', 'pct_residential', 'pct_industrial', 'pct_sub_residential']
 agg_funcs = {col: 'mean' for col in outcomes if col != 'poppct'}
