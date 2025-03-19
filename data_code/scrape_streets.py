@@ -1,4 +1,5 @@
 # script to scrape street names for each enumeration district from stevemorse.org
+# should eventually turn this into a function that takes city, state as input 
 
 import pandas as pd
 from selenium import webdriver
@@ -79,6 +80,7 @@ for ed in eds:
     driver.switch_to.frame(edframe)
 
 driver.quit()
+street_list = pd.DataFrame(street_list, columns=['streets']) 
 
 street_list.to_csv('data/output/ga_streets.csv', index=False)
 print('csv created!')
