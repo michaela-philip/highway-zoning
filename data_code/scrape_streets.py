@@ -3,6 +3,8 @@
 
 import pandas as pd
 from selenium import webdriver
+from webdriver_manager.chrome import ChromeDriverManager
+from selenium.webdriver.chrome.service import Service as ChromeService
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
@@ -10,7 +12,7 @@ import time
 from selenium.webdriver.support.ui import Select
 
 url = 'https://stevemorse.org/census/index.html?ed2street=1'
-driver = webdriver.Chrome()
+driver = webdriver.Chrome(service=ChromeService(ChromeDriverManager().install()))
 driver.get(url)
 wait = WebDriverWait(driver, 10)
 
@@ -58,7 +60,7 @@ street_list = []
 i = 1
 
 for ed in eds:
-    ed_name = ed.get_attribute('value')
+    ed_name = ed.text
     ed_dropdown.click()
     ed.click()
 
@@ -69,18 +71,20 @@ for ed in eds:
 
     # pull street names
     streets = driver.find_element(By.TAG_NAME, 'body').text
-    street_list.append(streets)
+    street_names = [s.strip() for s in streets.split('\n') if s.strip()]
+    for street in street_names:
+        street_list.append({'ed_name': ed_name, 'street': street})    
     driver.switch_to.default_content()
     time.sleep(1)
-    print('Scraped ED:', i)
-    i += 1
+    # print statement to verify - keep in til including states and cities in output, then can remove
+    print(f"Scraped ED: {ed_name}, Streets: {', '.join(street_names)}")
 
     # go back to default then enumeration district frame
     driver.switch_to.default_content()
     driver.switch_to.frame(edframe)
 
 driver.quit()
-street_list = pd.DataFrame(street_list, columns=['streets']) 
+street_list = pd.DataFrame(street_list) 
 
 street_list.to_csv('data/output/ga_streets.csv', index=False)
 print('csv created!')
