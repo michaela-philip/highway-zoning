@@ -70,7 +70,7 @@ def clean_addresses(df):
     )
     df.loc[house_mask_own, 'rawhn'] = prev_rawhn[house_mask_own] + 2
     print('interpolated missing house numbers for owners')
-    
+
     return df
 
 # function to match addresses to known streets from steve morse
@@ -90,3 +90,6 @@ print('address cleaning done')
 
 atl = match_addresses(atl, street_list)
 print('address matching done')
+
+atl.to_csv('data/output/atl_cleaned.csv', index=False)
+print('csv created')
