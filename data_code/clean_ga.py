@@ -1,6 +1,7 @@
 import pandas as pd
 import geopandas as gpd
 import numpy as np
+from rapidfuzz import process, distance
 
 from scrape_streets import street_list
 
@@ -68,4 +69,20 @@ def clean_addresses(df):
     df.loc[house_mask_own, 'rawhn'] = prev_rawhn[house_mask_own] + 2
     return df
 
+# function to match addresses to known streets from steve morse
+def match_addresses(df, streets):
+    known_streets = streets['street'].unique()
+    def best_match(street):
+        if pd.isna(street):
+            return street
+        match = process.extractOne(str(street), known_streets, 
+                                                    scorer=distance.JaroWinkler.normalized_distance, score_cutoff=0.8)
+        return match if match is not None else street
+    df['street'] = df['street'].apply(best_match)
+    return df
+
 atl = clean_addresses(atl)
+print('address cleaning done')
+
+atl = match_addresses(atl, street_list)
+print('address matching done')
