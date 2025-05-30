@@ -55,7 +55,7 @@ def clean_addresses(df):
     house_mask_rent = (
         df['rawhn'].isna() &
         df['street'].notna() & 
-        df['tenure'] != 10 &
+        df['ownershp'] != 10 &
         (prev_street == df['street'])
     )
     df.loc[house_mask_rent, 'rawhn'] = prev_rawhn[house_mask_rent]
@@ -65,7 +65,7 @@ def clean_addresses(df):
     house_mask_own = (
         df['rawhn'].isna() &
         df['street'].notna() & 
-        df['tenure'] == 10 &
+        df['ownershp'] == 10 &
         (prev_street == df['street'])
     )
     df.loc[house_mask_own, 'rawhn'] = prev_rawhn[house_mask_own] + 2
