@@ -1,3 +1,4 @@
 data/*
 highway-zoning-gis/*
 *.pyc
+.venv
