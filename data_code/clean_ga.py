@@ -49,6 +49,7 @@ def clean_addresses(df):
         ((prev_rawhn - df['rawhn']).abs() <= 6) # norm from PVC/Logan and Zhang (2019)
     )
     df.loc[mask, 'street'] = prev_street[mask]
+    print('interpolated missing street names')
 
     # interpolate missing house numbers for renters - use previous house number
     house_mask_rent = (
@@ -58,6 +59,7 @@ def clean_addresses(df):
         (prev_street == df['street'])
     )
     df.loc[house_mask_rent, 'rawhn'] = prev_rawhn[house_mask_rent]
+    print('interpolated missing house numbers for renters')
     
     # interpolate missing house numbers for owners - add 2 to previous house number
     house_mask_own = (
@@ -67,6 +69,8 @@ def clean_addresses(df):
         (prev_street == df['street'])
     )
     df.loc[house_mask_own, 'rawhn'] = prev_rawhn[house_mask_own] + 2
+    print('interpolated missing house numbers for owners')
+    
     return df
 
 # function to match addresses to known streets from steve morse
