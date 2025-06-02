@@ -75,26 +75,79 @@ def clean_addresses(df):
     print('interpolated missing house numbers for owners')
 
     # additional adjustments to make matching easier
-    df['street'] = (
-        df['street']
+    df['street'] = (df['street']
         .str.lower()
         .str.replace('avenue', 'ave')
-        .str.replace('street', 'st')
+        .str.replace('street', '')
         .str.replace(r'( road)', 'rd', regex=True)
+        .str.replace('drive', 'dr')
+        .str.replace('place', 'pl')
+        .str.replace(r'( court)', 'ct', regex=True)
+        .str.replace(r'( \w )', '', regex=True)
     )
+
+    # make sure nan is correctly coded as missing
+    df['street'] = df['street'].replace("nan", np.nan)
     return df
 
 # function to match addresses to known streets from steve morse
+# def match_addresses(df, streets):
+    #known_streets = streets['street'].str.lower().unique()
+    #prev_street = df['street'].shift(1)
+    #def best_match(street):
+    #    if pd.isna(street):
+    #        return street
+    #    match = process.extractOne(street, known_streets,
+    #                                        scorer = distance.JaroWinkler.similarity, score_cutoff=0.2)
+    #    return match[0] if match is not None else street
+    #df['street_match'] = df['street'].apply(best_match)
+    #return df
+
+# function to match addresses to known streets from steve morse in 3 rounds
 def match_addresses(df, streets):
-    known_streets = streets['street'].unique()
-    def best_match(street):
+    known_streets = streets['street'].str.lower().unique()
+    df['prev_street'] = df['street'].shift(1)
+
+    # round 1: find perfect match to known streets
+    mask_unmatched = df['street_match'].isna() & df['street'].notna()
+    def round_1(street):
         if pd.isna(street):
-            return street
-        match = process.extractOne(street, known_streets,
-                                            scorer = distance.JaroWinkler.distance, score_cutoff=0.2)
-        return match[0] if match is not None else street
-    df['street_match'] = df['street'].apply(best_match)
+            return np.nan
+        match = process.extractOne(
+            street, known_streets,
+            scorer=distance.JaroWinkler.normalized_similarity, 
+            score_cutoff= 1.0)
+        return match[0] if match is not None else np.nan
+    df.loc[mask_unmatched, 'street_match'] = df.loc[mask_unmatched, 'street'].apply(round_1)
+
+    # round 2: check if street is very similar to previous street and, if so, use that to match on
+    # rationale - adjacent observations are likely to be geographically adjacent but may have typos
+    mask_unmatched = df['street_match'].isna() & df['street'].notna() & df['prev_street'].notna()
+    def round_2(row):
+        sim = distance.JaroWinkler.normalized_similarity(row['street'], row['prev_street'])
+        if sim >=0.8:
+            match = process.extractOne(
+            row['prev_street'], known_streets,
+            scorer=distance.JaroWinkler.normalized_similarity, 
+            score_cutoff = 0.2)
+            return match[0] if match is not None else np.nan
+        return np.nan
+    df.loc[mask_unmatched, 'street_match'] = df.loc[mask_unmatched].apply(round_2, axis=1)
+            
+    # round 3: fuzzy match any remaining observations
+    mask_unmatched = df['street_match'].isna() & df['street'].notna()
+    def round_3(row):
+            match = process.extractOne(
+                row['street'], known_streets,
+                scorer = distance.JaroWinkler.normalized_similarity,
+                score_cutoff=0.2
+            )
+            return match[0] if match is not None else np.nan
+    df.loc[mask_unmatched, 'street_match'] = df.loc[mask_unmatched].apply(round_3, axis=1)
+
+    df.drop(columns=['prev_street'], inplace=True)
     return df
+
 
 atl = clean_addresses(atl)
 print('address cleaning done')
