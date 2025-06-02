@@ -90,19 +90,8 @@ def match_addresses(df, streets):
     def best_match(street):
         if pd.isna(street):
             return street
-        match = process.extractOne(str(street), known_streets, 
-                                                    scorer=distance.JaroWinkler.normalized_distance, score_cutoff=0.8)
-        return match[0] if match is not None else street
-    df['street_match'] = df['street'].apply(best_match)
-    return df
-
-def match_addresses(df, streets):
-    known_streets = streets['street'].unique()
-    def best_match(street):
-        if pd.isna(street):
-            return street
         match = process.extractOne(street, known_streets,
-                                            scorer = distance.JaroWinkler.distance)
+                                            scorer = distance.JaroWinkler.distance, score_cutoff=0.2)
         return match[0] if match is not None else street
     df['street_match'] = df['street'].apply(best_match)
     return df
