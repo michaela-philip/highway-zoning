@@ -1,5 +1,4 @@
 import pandas as pd
-import geopandas as gpd
 import numpy as np
 from rapidfuzz import process, distance
 import os
@@ -75,6 +74,14 @@ def clean_addresses(df):
     df.loc[house_mask_own, 'rawhn'] = prev_rawhn[house_mask_own] + 2
     print('interpolated missing house numbers for owners')
 
+    # additional adjustments to make matching easier
+    df['street'] = (
+        df['street']
+        .str.lower()
+        .str.replace('avenue', 'ave')
+        .str.replace('street', 'st')
+        .str.replace(r'( road)', 'rd', regex=True)
+    )
     return df
 
 # function to match addresses to known streets from steve morse
@@ -85,8 +92,19 @@ def match_addresses(df, streets):
             return street
         match = process.extractOne(str(street), known_streets, 
                                                     scorer=distance.JaroWinkler.normalized_distance, score_cutoff=0.8)
-        return match if match is not None else street
-    df['street'] = df['street'].apply(best_match)
+        return match[0] if match is not None else street
+    df['street_match'] = df['street'].apply(best_match)
+    return df
+
+def match_addresses(df, streets):
+    known_streets = streets['street'].unique()
+    def best_match(street):
+        if pd.isna(street):
+            return street
+        match = process.extractOne(street, known_streets,
+                                            scorer = distance.JaroWinkler.distance)
+        return match[0] if match is not None else street
+    df['street_match'] = df['street'].apply(best_match)
     return df
 
 atl = clean_addresses(atl)
