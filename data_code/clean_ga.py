@@ -2,8 +2,12 @@ import pandas as pd
 import geopandas as gpd
 import numpy as np
 from rapidfuzz import process, distance
+import os
 
-from scrape_streets import street_list
+if not os.path.exists('data/output/ga_streets.csv'):
+    from scrape_streets import street_list
+else:
+    street_list = pd.read_csv('data/output/ga_streets.csv')
 
 ga = pd.read_csv('data/output/census_ga_1940.csv')
 
