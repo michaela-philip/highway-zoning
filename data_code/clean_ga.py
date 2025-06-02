@@ -90,23 +90,11 @@ def clean_addresses(df):
     df['street'] = df['street'].replace("nan", np.nan)
     return df
 
-# function to match addresses to known streets from steve morse
-# def match_addresses(df, streets):
-    #known_streets = streets['street'].str.lower().unique()
-    #prev_street = df['street'].shift(1)
-    #def best_match(street):
-    #    if pd.isna(street):
-    #        return street
-    #    match = process.extractOne(street, known_streets,
-    #                                        scorer = distance.JaroWinkler.similarity, score_cutoff=0.2)
-    #    return match[0] if match is not None else street
-    #df['street_match'] = df['street'].apply(best_match)
-    #return df
-
 # function to match addresses to known streets from steve morse in 3 rounds
 def match_addresses(df, streets):
     known_streets = streets['street'].str.lower().unique()
     df['prev_street'] = df['street'].shift(1)
+    df['street_match'] = np.nan
 
     # round 1: find perfect match to known streets
     mask_unmatched = df['street_match'].isna() & df['street'].notna()
