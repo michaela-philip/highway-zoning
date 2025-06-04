@@ -43,16 +43,21 @@ def clean_addresses(df):
     prev_page = df['pageno'].shift(1)
 
     ## interpolate missing address values ##
-    # fill in missing street as previous street if certain conditions are met
-    mask = (
-        df['street'].isna() &
-        df['rawhn'].notna() &
-        prev_rawhn.notna() &
-        (prev_page == df['pageno']) & 
-        ((prev_rawhn - df['rawhn']).abs() <= 6) # norm from PVC/Logan and Zhang (2019)
-    )
-    df.loc[mask, 'street'] = prev_street[mask]
-    print('interpolated missing street names')
+    while True:
+        street_interp_mask = (
+                df['street'].isna() &
+                df['rawhn'].notna() &
+                prev_rawhn.notna() &
+                (prev_page == df['pageno']) & 
+                ((prev_rawhn - df['rawhn']).abs() <= 6) # norm from PVC/Logan and Zhang (2019)
+            )
+        if not street_interp_mask.any(): 
+            print('all possible streets interpolated')
+            break 
+        df.loc[street_interp_mask, 'street'] = prev_street[street_interp_mask]
+        print('interpolated missing streets from previous entries')
+        # update previous values after interpolation
+        prev_street = df['street'].shift(1)
 
     # interpolate missing house numbers for renters - use previous house number
     house_mask_rent = (
@@ -94,7 +99,7 @@ def clean_addresses(df):
 def match_addresses(df, streets):
     known_streets = streets['street'].str.lower().unique()
     df['prev_street'] = df['street'].shift(1)
-    df['street_match'] = np.nan
+    df['street_match'] = np.nan.astype(object)
 
     # round 1: find perfect match to known streets
     mask_unmatched = df['street_match'].isna() & df['street'].notna()
