@@ -12,7 +12,7 @@ ga = pd.read_csv('data/output/census_ga_1940.csv')
 
 # keep only columns and counties we need
 cols = ['valueh', 'race', 'street', 'city', 'urban', 'countyicp', 'stateicp', 'rent', 
-        'enumdist', 'respond', 'numperhh', 'numprec', 'serial', 'rawhn', 'ownershp', 'pageno']
+        'enumdist', 'respond', 'numperhh', 'numprec', 'serial', 'rawhn', 'ownershp', 'pageno', 'dwelling']
 ga2 = ga.loc[ga['countyicp'].isin([1210, 890]), cols]
 atl = ga2[ga2['city'] == 350].copy()
 
@@ -21,7 +21,8 @@ atl['valueh'] = atl['valueh'].replace([9999998, 9999999], np.nan)
 atl['rent'] = atl['rent'].replace([0, 9998, 9999], np.nan)
 
 # keep one observation per household/serial 
-atl = atl.drop_duplicates(subset = 'serial', keep = 'first')
+atl = atl.drop_duplicates(subset = ['serial'], keep = 'first')
+print(f'number of records:{len(atl)}')
 
 # function to clean and standardize addresses
 def clean_addresses(df):
@@ -37,27 +38,48 @@ def clean_addresses(df):
     df[['rawhn', 'rawhninfo']] = df['rawhn'].str.extract(r'(\d+)\s*([^\d]*)')    
     df['rawhn'] = pd.to_numeric(df['rawhn'], errors='coerce')
     
+    
     # get previous entry's values to fill in missing streets where appropriate
     prev_rawhn = df['rawhn'].shift(1)
+    next_rawhn = df['rawhn'].shift(-1)
     prev_street = df['street'].shift(1)
+    next_street = df['street'].shift(-1)
     prev_page = df['pageno'].shift(1)
+    next_page = df['pageno'].shift(-1)
 
     ## interpolate missing address values ##
     while True:
-        street_interp_mask = (
-                df['street'].isna() &
-                df['rawhn'].notna() &
-                prev_rawhn.notna() &
-                (prev_page == df['pageno']) & 
-                ((prev_rawhn - df['rawhn']).abs() <= 6) # norm from PVC/Logan and Zhang (2019)
-            )
-        if not street_interp_mask.any(): 
-            print('all possible streets interpolated')
-            break 
-        df.loc[street_interp_mask, 'street'] = prev_street[street_interp_mask]
-        print('interpolated missing streets from previous entries')
-        # update previous values after interpolation
+        prev_rawhn = df['rawhn'].shift(1)
+        next_rawhn = df['rawhn'].shift(-1)
         prev_street = df['street'].shift(1)
+        next_street = df['street'].shift(-1)
+        prev_page = df['pageno'].shift(1)
+        next_page = df['pageno'].shift(-1)
+        
+        street_interp_forward_mask = (
+            df['street'].isna() &
+            df['rawhn'].notna() &
+            prev_rawhn.notna() &
+            (prev_page == df['pageno']) & 
+            ((prev_rawhn - df['rawhn']).abs() <= 6) # norm from PVC/Logan and Zhang (2019)
+            )
+        street_interp_back_mask = (
+            ~street_interp_forward_mask &
+            df['street'].isna() &
+            df['rawhn'].notna() &
+            next_rawhn.notna() &
+            (next_page == df['pageno']) & 
+            ((next_rawhn - df['rawhn']).abs() <= 6) # norm from PVC/Logan and Zhang (2019)
+            )
+        if not street_interp_forward_mask.any() and not street_interp_back_mask.any():
+            print('all possible streets interpolated')
+            break
+        if street_interp_back_mask.any():
+            df.loc[street_interp_back_mask, 'street'] = next_street[street_interp_back_mask]
+            print('interpolated missing street from following entries')
+        if street_interp_forward_mask.any():
+            df.loc[street_interp_forward_mask, 'street'] = prev_street[street_interp_forward_mask]
+            print('interpolated missing streets from previous entries')
 
     # interpolate missing house numbers for renters - use previous house number
     house_mask_rent = (
@@ -82,12 +104,12 @@ def clean_addresses(df):
     # additional adjustments to make matching easier
     df['street'] = (df['street']
         .str.lower()
-        .str.replace('avenue', 'ave')
-        .str.replace('street', '')
-        .str.replace(r'( road)', 'rd', regex=True)
-        .str.replace('drive', 'dr')
-        .str.replace('place', 'pl')
-        .str.replace(r'( court)', 'ct', regex=True)
+        .str.replace(r'\bavenue\b', 'ave', regex=True)
+        .str.replace(r'\bstreet\b', '', regex=True)
+        .str.replace(r'\broad\b', ' rd', regex=True)
+        .str.replace(r'\bdrive\b', 'dr', regex=True)
+        .str.replace(r'\bplace\b', 'pl', regex=True)
+        .str.replace(r'\bcourt\b', ' ct', regex=True)
         .str.replace(r'( \w )', '', regex=True)
     )
 
@@ -95,11 +117,14 @@ def clean_addresses(df):
     df['street'] = df['street'].replace("nan", np.nan)
     return df
 
+#print out how many valid streets we have before matching
+print(f'rows with street info: {atl["street"].notna().sum()}')
+
 # function to match addresses to known streets from steve morse in 3 rounds
 def match_addresses(df, streets):
     known_streets = streets['street'].str.lower().unique()
     df['prev_street'] = df['street'].shift(1)
-    df['street_match'] = np.nan.astype(object)
+    df['street_match'] = pd.Series(np.nan, index=df.index, dtype='object')
 
     # round 1: find perfect match to known streets
     mask_unmatched = df['street_match'].isna() & df['street'].notna()
@@ -135,18 +160,18 @@ def match_addresses(df, streets):
                 scorer = distance.JaroWinkler.normalized_similarity,
                 score_cutoff=0.2
             )
-            return match[0] if match is not None else np.nan
+            return match[0] if match is not None else row['street']
     df.loc[mask_unmatched, 'street_match'] = df.loc[mask_unmatched].apply(round_3, axis=1)
 
     df.drop(columns=['prev_street'], inplace=True)
     return df
 
-
 atl = clean_addresses(atl)
 print('address cleaning done')
 
-atl = match_addresses(atl, street_list)
-print('address matching done')
+#atl = match_addresses(atl, street_list)
+#print('address matching done')
+#print(f'rows with street info: {atl["street_match"].notna().sum()}')
 
 atl.to_csv('data/output/atl_cleaned.csv', index=False)
 print('csv created')
