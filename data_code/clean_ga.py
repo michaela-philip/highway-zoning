@@ -3,28 +3,7 @@ import numpy as np
 from rapidfuzz import process, distance
 import os
 
-if not os.path.exists('data/output/ga_streets.csv'):
-    from scrape_streets import street_list
-else:
-    street_list = pd.read_csv('data/output/ga_streets.csv')
-
-ga = pd.read_csv('data/output/census_ga_1940.csv')
-
-# keep only columns and counties we need
-cols = ['valueh', 'race', 'street', 'city', 'urban', 'countyicp', 'stateicp', 'rent', 
-        'enumdist', 'respond', 'numperhh', 'numprec', 'serial', 'rawhn', 'ownershp', 'pageno', 'dwelling']
-ga2 = ga.loc[ga['countyicp'].isin([1210, 890]), cols]
-atl = ga2[ga2['city'] == 350].copy()
-
-# recode valueh and rent missing values
-atl['valueh'] = atl['valueh'].replace([9999998, 9999999], np.nan)
-atl['rent'] = atl['rent'].replace([0, 9998, 9999], np.nan)
-
-# keep one observation per household/serial 
-atl = atl.drop_duplicates(subset = ['serial'], keep = 'first')
-print(f'number of records:{len(atl)}')
-
-# function to clean and standardize addresses
+### FUNCTION TO CLEAN AND STANDARDIZE ADDRESSES ###
 def clean_addresses(df):
     # extract any additional information in () from house number
     df['street'] = df['street'].astype(str)
@@ -117,10 +96,7 @@ def clean_addresses(df):
     df['street'] = df['street'].replace("nan", np.nan)
     return df
 
-#print out how many valid streets we have before matching
-print(f'rows with street info: {atl["street"].notna().sum()}')
-
-# function to match addresses to known streets from steve morse in 3 rounds
+### FUNCTION TO MATCH ADDRESSES TO KNOWN STREETS FROM STEVE MORSE IN 3 ROUNDS ###
 def match_addresses(df, streets):
     known_streets = streets['street'].str.lower().unique()
     df['prev_street'] = df['street'].shift(1)
@@ -166,8 +142,33 @@ def match_addresses(df, streets):
     df.drop(columns=['prev_street'], inplace=True)
     return df
 
+####################################################################################################
+if not os.path.exists('data/output/ga_streets.csv'):
+    from scrape_streets import street_list
+else:
+    street_list = pd.read_csv('data/output/ga_streets.csv')
+
+ga = pd.read_csv('data/output/census_ga_1940.csv')
+
+# keep only columns and counties we need
+cols = ['valueh', 'race', 'street', 'city', 'urban', 'countyicp', 'stateicp', 'rent', 
+        'enumdist', 'respond', 'numperhh', 'numprec', 'serial', 'rawhn', 'ownershp', 'pageno', 'dwelling']
+ga2 = ga.loc[ga['countyicp'].isin([1210, 890]), cols]
+atl = ga2[ga2['city'] == 350].copy()
+
+# recode valueh and rent missing values
+atl['valueh'] = atl['valueh'].replace([9999998, 9999999], np.nan)
+atl['rent'] = atl['rent'].replace([0, 9998, 9999], np.nan)
+
+# keep one observation per household/serial 
+atl = atl.drop_duplicates(subset = ['serial'], keep = 'first')
+print(f'number of records:{len(atl)}')
+
 atl = clean_addresses(atl)
 print('address cleaning done')
+
+# print out how many valid streets we have before matching
+print(f'rows with street info: {atl["street"].notna().sum()}')
 
 #atl = match_addresses(atl, street_list)
 #print('address matching done')
