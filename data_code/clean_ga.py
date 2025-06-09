@@ -16,15 +16,6 @@ def clean_addresses(df):
     # extract any non-numeric characters from rawhn and make it numeric
     df[['rawhn', 'rawhninfo']] = df['rawhn'].str.extract(r'(\d+)\s*([^\d]*)')    
     df['rawhn'] = pd.to_numeric(df['rawhn'], errors='coerce')
-    
-    
-    # get previous entry's values to fill in missing streets where appropriate
-    prev_rawhn = df['rawhn'].shift(1)
-    next_rawhn = df['rawhn'].shift(-1)
-    prev_street = df['street'].shift(1)
-    next_street = df['street'].shift(-1)
-    prev_page = df['pageno'].shift(1)
-    next_page = df['pageno'].shift(-1)
 
     ## interpolate missing address values ##
     while True:
@@ -39,45 +30,59 @@ def clean_addresses(df):
             df['street'].isna() &
             df['rawhn'].notna() &
             prev_rawhn.notna() &
+            prev_street.notna() &
             (prev_page == df['pageno']) & 
             ((prev_rawhn - df['rawhn']).abs() <= 6) # norm from PVC/Logan and Zhang (2019)
             )
         street_interp_back_mask = (
-            ~street_interp_forward_mask &
             df['street'].isna() &
             df['rawhn'].notna() &
             next_rawhn.notna() &
+            next_street.notna() &
             (next_page == df['pageno']) & 
             ((next_rawhn - df['rawhn']).abs() <= 6) # norm from PVC/Logan and Zhang (2019)
             )
-        if not street_interp_forward_mask.any() and not street_interp_back_mask.any():
-            print('all possible streets interpolated')
-            break
+
         if street_interp_back_mask.any():
             df.loc[street_interp_back_mask, 'street'] = next_street[street_interp_back_mask]
             print('interpolated missing street from following entries')
         if street_interp_forward_mask.any():
             df.loc[street_interp_forward_mask, 'street'] = prev_street[street_interp_forward_mask]
             print('interpolated missing streets from previous entries')
+        if not street_interp_forward_mask.any() and not street_interp_back_mask.any():
+            print('all possible streets interpolated')
+            break
 
     # interpolate missing house numbers for renters - use previous house number
+    prev_page = df['pageno'].shift(1)
+    prev_street = df['street'].shift(1)
+    prev_rawhn = df['rawhn'].shift(1)
+
     house_mask_rent = (
         df['rawhn'].isna() &
         df['street'].notna() & 
-        df['ownershp'] != 10 &
+        (df['ownershp'] != 10) &
+        (prev_page == df['pageno']) &
         (prev_street == df['street'])
     )
-    df.loc[house_mask_rent, 'rawhn'] = prev_rawhn[house_mask_rent]
+    print(prev_rawhn[house_mask_rent])
+    df.loc[house_mask_rent, 'rawhn'] = prev_rawhn[house_mask_rent].values
     print('interpolated missing house numbers for renters')
     
     # interpolate missing house numbers for owners - add 2 to previous house number
+    prev_page = df['pageno'].shift(1)
+    prev_street = df['street'].shift(1)
+    prev_rawhn = df['rawhn'].shift(1)
+    
     house_mask_own = (
         df['rawhn'].isna() &
         df['street'].notna() & 
-        df['ownershp'] == 10 &
+        (df['ownershp'] == 10) &
+        (prev_page == df['pageno']) &
         (prev_street == df['street'])
     )
-    df.loc[house_mask_own, 'rawhn'] = prev_rawhn[house_mask_own] + 2
+    print(prev_rawhn[house_mask_own])
+    df.loc[house_mask_own, 'rawhn'] = (prev_rawhn[house_mask_own].values + 2)
     print('interpolated missing house numbers for owners')
 
     # additional adjustments to make matching easier
@@ -161,7 +166,7 @@ atl['valueh'] = atl['valueh'].replace([9999998, 9999999], np.nan)
 atl['rent'] = atl['rent'].replace([0, 9998, 9999], np.nan)
 
 # keep one observation per household/serial 
-atl = atl.drop_duplicates(subset = ['serial'], keep = 'first')
+atl = atl.drop_duplicates(subset = ['serial'], keep = 'first').reset_index()
 print(f'number of records:{len(atl)}')
 
 atl = clean_addresses(atl)
