@@ -106,6 +106,8 @@ def clean_addresses(df):
 def match_addresses(df, streets):
     known_streets = streets['street'].str.lower().unique()
     df['street_match'] = pd.Series(np.nan, index=df.index, dtype='object')
+    df['prev_street'] = df['street'].shift(1)
+
 
     # round 1: find perfect match to known streets
     mask_unmatched = df['street_match'].isna() & df['street'].notna()
@@ -120,8 +122,26 @@ def match_addresses(df, streets):
     df.loc[mask_unmatched, 'street_match'] = df.loc[mask_unmatched, 'street'].apply(round_1)
     print(df['street_match'].notna().sum(), 'streets matched in round 1')
 
+    # round 2: fuzzy match street to previous value
+    # rationale - streets adjacent in the census are likely to be adjacent geographically
     mask_unmatched = df['street_match'].isna() & df['street'].notna()
     def round_2(row):
+        sim = distance.JaroWinkler.normalized_similarity(row['street'], row['prev_street'])
+        if sim >= 0.8:
+            match_known = process.extractOne(
+                row['prev_street'], known_streets,
+                scorer=distance.JaroWinkler.normalized_similarity,
+                score_cutoff=0.2
+            )
+            return match_known[0] if match_known is not None else np.nan
+    df.loc[mask_unmatched, 'street_match'] = df.loc[mask_unmatched].apply(round_2, axis=1)
+    print(df['street_match'].notna().sum(), 'streets matched in round 2')
+    df.drop(columns=['prev_street'], inplace=True)
+
+    # round 3: fuzzy match streets within the same page
+    # rationale - same as above but expanding our pool slightly 
+    mask_unmatched = df['street_match'].isna() & df['street'].notna()
+    def round_3(row):
         candidates = df.loc[
             (df['pageno'] == row['pageno']) &
             (df['street'].notna()) &
@@ -141,22 +161,25 @@ def match_addresses(df, streets):
                 scorer = distance.JaroWinkler.normalized_similarity,
                 score_cutoff=0.2
             )
-            return match_known[0] if match_known is not None else row['street']
-        return row['street']
-    df.loc[mask_unmatched, 'street_match'] = df.loc[mask_unmatched].apply(round_2, axis=1)
-    print(df['street_match'].notna().sum(), 'streets matched in round 2')
+            return match_known[0] if match_known is not None else np.nan
+    df.loc[mask_unmatched, 'street_match'] = df.loc[mask_unmatched].apply(round_3, axis=1)
+    print(df['street_match'].notna().sum(), 'streets matched in round 3')
 
-    # round 3: fuzzy match any remaining observations
+    # round 4: fuzzy match any remaining observations
     mask_unmatched = df['street_match'].isna() & df['street'].notna()
-    def round_3(row):
+    def round_4(row):
             match = process.extractOne(
                 row['street'], known_streets,
                 scorer = distance.JaroWinkler.normalized_similarity,
                 score_cutoff=0.2
             )
-            return match[0] if match is not None else row['street']
-    df.loc[mask_unmatched, 'street_match'] = df.loc[mask_unmatched].apply(round_3, axis=1)
-    print(df['street_match'].notna().sum(), 'streets matched in round 3')
+            return match[0] if match is not None else np.nan
+    df.loc[mask_unmatched, 'street_match'] = df.loc[mask_unmatched].apply(round_4, axis=1)
+    print(df['street_match'].notna().sum(), 'streets matched in round 4')
+
+    # fill in remaining unmatched streets with original value
+    mask_unmatched = df['street_match'].isna() & df['street'].notna()
+    df.loc[mask_unmatched, 'street_match'] = df.loc[mask_unmatched, 'street']
 
     return df
 
