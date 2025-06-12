@@ -52,8 +52,9 @@ def clean_addresses(df):
         if not street_interp_forward_mask.any() and not street_interp_back_mask.any():
             print('all possible streets interpolated')
             break
-
+    
     # interpolate missing house numbers for renters - use previous house number
+    print(df['rawhn'].notna().sum())
     prev_page = df['pageno'].shift(1)
     prev_street = df['street'].shift(1)
     prev_rawhn = df['rawhn'].shift(1)
@@ -188,9 +189,9 @@ print('address cleaning done')
 # print out how many valid streets we have before matching
 print(f'rows with street info: {atl["street"].notna().sum()}')
 
-#atl = match_addresses(atl, street_list)
-#print('address matching done')
-#print(f'rows with street info: {atl["street_match"].notna().sum()}')
+atl = match_addresses(atl, street_list)
+print('address matching done')
+print(f'rows with street info: {atl["street_match"].notna().sum()}')
 
 atl.to_csv('data/output/atl_cleaned.csv', index=False)
 print('csv created')
