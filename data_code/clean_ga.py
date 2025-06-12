@@ -104,7 +104,6 @@ def clean_addresses(df):
 ### FUNCTION TO MATCH ADDRESSES TO KNOWN STREETS FROM STEVE MORSE IN 3 ROUNDS ###
 def match_addresses(df, streets):
     known_streets = streets['street'].str.lower().unique()
-    df['prev_street'] = df['street'].shift(1)
     df['street_match'] = pd.Series(np.nan, index=df.index, dtype='object')
 
     # round 1: find perfect match to known streets
@@ -118,21 +117,34 @@ def match_addresses(df, streets):
             score_cutoff= 1.0)
         return match[0] if match is not None else np.nan
     df.loc[mask_unmatched, 'street_match'] = df.loc[mask_unmatched, 'street'].apply(round_1)
+    print(df['street_match'].notna().sum(), 'streets matched in round 1')
 
-    # round 2: check if street is very similar to previous street and, if so, use that to match on
-    # rationale - adjacent observations are likely to be geographically adjacent but may have typos
-    mask_unmatched = df['street_match'].isna() & df['street'].notna() & df['prev_street'].notna()
+    mask_unmatched = df['street_match'].isna() & df['street'].notna()
     def round_2(row):
-        sim = distance.JaroWinkler.normalized_similarity(row['street'], row['prev_street'])
-        if sim >=0.8:
-            match = process.extractOne(
-            row['prev_street'], known_streets,
-            scorer=distance.JaroWinkler.normalized_similarity, 
-            score_cutoff = 0.2)
-            return match[0] if match is not None else np.nan
-        return np.nan
+        candidates = df.loc[
+            (df['pageno'] == row['pageno']) &
+            (df['street'].notna()) &
+            (df.index != row.name), 'street'
+        ].unique()
+        if len(candidates) == 0:
+            return np.nan
+        match = process.extractOne(
+            row['street'], candidates,
+            scorer = distance.JaroWinkler.normalized_similarity,
+            score_cutoff=0.8
+            )
+        if match is not None:
+            best_candidate = match[0]
+            match_known = process.extractOne(
+                best_candidate, known_streets,
+                scorer = distance.JaroWinkler.normalized_similarity,
+                score_cutoff=0.2
+            )
+            return match_known[0] if match_known is not None else row['street']
+        return row['street']
     df.loc[mask_unmatched, 'street_match'] = df.loc[mask_unmatched].apply(round_2, axis=1)
-            
+    print(df['street_match'].notna().sum(), 'streets matched in round 2')
+
     # round 3: fuzzy match any remaining observations
     mask_unmatched = df['street_match'].isna() & df['street'].notna()
     def round_3(row):
@@ -143,11 +155,12 @@ def match_addresses(df, streets):
             )
             return match[0] if match is not None else row['street']
     df.loc[mask_unmatched, 'street_match'] = df.loc[mask_unmatched].apply(round_3, axis=1)
+    print(df['street_match'].notna().sum(), 'streets matched in round 3')
 
-    df.drop(columns=['prev_street'], inplace=True)
     return df
 
 ####################################################################################################
+
 if not os.path.exists('data/output/ga_streets.csv'):
     from scrape_streets import street_list
 else:
