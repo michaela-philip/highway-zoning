@@ -2,12 +2,15 @@ import pandas as pd
 import numpy as np
 from rapidfuzz import process, distance
 import os
+import re
 
 ### FUNCTION TO CLEAN AND STANDARDIZE ADDRESSES ###
 def clean_addresses(df):
     # extract any additional information in () from house number
     df['street'] = df['street'].astype(str)
-    df[['street', 'streetinfo']] = df['street'].str.extract(r'\s*([^\(]+)\s*(?:\(([^)]*)\))?\s*')
+    df[['hotelinfo', 'street', 'streetinfo']] = df['street'].str.extract(
+        r'^(?:(?P<hotelinfo>[\w\s]+hotel)\s+)?(?P<street>[^\(]+?)(?:\s*\((?P<streetinfo>[^)]*)\))?\s*$',
+        flags=re.IGNORECASE)
     
     # identify rawhn entries that are likely to be hotels and recode as null
     pattern = r'([0-9][ ][a-zA-Z])|([0-9][-][a-zA-Z])|([a-zA-Z][ ][0-9])|([a-zA-Z][-][0-9])'
@@ -96,7 +99,7 @@ def clean_addresses(df):
         .str.replace(r'\bplace\b', 'pl', regex=True)
         .str.replace(r'\bcourt\b', ' ct', regex=True)
         .str.replace(r'( \w )', '', regex=True)
-        .str.replace(r'(\w )', '', regex=True)
+        .str.replace(r'(\b\w )', '', regex=True)
     )
 
     # make sure nan is correctly coded as missing
