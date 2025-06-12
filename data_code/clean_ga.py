@@ -108,7 +108,6 @@ def match_addresses(df, streets):
     df['street_match'] = pd.Series(np.nan, index=df.index, dtype='object')
     df['prev_street'] = df['street'].shift(1)
 
-
     # round 1: find perfect match to known streets
     mask_unmatched = df['street_match'].isna() & df['street'].notna()
     def round_1(street):
@@ -124,24 +123,21 @@ def match_addresses(df, streets):
 
     # round 2: fuzzy match street to previous value
     # rationale - streets adjacent in the census are likely to be adjacent geographically
-    mask_unmatched = df['street_match'].isna() & df['street'].notna()
-    def round_2(row):
-        idx = row.name
-        if idx == 0:
-            return np.nan
-        sim = distance.JaroWinkler.normalized_similarity(row['street'], row['prev_street'])
-        if sim >= 0.8:
-            prev_match = df.at[idx - 1, 'street_match']
-            if pd.notna(prev_match):
-                return prev_match
-            match_known = process.extractOne(
-                row['prev_street'], known_streets,
-                scorer=distance.JaroWinkler.normalized_similarity,
-                score_cutoff=0.2
+    while True:
+        prev_match = df['street_match'].shift(1)
+        sim = df.apply(
+            lambda row: distance.JaroWinkler.normalized_similarity(row['street'], row['prev_street'])
+            if pd.notna(row['street']) and pd.notna(row['prev_street']) else 0, axis=1
+        )
+        similar_adjacent_mask = (
+            df['street_match'].isna() &
+            df['street'].notna() &
+            (sim >=0.8)
             )
-            return match_known[0] if match_known is not None else np.nan
-        return np.nan
-    df.loc[mask_unmatched, 'street_match'] = df.loc[mask_unmatched].apply(round_2, axis=1)
+        if similar_adjacent_mask.any():
+            df.loc[similar_adjacent_mask, 'street_match'] = prev_match[similar_adjacent_mask].values
+        else:
+            break
     print(df['street_match'].notna().sum(), 'streets matched in round 2')
     df.drop(columns=['prev_street'], inplace=True)
 
