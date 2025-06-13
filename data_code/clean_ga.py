@@ -95,6 +95,19 @@ def clean_addresses(df):
 
 ### FUNCTION TO STANDARDIZE ADDRESSES ###
 def standardize_addresses(df):
+    # abbreviate street types to match steve morse, remove directional notations
+    df['street'] = (df['street']
+        .str.lower()
+        .str.replace(r'\bavenue\b', 'ave', regex=True)
+        .str.replace(r'\bstreet\b', '', regex=True)
+        .str.replace(r'\broad\b', ' rd', regex=True)
+        .str.replace(r'\bdrive\b', 'dr', regex=True)
+        .str.replace(r'\bplace\b', 'pl', regex=True)
+        .str.replace(r'\bcourt\b', ' ct', regex=True)
+        .str.replace(r'\b(nw|ne|sw|se)\b', '', regex=True)
+        .str.replace(r'-\s*', '', regex=True)
+        .str.strip()
+    )
     # replace ordinal words with numbers
     ordinal_map = {
         'first': '1st',
@@ -118,24 +131,21 @@ def standardize_addresses(df):
         'nineteenth': '19th',
         'twentieth': '20th'
     }
-    pattern = r'\b(' + '|'.join(ordinal_map.keys()) + r')\b'
+    # do a fuzzy replacement to take care of typos in ordinal words
+    def fuzzy_replace_ordinals(street):
+        if pd.isna(street):
+            return street
+        words = street.split()
+        for i, word in enumerate(words):
+            for key in ordinal_map:
+                sim = distance.JaroWinkler.normalized_similarity(word, key)
+                if sim > 0.8:
+                    words[i] = ordinal_map[key]
+                    break
+        return ' '.join(words)
 
-    def replace_ordinal(match):
-        return ordinal_map[match.group(0)]
-    df['street'] = df['street'].str.replace(pattern, replace_ordinal, regex=True)
+    df['street'] = df['street'].apply(fuzzy_replace_ordinals)
 
-    # abbreviate street types to match steve morse, remove directional notations
-    df['street'] = (df['street']
-        .str.replace(r'\bavenue\b', 'ave', regex=True)
-        .str.replace(r'\bstreet\b', '', regex=True)
-        .str.replace(r'\broad\b', ' rd', regex=True)
-        .str.replace(r'\bdrive\b', 'dr', regex=True)
-        .str.replace(r'\bplace\b', 'pl', regex=True)
-        .str.replace(r'\bcourt\b', ' ct', regex=True)
-        .str.replace(r'\b(nw|ne|sw|se)\b', '', regex=True)
-        .str.replace(r'-\s*', '', regex=True)
-        .str.strip()
-    )
     return df
 
 ### FUNCTION TO MATCH ADDRESSES TO KNOWN STREETS FROM STEVE MORSE IN 3 ROUNDS ###
@@ -170,7 +180,7 @@ def match_addresses(df, streets):
         similar_adjacent_mask = (
             df['street_match'].isna() &
             df['street'].notna() &
-            (sim >=0.75)
+            (sim >=0.8)
             )
         if similar_adjacent_mask.any():
                 print(iter_count)
@@ -200,7 +210,7 @@ def match_addresses(df, streets):
         match = process.extractOne(
             row['street'], candidates,
             scorer = distance.JaroWinkler.normalized_similarity,
-            score_cutoff=0.75
+            score_cutoff=0.8
             )
         if match is not None:
             best_candidate = match[0]
