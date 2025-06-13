@@ -92,14 +92,14 @@ def clean_addresses(df):
     # additional adjustments to make matching easier
     df['street'] = (df['street']
         .str.lower()
-        .str.replace(r'\bavenue\b', 'ave', regex=True)
-        .str.replace(r'\bstreet\b', '', regex=True)
-        .str.replace(r'\broad\b', ' rd', regex=True)
-        .str.replace(r'\bdrive\b', 'dr', regex=True)
-        .str.replace(r'\bplace\b', 'pl', regex=True)
-        .str.replace(r'\bcourt\b', ' ct', regex=True)
-        .str.replace(r'( \w )', '', regex=True)
-        .str.replace(r'(\b\w )', '', regex=True)
+        .str.replace(r'(\bavenue\b)', 'ave', regex=True)
+        .str.replace(r'(\s*\bstreet\b\s*)', '', regex=True)
+        .str.replace(r'(\broad\b)', ' rd', regex=True)
+        .str.replace(r'(\bdrive\b)', 'dr', regex=True)
+        .str.replace(r'(\bplace\b)', 'pl', regex=True)
+        .str.replace(r'(\bcourt\b)', ' ct', regex=True)
+        .str.replace(r'\b(nw|ne|sw|se|n|s|e|w)\b', '', regex=True)
+        .str.replace(r'(-\s*)', '', regex=True)
     )
 
     # make sure nan is correctly coded as missing
@@ -120,7 +120,7 @@ def match_addresses(df, streets):
         match = process.extractOne(
             street, known_streets,
             scorer = fuzz.ratio, 
-            score_cutoff= 1.0)
+            score_cutoff= 100)
         return match[0] if match is not None else np.nan
     df.loc[mask_unmatched, 'street_match'] = df.loc[mask_unmatched, 'street'].apply(round_1)
     print(df['street_match'].notna().sum(), 'streets matched in round 1')
@@ -155,12 +155,13 @@ def match_addresses(df, streets):
     # round 3: fuzzy match streets within the same page
     # rationale - same as above but expanding our pool slightly 
     mask_unmatched = df['street_match'].isna() & df['street'].notna()
+    page_candidates = {
+        pageno: group['street'].dropna().unique()
+        for pageno, group in df.groupby('pageno')
+        }
+
     def round_3(row):
-        candidates = df.loc[
-            (df['pageno'] == row['pageno']) &
-            (df['street'].notna()) &
-            (df.index != row.name), 'street'
-        ].unique()
+        candidates = page_candidates.get(row['pageno'], [])
         if len(candidates) == 0:
             return np.nan
         match = process.extractOne(
