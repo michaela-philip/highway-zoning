@@ -4,7 +4,7 @@ from rapidfuzz import process, distance, fuzz
 import os
 import re
 
-### FUNCTION TO CLEAN AND STANDARDIZE ADDRESSES ###
+### FUNCTION TO CLEAN AND INTERPOLATE ADDRESSES ###
 def clean_addresses(df):
     # extract any additional information in () from house number
     df['street'] = df['street'].astype(str)
@@ -89,21 +89,53 @@ def clean_addresses(df):
     df.loc[house_mask_own, 'rawhn'] = (prev_rawhn[house_mask_own].values + 2)
     print('interpolated missing house numbers for owners')
 
-    # additional adjustments to make matching easier
-    df['street'] = (df['street']
-        .str.lower()
-        .str.replace(r'(\bavenue\b)', 'ave', regex=True)
-        .str.replace(r'(\s*\bstreet\b\s*)', '', regex=True)
-        .str.replace(r'(\broad\b)', ' rd', regex=True)
-        .str.replace(r'(\bdrive\b)', 'dr', regex=True)
-        .str.replace(r'(\bplace\b)', 'pl', regex=True)
-        .str.replace(r'(\bcourt\b)', ' ct', regex=True)
-        .str.replace(r'\b(nw|ne|sw|se|n|s|e|w)\b', '', regex=True)
-        .str.replace(r'(-\s*)', '', regex=True)
-    )
-
     # make sure nan is correctly coded as missing
     df['street'] = df['street'].replace("nan", np.nan)
+    return df
+
+### FUNCTION TO STANDARDIZE ADDRESSES ###
+def standardize_addresses(df):
+    # replace ordinal words with numbers
+    ordinal_map = {
+        'first': '1st',
+        'second': '2nd',
+        'third': '3rd',
+        'fourth': '4th',
+        'fifth': '5th',
+        'sixth': '6th',
+        'seventh': '7th',
+        'eighth': '8th',
+        'ninth': '9th',
+        'tenth': '10th',
+        'eleventh': '11th',
+        'twelfth': '12th',
+        'thirteenth': '13th',
+        'fourteenth': '14th',
+        'fifteenth': '15th',
+        'sixteenth': '16th',
+        'seventeenth': '17th',
+        'eighteenth': '18th',
+        'nineteenth': '19th',
+        'twentieth': '20th'
+    }
+    pattern = r'\b(' + '|'.join(ordinal_map.keys()) + r')\b'
+
+    def replace_ordinal(match):
+        return ordinal_map[match.group(0)]
+    df['street'] = df['street'].str.replace(pattern, replace_ordinal, regex=True)
+
+    # abbreviate street types to match steve morse, remove directional notations
+    df['street'] = (df['street']
+        .str.replace(r'\bavenue\b', 'ave', regex=True)
+        .str.replace(r'\bstreet\b', '', regex=True)
+        .str.replace(r'\broad\b', ' rd', regex=True)
+        .str.replace(r'\bdrive\b', 'dr', regex=True)
+        .str.replace(r'\bplace\b', 'pl', regex=True)
+        .str.replace(r'\bcourt\b', ' ct', regex=True)
+        .str.replace(r'\b(nw|ne|sw|se)\b', '', regex=True)
+        .str.replace(r'-\s*', '', regex=True)
+        .str.strip()
+    )
     return df
 
 ### FUNCTION TO MATCH ADDRESSES TO KNOWN STREETS FROM STEVE MORSE IN 3 ROUNDS ###
@@ -128,7 +160,7 @@ def match_addresses(df, streets):
     # round 2: fuzzy match street to previous value
     # rationale - streets adjacent in the census are likely to be adjacent geographically
     iter_count = 0
-    max_iter = 10
+    max_iter = 20
     while True:
         prev_match = df['street_match'].shift(1)
         sim = df.apply(
@@ -146,6 +178,7 @@ def match_addresses(df, streets):
         else:
             break
         iter_count += 1
+        print(df['street_match'].notna().sum(), iter_count)
         if iter_count > max_iter:
             print('max iterations reached')
             break
@@ -223,6 +256,9 @@ print(f'number of records:{len(atl)}')
 
 atl = clean_addresses(atl)
 print('address cleaning done')
+
+atl = standardize_addresses(atl)
+print('addresses standarized')
 
 # print out how many valid streets we have before matching
 print(f'rows with street info: {atl["street"].notna().sum()}')
