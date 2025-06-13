@@ -1,6 +1,6 @@
 import pandas as pd
 import numpy as np
-from rapidfuzz import process, distance
+from rapidfuzz import process, distance, fuzz
 import os
 import re
 
@@ -119,7 +119,7 @@ def match_addresses(df, streets):
             return np.nan
         match = process.extractOne(
             street, known_streets,
-            scorer=distance.Levenshtein.normalized_similarity, 
+            scorer = fuzz.ratio, 
             score_cutoff= 1.0)
         return match[0] if match is not None else np.nan
     df.loc[mask_unmatched, 'street_match'] = df.loc[mask_unmatched, 'street'].apply(round_1)
@@ -132,7 +132,7 @@ def match_addresses(df, streets):
     while True:
         prev_match = df['street_match'].shift(1)
         sim = df.apply(
-            lambda row: distance.Levenshtein.normalized_similarity(row['street'], row['prev_street'])
+            lambda row: distance.JaroWinkler.normalized_similarity(row['street'], row['prev_street'])
             if pd.notna(row['street']) and pd.notna(row['prev_street']) else 0, axis=1
         )
         similar_adjacent_mask = (
@@ -165,15 +165,15 @@ def match_addresses(df, streets):
             return np.nan
         match = process.extractOne(
             row['street'], candidates,
-            scorer = distance.Levenshtein.normalized_similarity,
+            scorer = distance.JaroWinkler.normalized_similarity,
             score_cutoff=0.75
             )
         if match is not None:
             best_candidate = match[0]
             match_known = process.extractOne(
                 best_candidate, known_streets,
-                scorer = distance.Levenshtein.normalized_similarity,
-                score_cutoff=0.2
+                scorer = distance.DamerauLevenshtein.normalized_similarity,
+                score_cutoff=0.5
             )
             return match_known[0] if match_known is not None else np.nan
     df.loc[mask_unmatched, 'street_match'] = df.loc[mask_unmatched].apply(round_3, axis=1)
@@ -184,8 +184,8 @@ def match_addresses(df, streets):
     def round_4(row):
             match = process.extractOne(
                 row['street'], known_streets,
-                scorer = distance.Levenshtein.normalized_similarity,
-                score_cutoff=0.2
+                scorer = distance.DamerauLevenshtein.normalized_similarity,
+                score_cutoff=0.5
             )
             return match[0] if match is not None else np.nan
     df.loc[mask_unmatched, 'street_match'] = df.loc[mask_unmatched].apply(round_4, axis=1)
