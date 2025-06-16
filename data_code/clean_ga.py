@@ -3,6 +3,7 @@ import numpy as np
 from rapidfuzz import process, distance, fuzz
 import os
 import re
+import censusbatchgeocoder
 
 ### FUNCTION TO CLEAN AND INTERPOLATE ADDRESSES ###
 def clean_addresses(df):
@@ -238,8 +239,24 @@ def match_addresses(df, streets):
     # fill in remaining unmatched streets with original value
     mask_unmatched = df['street_match'].isna() & df['street'].notna()
     df.loc[mask_unmatched, 'street_match'] = df.loc[mask_unmatched, 'street']
+    df.drop(columns = ['rawhninfo', 'hotelinfo', 'streetinfo'], inplace=True)
 
     return df
+
+### FUNCTION TO GEOCODE ADDRESSES ###
+def geocode_addresses(df):
+    # minor restructuring per geocoder requirements
+    df['address'] = df['rawhn'].astype(str) + ' ' + df['street'].str.lower()
+    df['city'] == 'Atlanta' # when I make this a function, will probably need to read in a dictionary and have it match on code
+    df['state'] = 'GA' # same with this for FIPS or ICPS
+    df['zip'] == ''
+    df['id'] = df['serial']
+    df.columns = ['id', 'address', 'city', 'state', 'zip', 'valueh', 'rent', 'race', 'numprec']
+
+    # geocode using censusbatchgeocoder
+    result = censusbatchgeocoder.geocode(df.to_dict(orient = 'records'))
+    geocoded_df = pd.DataFrame(result)
+    return geocoded_df
 
 ####################################################################################################
 
@@ -270,12 +287,12 @@ print('address cleaning done')
 atl = standardize_addresses(atl)
 print('addresses standarized')
 
-# print out how many valid streets we have before matching
-print(f'rows with street info: {atl["street"].notna().sum()}')
-
 atl = match_addresses(atl, street_list)
 print('address matching done')
-print(f'rows with street info: {atl["street_match"].notna().sum()}')
 
 atl.to_csv('data/output/atl_cleaned.csv', index=False)
 print('csv created')
+
+atl_cleaned = pd.read_csv('data/output/atl_cleaned.csv')
+atl_geocoded = geocode_addresses(atl_cleaned)
+atl_geocoded.to_csv('data/output/atl_geocoded.csv', index=False)
