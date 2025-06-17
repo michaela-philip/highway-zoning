@@ -258,7 +258,7 @@ def geocode_addresses(df):
     df['Zip Code'] = ''
     df['Unique ID'] = df['serial']
     df = df[['Unique ID', 'Street Address', 'City', 'State', 'Zip Code']]
-    df.to_csv('data/output/geocode_input.csv', header=None)
+    df.to_csv('data/output/geocode_input.csv', index=False)
 
     # geocode using censusbatchgeocoder
     result = geocoder.location.from_batch('data/output/geocode_input.csv')
