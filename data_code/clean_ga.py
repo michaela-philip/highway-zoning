@@ -247,7 +247,8 @@ def match_addresses(df, streets):
 def geocode_addresses(df):
     # minor restructuring per geocoder requirements
     df = df.copy()
-    df['address'] = df['rawhn'].astype(str) + ' ' + df['street'].str.lower()
+    df['address'] = df['rawhn'].astype(str) + ' ' + df['street_match'].str.lower()
+    df = df.dropna(subset = 'address')
     df['city'] ='Atlanta' # when I make this a function, will probably need to read in a dictionary and have it match on code
     df['state'] = 'GA' # same with this for FIPS or ICPS
     df['zipcode'] = ''
