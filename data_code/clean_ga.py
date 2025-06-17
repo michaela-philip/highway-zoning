@@ -246,22 +246,18 @@ def match_addresses(df, streets):
 ### FUNCTION TO GEOCODE ADDRESSES ###
 def geocode_addresses(df):
     # minor restructuring per geocoder requirements
-    df = df.copy()
+    df = df.head(20000)
+    df['street_match'] = df['street_match'].str.strip()
+    df['rawhn'] = df['rawhn'].astype(str).str.replace('.0', '', regex=False).str.strip()
+
+    df = df.dropna(subset = ['rawhn', 'street_match'])
+
     df['address'] = df['rawhn'].astype(str) + ' ' + df['street_match'].str.lower()
-    df = df.dropna(subset = 'address')
     df['city'] ='Atlanta' # when I make this a function, will probably need to read in a dictionary and have it match on code
     df['state'] = 'GA' # same with this for FIPS or ICPS
     df['zipcode'] = ''
     df['id'] = df['serial']
     df = df[['id', 'address', 'city', 'state', 'zipcode', 'valueh', 'rent', 'race', 'numprec']]
-
-    required = ['id', 'address', 'city', 'state', 'zipcode']
-    missing = df[df[required].isnull().any(axis=1) | (df['address'].str.strip() == '')]
-    if not missing.empty:
-        print("Warning: Dropping rows with missing address/city/state before geocoding:")
-        print(missing)
-    df = df.dropna(subset=required)
-    df = df[df['address'].str.strip() != '']
 
     # geocode using censusbatchgeocoder
     result = censusbatchgeocoder.geocode(df.to_dict(orient = 'records'))
