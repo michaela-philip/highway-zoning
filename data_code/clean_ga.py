@@ -255,6 +255,14 @@ def geocode_addresses(df):
     df['id'] = df['serial']
     df = df[['id', 'address', 'city', 'state', 'zipcode', 'valueh', 'rent', 'race', 'numprec']]
 
+    required = ['id', 'address', 'city', 'state', 'zipcode']
+    missing = df[df[required].isnull().any(axis=1) | (df['address'].str.strip() == '')]
+    if not missing.empty:
+        print("Warning: Dropping rows with missing address/city/state before geocoding:")
+        print(missing)
+    df = df.dropna(subset=required)
+    df = df[df['address'].str.strip() != '']
+
     # geocode using censusbatchgeocoder
     result = censusbatchgeocoder.geocode(df.to_dict(orient = 'records'))
     geocoded_df = pd.DataFrame(result)
