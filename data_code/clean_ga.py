@@ -256,7 +256,7 @@ def geocode_addresses(df):
     df['City'] ='Atlanta' # when I make this a function, will probably need to read in a dictionary and have it match on code
     df['State'] = 'GA' # same with this for FIPS or ICPS
     df['Zip Code'] = ''
-    df['Unique ID'] = df['serial']
+    df['Unique ID'] = df['serial'].astype(str)
     df = df[['Unique ID', 'Street Address', 'City', 'State', 'Zip Code']]
     df.to_csv('data/output/geocode_input.csv', index=False)
 
