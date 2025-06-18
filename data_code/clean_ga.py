@@ -247,21 +247,21 @@ def match_addresses(df, streets):
 ### FUNCTION TO GEOCODE ADDRESSES ###
 def geocode_addresses(df):
     # minor restructuring per geocoder requirements
-    df = df.head(10000)
+    df = df.copy()
     df['street_match'] = df['street_match'].str.strip()
     df['rawhn'] = df['rawhn'].astype(str).str.replace('.0', '', regex=False).str.strip()
     df = df.dropna(subset = ['rawhn', 'street_match'])
 
-    df['Street Address'] = df['rawhn'].astype(str) + ' ' + df['street_match'].str.lower()
-    df['City'] ='Atlanta' # when I make this a function, will probably need to read in a dictionary and have it match on code
-    df['State'] = 'GA' # same with this for FIPS or ICPS
-    df['Zip Code'] = '30324'
-    df['Unique ID'] = df['serial'].astype(str)
-    df = df[['Unique ID', 'Street Address', 'City', 'State', 'Zip Code']]
-    df.to_csv('data/output/geocode_input.csv', index=False)
+    df['address'] = df['rawhn'].astype(str) + ' ' + df['street_match'].str.lower()
+    df['city'] ='Atlanta' # when I make this a function, will probably need to read in a dictionary and have it match on code
+    df['state'] = 'GA' # same with this for FIPS or ICPS
+    df['zipcode'] = ''
+    df['id'] = df['serial'].astype(str)
+    df = df[['id', 'address', 'city', 'state', 'zipcode']]
+
 
     # geocode using censusbatchgeocoder
-    result = geocoder.location.from_batch('data/output/geocode_input.csv')
+    result = censusbatchgeocoder.geocode(df.to_dict(orient = 'records'), zipcode = None)
     geocoded_df = pd.DataFrame(result)
     merged = df.merge(geocoded_df, on='id', how='left')
     return merged
