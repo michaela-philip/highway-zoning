@@ -93,6 +93,7 @@ def clean_addresses(df):
 
     # make sure nan is correctly coded as missing
     df['street'] = df['street'].replace("nan", np.nan)
+    df['rawhn'] = df['rawhn'].replace("nan", np.nan)
     return df
 
 ### FUNCTION TO STANDARDIZE ADDRESSES ###
