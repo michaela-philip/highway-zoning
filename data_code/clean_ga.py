@@ -249,6 +249,7 @@ def match_addresses(df, streets):
 def geocode_addresses(df):
     # minor restructuring per geocoder requirements
     df = df.copy()
+    df = df.dropna(subset = ['rawhn', 'street_match'])
     df['street_match'] = df['street_match'].str.strip()
     df['rawhn'] = df['rawhn'].astype(str).str.replace('.0', '', regex=False).str.strip()
     df = df.dropna(subset = ['rawhn', 'street_match'])
@@ -263,6 +264,17 @@ def geocode_addresses(df):
     # geocode using censusbatchgeocoder
     result = censusbatchgeocoder.geocode(df.to_dict(orient = 'records'), zipcode = None)
     geocoded_df = pd.DataFrame(result)
+    print(f"{geocoded_df['is_exact'].notna().sum()} records geocoded")
+
+    # run unmatched values through again
+    attempt_2 = geocoded_df[geocoded_df['is_exact'].isna()]
+    if not attempt_2.empty:
+        retry_ids = attempt_2['id'].tolist()
+        retry_records = df[df['id'].isin(retry_ids)].to_dict(orient='records')
+        result_2 = censusbatchgeocoder.geocode(retry_records, zipcode=None)
+        geocoded_df = pd.concat([geocoded_df, pd.DataFrame(result_2)], ignore_index=True)
+    
+    print(f"{geocoded_df['is_exact'].notna().sum()} records geocoded")
     merged = df.merge(geocoded_df, on='id', how='left')
     return merged
 
