@@ -243,6 +243,12 @@ def match_addresses(df, streets):
     df.loc[mask_unmatched, 'street_match'] = df.loc[mask_unmatched, 'street']
     df.drop(columns = ['rawhninfo', 'hotelinfo', 'streetinfo'], inplace=True)
 
+    # match new street names to street names that have been changed since 1940 to assist with geocoding
+    street_changes = pd.read_csv('data/output/atl_street_changes.csv')
+    df['street_match'] = df['street_match'].str.strip()
+    df = pd.merge(df, street_changes, left_on='street_match', right_on='old_name', how='left')
+    print(df['new_name'].notna().sum(), 'streets matched to street changes')
+
     return df
 
 ### FUNCTION TO GEOCODE ADDRESSES ###
@@ -250,11 +256,13 @@ def geocode_addresses(df):
     # minor restructuring per geocoder requirements
     df = df.copy()
     df = df.dropna(subset = ['rawhn', 'street_match'])
-    df['street_match'] = df['street_match'].str.strip()
+    df['new_name'] = df['new_name'].str.strip()
     df['rawhn'] = df['rawhn'].astype(str).str.replace('.0', '', regex=False).str.strip()
     df = df.dropna(subset = ['rawhn', 'street_match'])
 
-    df['address'] = df['rawhn'].astype(str) + ' ' + df['street_match'].str.lower()
+    street_change_mask = df['new_name'].notna()
+    df.loc[street_change_mask, 'address'] = df.loc[street_change_mask, 'rawhn'].astype(str) + ' ' + df.loc[street_change_mask, 'new_name'].str.lower()
+    df.loc[~street_change_mask, 'address'] = df.loc[~street_change_mask, 'rawhn'].astype(str) + ' ' + df.loc[~street_change_mask, 'street_match'].str.lower()
     df['city'] ='Atlanta' # when I make this a function, will probably need to read in a dictionary and have it match on code
     df['state'] = 'GA' # same with this for FIPS or ICPS
     df['zipcode'] = ''
