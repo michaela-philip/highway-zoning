@@ -252,9 +252,9 @@ def match_addresses(df, streets):
     return df
 
 ### FUNCTION TO GEOCODE ADDRESSES ###
-def geocode_addresses(df):
+def geocode_addresses(df_orig):
     # minor restructuring per geocoder requirements
-    df = df.copy()
+    df = df_orig.copy()
     df = df.dropna(subset = ['rawhn', 'street_match'])
     df['new_name'] = df['new_name'].str.strip()
     df['rawhn'] = df['rawhn'].astype(str).str.replace('.0', '', regex=False).str.strip()
@@ -275,52 +275,55 @@ def geocode_addresses(df):
     print(f"{geocoded_df['is_exact'].notna().sum()} records geocoded")
 
     # run unmatched values through again
-    attempt_2 = geocoded_df[geocoded_df['is_exact'].isna()]
-    if not attempt_2.empty:
-        retry_ids = attempt_2['id'].tolist()
-        retry_records = df[df['id'].isin(retry_ids)].to_dict(orient='records')
-        result_2 = censusbatchgeocoder.geocode(retry_records, zipcode=None)
-        geocoded_df = pd.concat([geocoded_df, pd.DataFrame(result_2)], ignore_index=True)
+    #attempt_2 = geocoded_df[geocoded_df['is_exact'].isna()]
+    #if not attempt_2.empty:
+        #retry_ids = attempt_2['id'].tolist()
+        #retry_records = df[df['id'].isin(retry_ids)].to_dict(orient='records')
+        #result_2 = censusbatchgeocoder.geocode(retry_records, zipcode=None)
+        #geocoded_df = pd.concat([geocoded_df, pd.DataFrame(result_2)], ignore_index=True)
     
     print(f"{geocoded_df['is_exact'].notna().sum()} records geocoded")
-    merged = df.merge(geocoded_df, on='id', how='left')
+    merged = df_orig.copy()
+    merged['serial'] = merged['serial'].astype(str)
+    merged = pd.merge(merged, geocoded_df, left_on='serial', right_on = 'id', how = 'left')
     return merged
 
 ####################################################################################################
 
-if not os.path.exists('data/output/ga_streets.csv'):
-    from scrape_streets import street_list
-else:
-    street_list = pd.read_csv('data/output/ga_streets.csv')
+    if not os.path.exists('data/output/ga_streets.csv'):
+        from scrape_streets import street_list
+    else:
+        street_list = pd.read_csv('data/output/ga_streets.csv')
 
-ga = pd.read_csv('data/output/census_ga_1940.csv')
+    ga = pd.read_csv('data/output/census_ga_1940.csv')
 
-# keep only columns and counties we need
-cols = ['valueh', 'race', 'street', 'city', 'urban', 'countyicp', 'stateicp', 'rent', 
-        'enumdist', 'respond', 'numperhh', 'numprec', 'serial', 'rawhn', 'ownershp', 'pageno', 'dwelling']
-ga2 = ga.loc[ga['countyicp'].isin([1210, 890]), cols]
-atl = ga2[ga2['city'] == 350].copy()
+    # keep only columns and counties we need
+    cols = ['valueh', 'race', 'street', 'city', 'urban', 'countyicp', 'stateicp', 'rent', 
+            'enumdist', 'respond', 'numperhh', 'numprec', 'serial', 'rawhn', 'ownershp', 'pageno', 'dwelling']
+    ga2 = ga.loc[ga['countyicp'].isin([1210, 890]), cols]
+    atl = ga2[ga2['city'] == 350].copy()
 
-# recode valueh and rent missing values
-atl['valueh'] = atl['valueh'].replace([9999998, 9999999], np.nan)
-atl['rent'] = atl['rent'].replace([0, 9998, 9999], np.nan)
+    # recode valueh and rent missing values
+    atl['valueh'] = atl['valueh'].replace([9999998, 9999999], np.nan)
+    atl['rent'] = atl['rent'].replace([0, 9998, 9999], np.nan)
 
-# keep one observation per household/serial 
-atl = atl.drop_duplicates(subset = ['serial'], keep = 'first').reset_index()
-print(f'number of records:{len(atl)}')
+    # keep one observation per household/serial 
+    atl = atl.drop_duplicates(subset = ['serial'], keep = 'first').reset_index()
+    print(f'number of records:{len(atl)}')
 
-atl = clean_addresses(atl)
-print('address cleaning done')
+    atl = clean_addresses(atl)
+    print('address cleaning done')
 
-atl = standardize_addresses(atl)
-print('addresses standarized')
+    atl = standardize_addresses(atl)
+    print('addresses standarized')
 
-atl = match_addresses(atl, street_list)
-print('address matching done')
+    atl = match_addresses(atl, street_list)
+    print('address matching done')
 
-atl.to_csv('data/output/atl_cleaned.csv', index=False)
-print('csv created')
+    atl.to_csv('data/output/atl_cleaned.csv', index=False)
+    print('csv created')
 
-#atl_cleaned = pd.read_csv('data/output/atl_cleaned.csv')
-atl_geocoded = geocode_addresses(atl)
+atl_cleaned = pd.read_csv('data/output/atl_cleaned.csv')
+atl_geocoded = geocode_addresses(atl_cleaned)
+#atl_geocoded = geocode_addresses(atl)
 atl_geocoded.to_csv('data/output/atl_geocoded.csv', index=False)
