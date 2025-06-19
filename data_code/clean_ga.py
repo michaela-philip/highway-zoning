@@ -173,7 +173,7 @@ def match_addresses(df, streets):
     # round 2: fuzzy match street to previous value
     # rationale - streets adjacent in the census are likely to be adjacent geographically
     iter_count = 0
-    max_iter = 20
+    max_iter = 30
     while True:
         prev_match = df['street_match'].shift(1)
         sim = df.apply(
@@ -220,7 +220,7 @@ def match_addresses(df, streets):
             match_known = process.extractOne(
                 best_candidate, known_streets,
                 scorer = distance.DamerauLevenshtein.normalized_similarity,
-                score_cutoff=0.5
+                score_cutoff=0.4
             )
             return match_known[0] if match_known is not None else np.nan
     df.loc[mask_unmatched, 'street_match'] = df.loc[mask_unmatched].apply(round_3, axis=1)
@@ -232,7 +232,7 @@ def match_addresses(df, streets):
             match = process.extractOne(
                 row['street'], known_streets,
                 scorer = distance.DamerauLevenshtein.normalized_similarity,
-                score_cutoff=0.5
+                score_cutoff=0.4
             )
             return match[0] if match is not None else np.nan
     df.loc[mask_unmatched, 'street_match'] = df.loc[mask_unmatched].apply(round_4, axis=1)
