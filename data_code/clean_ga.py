@@ -290,40 +290,40 @@ def geocode_addresses(df_orig):
 
 ####################################################################################################
 
-    if not os.path.exists('data/output/ga_streets.csv'):
-        from scrape_streets import street_list
-    else:
-        street_list = pd.read_csv('data/output/ga_streets.csv')
+if not os.path.exists('data/output/ga_streets.csv'):
+    from scrape_streets import street_list
+else:
+    street_list = pd.read_csv('data/output/ga_streets.csv')
 
-    ga = pd.read_csv('data/output/census_ga_1940.csv')
+ga = pd.read_csv('data/output/census_ga_1940.csv')
 
-    # keep only columns and counties we need
-    cols = ['valueh', 'race', 'street', 'city', 'urban', 'countyicp', 'stateicp', 'rent', 
-            'enumdist', 'respond', 'numperhh', 'numprec', 'serial', 'rawhn', 'ownershp', 'pageno', 'dwelling']
-    ga2 = ga.loc[ga['countyicp'].isin([1210, 890]), cols]
-    atl = ga2[ga2['city'] == 350].copy()
+# keep only columns and counties we need
+cols = ['valueh', 'race', 'street', 'city', 'urban', 'countyicp', 'stateicp', 'rent', 
+        'enumdist', 'respond', 'numperhh', 'numprec', 'serial', 'rawhn', 'ownershp', 'pageno', 'dwelling']
+ga2 = ga.loc[ga['countyicp'].isin([1210, 890]), cols]
+atl = ga2[ga2['city'] == 350].copy()
 
-    # recode valueh and rent missing values
-    atl['valueh'] = atl['valueh'].replace([9999998, 9999999], np.nan)
-    atl['rent'] = atl['rent'].replace([0, 9998, 9999], np.nan)
+# recode valueh and rent missing values
+atl['valueh'] = atl['valueh'].replace([9999998, 9999999], np.nan)
+atl['rent'] = atl['rent'].replace([0, 9998, 9999], np.nan)
 
-    # keep one observation per household/serial 
-    atl = atl.drop_duplicates(subset = ['serial'], keep = 'first').reset_index()
-    print(f'number of records:{len(atl)}')
+# keep one observation per household/serial 
+atl = atl.drop_duplicates(subset = ['serial'], keep = 'first').reset_index()
+print(f'number of records:{len(atl)}')
 
-    atl = clean_addresses(atl)
-    print('address cleaning done')
+atl = clean_addresses(atl)
+print('address cleaning done')
 
-    atl = standardize_addresses(atl)
-    print('addresses standarized')
+atl = standardize_addresses(atl)
+print('addresses standarized')
 
-    atl = match_addresses(atl, street_list)
-    print('address matching done')
+atl = match_addresses(atl, street_list)
+print('address matching done')
 
-    atl.to_csv('data/output/atl_cleaned.csv', index=False)
-    print('csv created')
+atl.to_csv('data/output/atl_cleaned.csv', index=False)
+print('csv created')
 
-atl_cleaned = pd.read_csv('data/output/atl_cleaned.csv')
-atl_geocoded = geocode_addresses(atl_cleaned)
-#atl_geocoded = geocode_addresses(atl)
+#atl_cleaned = pd.read_csv('data/output/atl_cleaned.csv')
+#atl_geocoded = geocode_addresses(atl_cleaned)
+atl_geocoded = geocode_addresses(atl)
 atl_geocoded.to_csv('data/output/atl_geocoded.csv', index=False)
