@@ -4,7 +4,6 @@ from rapidfuzz import process, distance, fuzz
 import os
 import re
 import censusbatchgeocoder
-import census_geocoder as geocoder
 
 ### FUNCTION TO CLEAN AND INTERPOLATE ADDRESSES ###
 def clean_addresses(df):
