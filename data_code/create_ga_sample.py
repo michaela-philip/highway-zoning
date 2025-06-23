@@ -22,10 +22,13 @@ def classify_grid(df, grid):
 
     # classify based on relative percentages (may not be ideal)
     df['maj_zoning'] = np.where(df['pct_res'] > df['pct_ind'], 'residential', 'industrial')
-    return df
+    output = grid.merge(df['maj_zoning'], left_on='grid_id', right_index=True)
+    return output
 
 ### FUNCTION TO PLACE CENSUS INFO INTO GRID ###
 def place_census(census, grid):
+    census = gpd.GeoDataFrame(census, geometry = gpd.points_from_xy(census.longitude, census.latitude), 
+                          crs = 'EPSG:4269') # census geocodes in NAD83 for some reason
     census = census.to_crs(grid.crs)
     census['black_pop'] = (census['black'] * census['numprec'])
     census_grid = grid.sjoin(census, how='left', predicate='contains')
@@ -40,10 +43,49 @@ def place_census(census, grid):
     census_grid = census_grid.dissolve(by='grid_id', aggfunc=agg_funcs)
     census_grid['pct_black'] = census_grid['black_pop'] / census_grid['numprec']
     census_grid['share_black'] = census_grid['black_pop'] / (census_grid['black_pop'].sum())
-    return census_grid
+    output = grid.merge(census_grid, left_on='grid_id', right_index=True)
+    return output
+
+### FUNCTION TO CLEAN HWY DATA AND ADD INTO GRID ###
+def place_highways(grid, state59, state40, us59, us40, interstate):
+    state59 = state59.to_crs(grid.crs)
+    state40 = state40.to_crs(grid.crs)
+    us59 = us59.to_crs(grid.crs)
+    us40 = us40.to_crs(grid.crs)
+    interstate = interstate.to_crs(grid.crs)
+
+    # fclass information from Baik et al. (2010)
+    # eliminate all local roads
+    state59 = state59[~state59['FCLASS'].isin([9,19])]
+    state40 = state40[~state40['FCLASS'].isin([9,19])]
+    us59 = us59[~us59['FCLASS'].isin([9,19])]
+    us40 = us40[~us40['FCLASS'].isin([9,19])]
+    interstate = interstate[~interstate['FCLASS'].isin([9,19])]
+
+    # include only roads that exist in 1959 and did not exist in 1940
+    state = state59.overlay(state40, how = 'difference')
+    state = state[~state.is_empty]
+    us = us59.overlay(us40, how = 'difference', keep_geom_type = False)
+    us = us[~us.is_empty]
+    interstate = interstate[~interstate.is_empty]
+
+    # combine all roads
+    all_roads = pd.concat([interstate, state, us])
+
+    atl_grid_hwy = gpd.sjoin(grid, all_roads, how = 'left', predicate = 'intersects')
+
+    # dummy variable for presence of highway
+    atl_grid_hwy['hwy'] = np.where(atl_grid_hwy['type'].isna(), 0, 1)
+
+    # aggregate by grid_id taking max value (if any highways exist, it is 1 no matter what)
+    atl_grid_hwy = atl_grid_hwy.groupby('grid_id').agg({'hwy': 'max'})
+
+    # merge in hwy indicator
+    output = grid.merge(atl_grid_hwy['hwy'], left_on='grid_id', right_index=True)
+    return output
 
 ### FUNCTION TO CREATE THE SAMPLE GRID ### 
-def create_grid(zoning, census, gridsize):
+def create_grid(zoning, census, state59, state40, us59, us40, interstate, gridsize):
     # grid is fit to size of zoning map
     a, b, c, d  = zoning.total_bounds
     step = gridsize # gridsize in meters
@@ -57,23 +99,26 @@ def create_grid(zoning, census, gridsize):
     grid['grid_id'] = range(1, len(grid) + 1)
 
     # overlay zoning map with grid squares and classify each square
-    zoning = classify_grid(zoning, grid)
+    output = classify_grid(zoning, grid)
 
     # overlay census data on grid
-    census = place_census(census, grid)
+    output = place_census(census, grid)
 
-    # merge zoning and census data into grid
-    output = grid.merge(zoning[['maj_zoning']], left_on = 'grid_id', right_index = True)
-    output = output.merge(census, on='grid_id', how='left')
+    # place highways into grid
+    output = place_highways(grid, state59, state40, us59, us40, interstate)
     return output
 
 ####################################################################################################
 
 census = pd.read_csv('data/output/atl_geocoded.csv')
-# census geocodes in NAD83 for some reason
-census = gpd.GeoDataFrame(census, geometry = gpd.points_from_xy(census.longitude, census.latitude), 
-                          crs = 'EPSG:4269')
+
 zoning = gpd.read_file('data/input/zoning_shapefiles/atlanta/zoning.shp')
 
+interstate = gpd.read_file('data/input/shapefiles/1960/interstates1959_del.shp')
+state59 = gpd.read_file('data/input/shapefiles/1960/stateHighwayPaved1959_del.shp')
+us59 = gpd.read_file('data/input/shapefiles/1960/usHighwayPaved1959_del.shp')
+state40 = gpd.read_file('data/input/shapefiles/1940/1940 completed shapefiles/stateHighwayPaved1940_del.shp')
+us40 = gpd.read_file('data/input/shapefiles/1940/1940 completed shapefiles/usHighwayPaved1940_del.shp')
+
 # create sample with 200m x 200m grid squares
-atl_sample = create_grid(zoning, census, 200)
+atl_sample = create_grid(zoning, census, state59, state40, us59, us40, interstate, 200)
