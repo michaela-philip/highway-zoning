@@ -122,3 +122,4 @@ us40 = gpd.read_file('data/input/shapefiles/1940/1940 completed shapefiles/usHig
 
 # create sample with 200m x 200m grid squares
 atl_sample = create_grid(zoning, census, state59, state40, us59, us40, interstate, 200)
+atl_sample.to_pickle('data/output/atl_sample.pkl')
