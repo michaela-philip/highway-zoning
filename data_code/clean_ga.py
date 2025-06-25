@@ -305,7 +305,7 @@ atl = ga2[ga2['city'] == 350].copy()
 # recode valueh and rent missing values
 atl['valueh'] = atl['valueh'].replace([9999998, 9999999], np.nan)
 atl['rent'] = atl['rent'].replace([0, 9998, 9999], np.nan)
-atl['black'] = np.where(atl['race'] == 2, 1, 0)
+atl['black'] = np.where(atl['race'] == 200, 1, 0)
 
 # keep one observation per household/serial 
 atl = atl.drop_duplicates(subset = ['serial'], keep = 'first').reset_index()
