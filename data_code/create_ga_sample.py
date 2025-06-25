@@ -104,21 +104,22 @@ def create_grid(zoning, census, state59, state40, us59, us40, interstate, gridsi
 
     # overlay zoning map with grid squares and classify each square
     output = classify_grid(zoning, grid)
-    print('zoning added to grid')
+    print(output.columns,'zoning added to grid')
 
     # overlay census data on grid
-    output = place_census(census, output)
-    print('census added to grid')
+    output = output.merge(place_census(census, output)[['grid_id', 'numprec', 'black_pop', 'rent', 'valueh', 'pct_black', 'share_black']],
+                           on='grid_id', how='left')
+    print(output.columns, 'census added to grid')
 
     # place highways into grid
-    output['hwy'] = place_highways(grid, state59, state40, us59, us40, interstate)
-    print('highways added to grid')
+    output = output.merge(place_highways(grid, state59, state40, us59, us40, interstate)[['grid_id', 'hwy']],
+                           on='grid_id',how='left')
+    print(output.columns,'highways added to grid')
     return output
 
 ####################################################################################################
 
-#census = pd.read_csv('data/output/atl_geocoded.csv')
-census = pd.read_pickle('data/output/atl_geocoded.pkl')
+census = pd.read_pickle('data/input/atl_geocoded.pkl')
 
 zoning = gpd.read_file('data/input/zoning_shapefiles/atlanta/zoning.shp')
 
@@ -129,5 +130,5 @@ state40 = gpd.read_file('data/input/shapefiles/1940/1940 completed shapefiles/st
 us40 = gpd.read_file('data/input/shapefiles/1940/1940 completed shapefiles/usHighwayPaved1940_del.shp')
 
 # create sample with 200m x 200m grid squares
-atl_sample = create_grid(zoning, census, state59, state40, us59, us40, interstate, 200)
+atl_sample = create_grid(zoning, census, state59, state40, us59, us40, interstate, 150)
 atl_sample.to_pickle('data/output/atl_sample.pkl')
