@@ -320,7 +320,7 @@ print('addresses standarized')
 atl = match_addresses(atl, street_list)
 print('address matching done')
 
-atl.to_csv('data/output/atl_cleaned.csv', index=False)
+atl.to_csv('data/input/atl_cleaned.csv', index=False)
 atl.to_pickle('data/input/atl_cleaned.pkl')
 print('csv created')
 
