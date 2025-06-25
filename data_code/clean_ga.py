@@ -321,10 +321,8 @@ atl = match_addresses(atl, street_list)
 print('address matching done')
 
 atl.to_csv('data/output/atl_cleaned.csv', index=False)
+atl.to_pickle('data/input/atl_cleaned.pkl')
 print('csv created')
 
-#atl_cleaned = pd.read_csv('data/output/atl_cleaned.csv')
-#atl_geocoded = geocode_addresses(atl_cleaned)
 atl_geocoded = geocode_addresses(atl)
-atl_geocoded.to_csv('data/output/atl_geocoded.csv', index=False)
-atl_geocoded.to_pickle('data/output/atl_geocoded.pkl')
+atl_geocoded.to_pickle('data/input/atl_geocoded.pkl')
