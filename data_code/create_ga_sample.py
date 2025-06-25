@@ -11,6 +11,7 @@ def classify_grid(df, grid):
     df['zoning'] = df['Zonetype'].map(zoning_map)
     df = df[df['zoning'].notna()]
     df = df.overlay(grid, how = 'identity')
+    print('zoning overlaid')
 
     # reclassify grids by zoning type (similar approach Noelkel et al. (2020) HOLC classification)
     df['area'] = df['geometry'].area
@@ -41,6 +42,7 @@ def place_census(census, grid):
         'valueh': 'median'
     }
     census_grid = census_grid.dissolve(by='grid_id', aggfunc=agg_funcs)
+    ('census data dissolved to grid')
     census_grid['pct_black'] = census_grid['black_pop'] / census_grid['numprec']
     census_grid['share_black'] = census_grid['black_pop'] / (census_grid['black_pop'].sum())
     output = grid.merge(census_grid, left_on='grid_id', right_index=True)
@@ -63,7 +65,7 @@ def place_highways(grid, state59, state40, us59, us40, interstate):
     interstate = interstate[~interstate['FCLASS'].isin([9,19])]
 
     # include only roads that exist in 1959 and did not exist in 1940
-    state = state59.overlay(state40, how = 'difference')
+    state = state59.overlay(state40, how = 'difference', keep_geom_type=False)
     state = state[~state.is_empty]
     us = us59.overlay(us40, how = 'difference', keep_geom_type = False)
     us = us[~us.is_empty]
@@ -71,6 +73,7 @@ def place_highways(grid, state59, state40, us59, us40, interstate):
 
     # combine all roads
     all_roads = pd.concat([interstate, state, us])
+    print('roads commbined')
 
     atl_grid_hwy = gpd.sjoin(grid, all_roads, how = 'left', predicate = 'intersects')
 
@@ -94,23 +97,28 @@ def create_grid(zoning, census, state59, state40, us59, us40, interstate, gridsi
     shapely.geometry.box(minx, miny, maxx, maxy)
     for minx, maxx in zip(np.arange(a, c, step), np.arange(a, c, step)[1:])
     for miny, maxy in zip(np.arange(b, d, step), np.arange(b, d, step)[1:])], crs = zoning.crs)
+    print('grid created')
 
     # numeric id for each grid square to assist with aggregation
     grid['grid_id'] = range(1, len(grid) + 1)
 
     # overlay zoning map with grid squares and classify each square
     output = classify_grid(zoning, grid)
+    print('zoning added to grid')
 
     # overlay census data on grid
-    output = place_census(census, grid)
+    output = place_census(census, output)
+    print('census added to grid')
 
     # place highways into grid
-    output = place_highways(grid, state59, state40, us59, us40, interstate)
+    output['hwy'] = place_highways(grid, state59, state40, us59, us40, interstate)
+    print('highways added to grid')
     return output
 
 ####################################################################################################
 
-census = pd.read_csv('data/output/atl_geocoded.csv')
+#census = pd.read_csv('data/output/atl_geocoded.csv')
+census = pd.read_pickle('data/output/atl_geocoded.pkl')
 
 zoning = gpd.read_file('data/input/zoning_shapefiles/atlanta/zoning.shp')
 
