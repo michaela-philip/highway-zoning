@@ -90,3 +90,42 @@ agg_funcs['poppct'] = 'sum'
 tab2 = ed_hwy57.groupby(['maj_black']).agg(agg_funcs).reset_index()
 print(tab2)
 ```
+
+```{python}
+from data_code.merge import atl_grid, atl_hwy
+print(atl_hwy.groupby('maj_zoning')['hwy'].mean())
+```
+
+```{python}
+import pandas as pd
+import geopandas as gpd
+import numpy as np
+atl_zone = gpd.read_file('data/input/zoning_shapefiles/atlanta/zoning.shp')
+ed_gis = gpd.read_file('data/input/AtlantaGA40/AtlantaGA_ed40.shp')
+ed_gis = ed_gis.to_crs('EPSG:3857')
+from data_code.merge_data import classify_ed_update
+ed_zone_update = classify_ed_update(ed_gis, atl_zone)
+
+# from data_code.merge import all_roads
+interstates = gpd.read_file('data/input/shapefiles/1960/interstates1959_del.shp').to_crs('EPSG:3857')
+state_paved_59 = gpd.read_file('data/input/shapefiles/1960/stateHighwayPaved1959_del.shp').to_crs('EPSG:3857')
+us_paved_59 = gpd.read_file('data/input/shapefiles/1960/usHighwayPaved1959_del.shp').to_crs('EPSG:3857')
+interstates = interstates[~interstates['FCLASS'].isin([9, 19])]
+state_paved_59 = state_paved_59[~state_paved_59['FCLASS'].isin([9,19])]
+us_paved_59 = us_paved_59[~us_paved_59['FCLASS'].isin([9,19])]
+
+all_roads = pd.concat([interstates, state_paved_59, us_paved_59])
+
+ed_zone_update_hwy = gpd.sjoin(ed_zone_update, all_roads, how = 'left', predicate = 'intersects')
+
+# make a dummy variable indicating the presence of a highway
+ed_zone_update_hwy['hwy'] = np.where(ed_zone_update_hwy['type'].isna(), 0, 1)
+
+ed_zone_update_hwy['maj_black'] = np.where(ed_zone_update_hwy['bpct'] > ed_zone_update_hwy['bpct'].mean(), 1, 0)
+
+table = pd.pivot_table(ed_zone_update_hwy, values = ['hwy'], index='zone', columns = 'maj_black', aggfunc='mean')
+print(table)
+
+table2 = ed_zone_update_hwy.groupby(['zone', 'maj_black'])['hwy'].mean()
+print(table2)
+```
