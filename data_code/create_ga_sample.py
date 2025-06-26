@@ -48,9 +48,12 @@ def place_census(census, grid):
     census_grid['pct_black'] = census_grid['black_pop'] / census_grid['numprec']
     census_grid['share_black'] = census_grid['black_pop'] / (census_grid['black_pop'].sum())
     census_grid['mblack_mean_pct'] = np.where(census_grid['pct_black'] >= (census_grid['pct_black'].mean()), 1, 0)
+    print('mblack_mean_pct calculated')
     census_grid['mblack_median_pct'] = np.where(census_grid['pct_black'] >= (census_grid['pct_black'].median()), 1, 0)
+    print('mblack_median_pct calculated')
     census_grid['mblack_mean_share'] = np.where(census_grid['share_black'] >= (census_grid['share_black'].mean()), 1, 0)
     census_grid['mblack_median_share'] = np.where(census_grid['share_black'] >= (census_grid['share_black'].median()), 1, 0)
+    print('mblack definitions calculated')
     
     output = grid.merge(census_grid, left_on='grid_id', right_index=True)
     return output
@@ -80,7 +83,7 @@ def place_highways(grid, state59, state40, us59, us40, interstate):
 
     # combine all roads
     all_roads = pd.concat([interstate, state, us])
-    print('roads commbined')
+    print('roads combined')
 
     atl_grid_hwy = gpd.sjoin(grid, all_roads, how = 'left', predicate = 'intersects')
 
