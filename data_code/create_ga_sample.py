@@ -43,8 +43,15 @@ def place_census(census, grid):
     }
     census_grid = census_grid.dissolve(by='grid_id', aggfunc=agg_funcs)
     ('census data dissolved to grid')
+
+    # calculate a few different definitions of 'majority black'
     census_grid['pct_black'] = census_grid['black_pop'] / census_grid['numprec']
     census_grid['share_black'] = census_grid['black_pop'] / (census_grid['black_pop'].sum())
+    census_grid['mblack_mean_pct'] = np.where(census_grid['pct_black'] >= (census_grid['pct_black'].mean()), 1, 0)
+    census_grid['mblack_median_pct'] = np.where(census_grid['pct_black'] >= (census_grid['pct_black'].median()), 1, 0)
+    census_grid['mblack_mean_share'] = np.where(census_grid['share_black'] >= (census_grid['share_black'].mean()), 1, 0)
+    census_grid['mblack_median_share'] = np.where(census_grid['share_black'] >= (census_grid['share_black'].median()), 1, 0)
+    
     output = grid.merge(census_grid, left_on='grid_id', right_index=True)
     return output
 
