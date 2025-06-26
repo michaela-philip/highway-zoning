@@ -34,12 +34,14 @@ def place_census(census, grid):
     census['black_pop'] = (census['black'] * census['numprec'])
     census_grid = grid.sjoin(census, how='left', predicate='contains')
 
+
     # calculate population and demographics in each grid square
     agg_funcs = {
         'numprec':'sum',
         'black_pop': 'sum',
         'rent' : 'median',
-        'valueh': 'median'
+        'valueh': 'median',
+        'serial': ['count', 'min','max']
     }
     census_grid = census_grid.dissolve(by='grid_id', aggfunc=agg_funcs)
     ('census data dissolved to grid')
