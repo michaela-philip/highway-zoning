@@ -116,7 +116,8 @@ def create_grid(zoning, census, state59, state40, us59, us40, interstate, gridsi
     print(output.columns,'zoning added to grid')
 
     # overlay census data on grid
-    output = output.merge(place_census(census, output)[['grid_id', 'numprec', 'black_pop', 'rent', 'valueh', 'pct_black', 'share_black', 'mblack_mean_pct', 'mblack_median_pct', 'mblack_mean_share', 'mblack_median_share']],
+    output = output.merge(place_census(census, output)[['grid_id', 'numprec', 'black_pop', 'rent', 'valueh', 'pct_black', 'share_black', 'mblack_mean_pct', 
+                                                        'mblack_median_pct', 'mblack_mean_share', 'mblack_median_share']],
                            on='grid_id', how='left')
     print(output.columns, 'census added to grid')
 
