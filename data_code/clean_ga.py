@@ -292,7 +292,7 @@ if not os.path.exists('data/output/ga_streets.csv'):
 else:
     street_list = pd.read_csv('data/output/ga_streets.csv')
 
-ga = pd.read_csv('data/output/census_ga_1940.csv')
+ga = pd.read_pickle('data/input/ga_1940.pkl')
 
 # keep only columns and counties we need
 cols = ['valueh', 'race', 'street', 'city', 'urban', 'countyicp', 'stateicp', 'rent', 
