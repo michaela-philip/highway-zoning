@@ -56,39 +56,6 @@ def clean_addresses(df):
         if not street_interp_forward_mask.any() and not street_interp_back_mask.any():
             print('all possible streets interpolated')
             break
-    
-    # interpolate missing house numbers for renters - use previous house number
-    print(df['rawhn'].notna().sum())
-    prev_page = df['pageno'].shift(1)
-    prev_street = df['street'].shift(1)
-    prev_rawhn = df['rawhn'].shift(1)
-
-    house_mask_rent = (
-        df['rawhn'].isna() &
-        df['street'].notna() & 
-        (df['ownershp'] != 10) &
-        (prev_page == df['pageno']) &
-        (prev_street == df['street'])
-    )
-    print(prev_rawhn[house_mask_rent])
-    df.loc[house_mask_rent, 'rawhn'] = prev_rawhn[house_mask_rent].values
-    print('interpolated missing house numbers for renters')
-    
-    # interpolate missing house numbers for owners - add 2 to previous house number
-    prev_page = df['pageno'].shift(1)
-    prev_street = df['street'].shift(1)
-    prev_rawhn = df['rawhn'].shift(1)
-    
-    house_mask_own = (
-        df['rawhn'].isna() &
-        df['street'].notna() & 
-        (df['ownershp'] == 10) &
-        (prev_page == df['pageno']) &
-        (prev_street == df['street'])
-    )
-    print(prev_rawhn[house_mask_own])
-    df.loc[house_mask_own, 'rawhn'] = (prev_rawhn[house_mask_own].values + 2)
-    print('interpolated missing house numbers for owners')
 
     # make sure nan is correctly coded as missing
     df['street'] = df['street'].replace("nan", np.nan)
@@ -250,6 +217,46 @@ def match_addresses(df, streets):
 
     return df
 
+### FUNCTION TO INTERPOLATE HOUSE NUMBERS ### 
+def interpolate_house_numbers(df):
+    # interpolate missing house numbers for renters - use previous house number
+    print(df['rawhn'].notna().sum())
+    prev_page = df['pageno'].shift(1)
+    prev_street = df['street_match'].shift(1)
+    prev_rawhn = df['rawhn'].shift(1)
+
+    house_mask_rent = (
+        df['rawhn'].isna() &
+        df['street_match'].notna() & 
+        (df['ownershp'] != 10) &
+        (prev_page == df['pageno']) &
+        (prev_street == df['street_match'])
+    )
+    print(prev_rawhn[house_mask_rent])
+    df.loc[house_mask_rent, 'rawhn'] = prev_rawhn[house_mask_rent].values
+    print('interpolated missing house numbers for renters')
+    
+    # interpolate missing house numbers for owners - add 2 to previous house number
+    prev_page = df['pageno'].shift(1)
+    prev_street = df['street_match'].shift(1)
+    prev_rawhn = df['rawhn'].shift(1)
+    
+    house_mask_own = (
+        df['rawhn'].isna() &
+        df['street_match'].notna() & 
+        (df['ownershp'] == 10) &
+        (prev_page == df['pageno']) &
+        (prev_street == df['street_match'])
+    )
+    print(prev_rawhn[house_mask_own])
+    df.loc[house_mask_own, 'rawhn'] = (prev_rawhn[house_mask_own].values + 2)
+
+    # make sure nan is correctly coded as missing
+    df['street'] = df['street'].replace("nan", np.nan)
+    df['rawhn'] = df['rawhn'].replace("nan", np.nan)
+    print('interpolated missing house numbers for owners', df['rawhn'].notna().sum())
+    return df
+
 ### FUNCTION TO GEOCODE ADDRESSES ###
 def geocode_addresses(df_orig):
     # minor restructuring per geocoder requirements
@@ -319,6 +326,9 @@ print('addresses standarized')
 
 atl = match_addresses(atl, street_list)
 print('address matching done')
+
+atl = interpolate_house_numbers(atl)
+print('house numbers interpolated')
 
 atl.to_csv('data/input/atl_cleaned.csv', index=False)
 atl.to_pickle('data/input/atl_cleaned.pkl')
