@@ -114,7 +114,6 @@ def standardize_addresses(df):
         return ' '.join(words)
 
     df['street'] = df['street'].apply(fuzzy_replace_ordinals)
-
     return df
 
 ### FUNCTION TO MATCH ADDRESSES TO KNOWN STREETS FROM STEVE MORSE IN 3 ROUNDS ###
