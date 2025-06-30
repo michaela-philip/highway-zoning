@@ -27,14 +27,29 @@ def classify_grid(df, grid):
     return output
 
 ### FUNCTION TO PLACE CENSUS INFO INTO GRID ###
-def place_census(census, grid):
+def place_census(census, grid, geocoded):
     census = gpd.GeoDataFrame(census, geometry = gpd.points_from_xy(census.longitude, census.latitude), 
-                          crs = 'EPSG:4269') # census geocodes in NAD83 for some reason
+                            crs = 'EPSG:4269') # census geocodes in NAD83 for some reason
     census = census.to_crs(grid.crs)
     census['black_pop'] = (census['black'] * census['numprec'])
     census_grid = grid.sjoin(census, how='left', predicate='contains')
 
-
+    # pull in households that weren't geocoded but are likely to exist in each grid
+    def assign_grid_id(row):
+        grid = census_grid.groupby('grid_id').agg({'serial': ['min', 'max']}).reset_index()
+        grid.columns = ['_'.join([str(i) for i in col if i]) for col in grid.columns.values]
+        
+        match = grid[
+            (row['serial'] >= grid['serial_min']) &
+            (row['serial'] <= grid['serial_max'])
+        ]
+        if len(match) == 1:
+            return match.iloc[0]['grid_id']
+        else:
+            return np.nan
+        
+    geocoded['grid_id'] = geocoded.apply(assign_grid_id, axis=1)
+    
     # calculate population and demographics in each grid square
     agg_funcs = {
         'numprec':'sum',
@@ -44,7 +59,8 @@ def place_census(census, grid):
         'serial': ['count', 'min','max']
     }
     census_grid = census_grid.dissolve(by='grid_id', aggfunc=agg_funcs)
-    ('census data dissolved to grid')
+    census_grid.columns = ['_'.join([str(i) for i in col if i]) for col in census_grid.columns.values]
+    print('census data dissolved to grid', census_grid.columns)
 
     # calculate a few different definitions of 'majority black'
     census_grid['pct_black'] = census_grid['black_pop_sum'] / census_grid['numprec_sum']
@@ -97,7 +113,7 @@ def place_highways(grid, state59, state40, us59, us40, interstate):
     return output
 
 ### FUNCTION TO CREATE THE SAMPLE GRID ### 
-def create_grid(zoning, census, state59, state40, us59, us40, interstate, gridsize):
+def create_grid(zoning, census, geocoded, state59, state40, us59, us40, interstate, gridsize):
     # grid is fit to size of zoning map
     a, b, c, d  = zoning.total_bounds
     step = gridsize # gridsize in meters
@@ -116,8 +132,8 @@ def create_grid(zoning, census, state59, state40, us59, us40, interstate, gridsi
     print(output.columns,'zoning added to grid')
 
     # overlay census data on grid
-    output = output.merge(place_census(census, output)[['grid_id', 'numprec_sum', 'black_pop_sum', 'rent_median', 'valueh_median', 'pct_black', 'share_black', 'mblack_mean_pct', 
-                                                        'mblack_median_pct', 'mblack_mean_share', 'mblack_median_share']],
+    output = output.merge(place_census(census, output, geocoded)[['grid_id', 'numprec_sum', 'black_pop_sum', 'rent_median', 'valueh_median', 'pct_black', 'share_black', 'mblack_mean_pct', 
+                                                        'mblack_median_pct', 'mblack_mean_share', 'mblack_median_share', 'serial_count', 'serial_min', 'serial_max']],
                            on='grid_id', how='left')
     print(output.columns, 'census added to grid')
 
@@ -133,6 +149,9 @@ census = pd.read_pickle('data/input/atl_geocoded.pkl')
 
 zoning = gpd.read_file('data/input/zoning_shapefiles/atlanta/zoning.shp')
 
+geocoded = pd.read_pickle('data/input/atl_geocoded.pkl')
+geocoded = geocoded[geocoded['is_exact'].isna()].copy()
+
 interstate = gpd.read_file('data/input/shapefiles/1960/interstates1959_del.shp')
 state59 = gpd.read_file('data/input/shapefiles/1960/stateHighwayPaved1959_del.shp')
 us59 = gpd.read_file('data/input/shapefiles/1960/usHighwayPaved1959_del.shp')
@@ -140,5 +159,5 @@ state40 = gpd.read_file('data/input/shapefiles/1940/1940 completed shapefiles/st
 us40 = gpd.read_file('data/input/shapefiles/1940/1940 completed shapefiles/usHighwayPaved1940_del.shp')
 
 # create sample with 200m x 200m grid squares
-atl_sample = create_grid(zoning, census, state59, state40, us59, us40, interstate, 150)
+atl_sample = create_grid(zoning, census, geocoded, state59, state40, us59, us40, interstate, 150)
 atl_sample.to_pickle('data/output/atl_sample.pkl')
