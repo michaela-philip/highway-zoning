@@ -47,8 +47,8 @@ def place_census(census, grid):
     ('census data dissolved to grid')
 
     # calculate a few different definitions of 'majority black'
-    census_grid['pct_black'] = census_grid['black_pop'] / census_grid['numprec']
-    census_grid['share_black'] = census_grid['black_pop'] / (census_grid['black_pop'].sum())
+    census_grid['pct_black'] = census_grid['black_pop_sum'] / census_grid['numprec_sum']
+    census_grid['share_black'] = census_grid['black_pop_sum'] / (census_grid['black_pop_sum'].sum())
     census_grid['mblack_mean_pct'] = np.where(census_grid['pct_black'] >= (census_grid['pct_black'].mean()), 1, 0)
     census_grid['mblack_median_pct'] = np.where(census_grid['pct_black'] >= (census_grid['pct_black'].median()), 1, 0)
     census_grid['mblack_mean_share'] = np.where(census_grid['share_black'] >= (census_grid['share_black'].mean()), 1, 0)
@@ -116,7 +116,7 @@ def create_grid(zoning, census, state59, state40, us59, us40, interstate, gridsi
     print(output.columns,'zoning added to grid')
 
     # overlay census data on grid
-    output = output.merge(place_census(census, output)[['grid_id', 'numprec', 'black_pop', 'rent', 'valueh', 'pct_black', 'share_black', 'mblack_mean_pct', 
+    output = output.merge(place_census(census, output)[['grid_id', 'numprec_sum', 'black_pop_sum', 'rent_median', 'valueh_median', 'pct_black', 'share_black', 'mblack_mean_pct', 
                                                         'mblack_median_pct', 'mblack_mean_share', 'mblack_median_share']],
                            on='grid_id', how='left')
     print(output.columns, 'census added to grid')
