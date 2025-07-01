@@ -137,8 +137,10 @@ def create_grid(zoning, census, geocoded, state59, state40, us59, us40, intersta
     print(output.columns,'zoning added to grid')
 
     # overlay census data on grid
-    output = output.merge(place_census(census, output, geocoded)[['grid_id', 'numprec_sum', 'black_pop_sum', 'rent_median', 'valueh_median', 'pct_black', 'share_black', 'mblack_mean_pct', 
-                                                        'mblack_median_pct', 'mblack_mean_share', 'mblack_median_share', 'serial_count', 'serial_min', 'serial_max']],
+    output = output.merge(place_census(census, output, geocoded)[['grid_id', 'numprec_sum', 'black_pop_sum', 'rent_median', 
+                                                                  'valueh_median', 'pct_black', 'share_black', 'mblack_mean_pct', 
+                                                        'mblack_median_pct', 'mblack_mean_share', 'mblack_median_share', 
+                                                        'serial_count', 'serial_min', 'serial_max']],
                            on='grid_id', how='left')
     print(output.columns, 'census added to grid')
 
