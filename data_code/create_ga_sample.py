@@ -36,21 +36,22 @@ def place_census(census, grid, geocoded):
     census_grid = grid.sjoin(census, how='left', predicate='contains')
 
     # pull in households that weren't geocoded but are likely to exist in each grid
-    grid = census_grid.groupby('grid_id').agg({'serial': ['min', 'max']}).reset_index()
+    grid = census_grid.groupby('grid_id').agg({'serial': ['min', 'max']}).reset_index().dropna()
     grid.columns = ['_'.join([str(i) for i in col if i]) for col in grid.columns.values]
 
     # create interval tree to find serials that fall within each grid's serial range
     tree = IntervalTree()
-    for row in grid.iterrows():
-        tree[row['serial_min'], row['serial_max'] + 1] = row['grid_id']
+    for _, row in grid.iterrows():
+        tree[int(row['serial_min']): int(row['serial_max']) + 1] = int(row['grid_id'])
 
-    def assign_grid_id(row):
-        matches = tree.overlays(row['serial'])
+    def assign_grid_id(serial):
+        matches = tree[serial]
         if len(matches) == 1:
-            return matches[0].data
+            return list(matches)[0].data
         else:
             return np.nan
-        
+    
+    geocoded['serial'] = geocoded['serial'].astype(int)
     geocoded['grid_id'] = geocoded['serial'].apply(assign_grid_id)
     census_grid = pd.concat([census_grid, geocoded[['grid_id']]], ignore_index=True)
     
