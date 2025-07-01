@@ -108,7 +108,7 @@ def place_highways(grid, state59, state40, us59, us40, interstate):
     atl_grid_hwy = gpd.sjoin(grid, all_roads, how = 'left', predicate = 'intersects')
 
     # dummy variable for presence of highway
-    atl_grid_hwy['hwy'] = np.where(atl_grid_hwy['type'].isna(), 0, 1)
+    atl_grid_hwy['hwy'] = np.where(atl_grid_hwy['speed1'].isna(), 0, 1)
 
     # aggregate by grid_id taking max value (if any highways exist, it is 1 no matter what)
     atl_grid_hwy = atl_grid_hwy.groupby('grid_id').agg({'hwy': 'max'})
