@@ -2,6 +2,7 @@ import pandas as pd
 import numpy as np
 import geopandas as gpd
 import shapely.geometry
+from intervaltree import IntervalTree
 
 ### FUNCTION TO CLASSIFY GRID BASED ON ZONING ###
 def classify_grid(df, grid):
@@ -35,20 +36,23 @@ def place_census(census, grid, geocoded):
     census_grid = grid.sjoin(census, how='left', predicate='contains')
 
     # pull in households that weren't geocoded but are likely to exist in each grid
+    grid = census_grid.groupby('grid_id').agg({'serial': ['min', 'max']}).reset_index()
+    grid.columns = ['_'.join([str(i) for i in col if i]) for col in grid.columns.values]
+
+    # create interval tree to find serials that fall within each grid's serial range
+    tree = IntervalTree()
+    for row in grid.iterrows():
+        tree[row['serial_min'], row['serial_max'] + 1] = row['grid_id']
+
     def assign_grid_id(row):
-        grid = census_grid.groupby('grid_id').agg({'serial': ['min', 'max']}).reset_index()
-        grid.columns = ['_'.join([str(i) for i in col if i]) for col in grid.columns.values]
-        
-        match = grid[
-            (row['serial'] >= grid['serial_min']) &
-            (row['serial'] <= grid['serial_max'])
-        ]
-        if len(match) == 1:
-            return match.iloc[0]['grid_id']
+        matches = tree.overlays(row['serial'])
+        if len(matches) == 1:
+            return matches[0].data
         else:
             return np.nan
         
-    geocoded['grid_id'] = geocoded.apply(assign_grid_id, axis=1)
+    geocoded['grid_id'] = geocoded['serial'].apply(assign_grid_id)
+    census_grid = pd.concat([census_grid, geocoded[['grid_id']]], ignore_index=True)
     
     # calculate population and demographics in each grid square
     agg_funcs = {
