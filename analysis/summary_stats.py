@@ -1,24 +1,32 @@
 import pandas as pd
 import numpy as np
 
-def get_summary_stats(df, maj_black_def):
-    sum_stats = pd.DataFrame({
-        'mean': df.mean(),
-        'std': df.std(),
-        'min': df.min(),
-        'max': df.max()
-    })
-    
-
-mblack_pct_ = np.where('pct_black' > )
-
 atl_sample = pd.read_pickle('data/output/atl_sample.pkl')
 
+atl_sample = atl_sample.rename(columns={
+    'rent_median': 'Median Rent',
+    'valueh_median': 'Median Home Value',
+    'black_pop_sum': 'Black Population',
+    'share_black': 'Share of Black Residents',
+    'numprec_sum': 'Residents',
+    'serial_count': 'Households',
+    'pct_black': 'Percent Black',
+    'hwy': 'Highway Present'
+})
+atl_sample = atl_sample.dropna(subset = 'Residents')
+
+rows = ['Residents', 'Households', 'Median Rent', 'Median Home Value', 
+        'Percent Black', 'Highway Present']
+
 sum_stats = pd.DataFrame({
-    'mean': atl_sample.mean(),
-    'std': atl_sample.std(),
-    'min': atl_sample.min(),
-    'max': atl_sample.max(),
-    'observations': atl_sample.shape[0],
+    'Mean': atl_sample[rows].mean(),
+    'Std': atl_sample[rows].std(),
+    'Min': atl_sample[rows].min(),
+    'Max': atl_sample[rows].max(),
+    'N': atl_sample[rows].count(),
 })
 
+columns = ['Mean', 'Std', 'Min', 'Max', 'N']
+sum_stats = sum_stats[columns]
+
+print(sum_stats)
