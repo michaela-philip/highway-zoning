@@ -95,9 +95,12 @@ def place_highways(grid, state59, state40, us59, us40, interstate):
     interstate = interstate[~interstate['FCLASS'].isin([9,19])]
 
     # include only roads that exist in 1959 and did not exist in 1940
-    state = state59.overlay(state40, how = 'difference', keep_geom_type=False)
+    state_overlap = gpd.sjoin(state59, state40, how = 'inner', predicate = 'intersects')
+    us_overlap = gpd.sjoin(us59, us40, how = 'inner', predicate = 'intersects')
+    state = state59.overlay(state_overlap, how = 'difference', keep_geom_type=False)
+    us = us59.overlay(us_overlap, how = 'difference', keep_geom_type = False)
+    
     state = state[~state.is_empty]
-    us = us59.overlay(us40, how = 'difference', keep_geom_type = False)
     us = us[~us.is_empty]
     interstate = interstate[~interstate.is_empty]
 
@@ -105,6 +108,7 @@ def place_highways(grid, state59, state40, us59, us40, interstate):
     all_roads = pd.concat([interstate, state, us])
     print('roads combined')
 
+    # merge into grid
     atl_grid_hwy = gpd.sjoin(grid, all_roads, how = 'left', predicate = 'intersects')
 
     # dummy variable for presence of highway
