@@ -25,6 +25,7 @@ def classify_grid(df, grid):
     # classify based on relative percentages (may not be ideal)
     df['maj_zoning'] = np.where(df['pct_res'] > df['pct_ind'], 'residential', 'industrial')
     output = grid.merge(df['maj_zoning'], left_on='grid_id', right_index=True)
+    output['Residential'] = np.where(output['maj_zoning'] == 'residential', 1, 0)
     return output
 
 ### FUNCTION TO PLACE CENSUS INFO INTO GRID ###
