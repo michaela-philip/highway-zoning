@@ -16,7 +16,7 @@ atl_sample = atl_sample.rename(columns={
 atl_sample = atl_sample.dropna(subset = 'Residents')
 
 rows = ['Residents', 'Households', 'Median Rent', 'Median Home Value', 
-        'Percent Black', 'Highway Present']
+        'Percent Black', 'Highway Present', 'Residential']
 
 sum_stats = pd.DataFrame({
     'Mean': atl_sample[rows].mean(),
@@ -30,3 +30,4 @@ columns = ['Mean', 'Std', 'Min', 'Max', 'N']
 sum_stats = sum_stats[columns]
 
 print(sum_stats)
+sum_stats.to_markdown('tables/summary_stats.md', floatfmt=".2f", tablefmt="pipe")
