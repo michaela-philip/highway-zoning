@@ -4,12 +4,12 @@ import numpy as np
 atl_sample = pd.read_pickle('data/output/atl_sample.pkl')
 
 atl_sample = atl_sample.rename(columns={
-    'rent_median': 'Median Rent',
-    'valueh_median': 'Median Home Value',
-    'black_pop_sum': 'Black Population',
+    'rent': 'Median Rent',
+    'valueh': 'Median Home Value',
+    'black_pop': 'Black Population',
     'share_black': 'Share of Black Residents',
-    'numprec_sum': 'Residents',
-    'serial_count': 'Households',
+    'numprec': 'Residents',
+    'serial': 'Households',
     'pct_black': 'Percent Black',
     'hwy': 'Highway Present'
 })
