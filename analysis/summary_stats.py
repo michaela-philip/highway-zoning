@@ -30,4 +30,8 @@ columns = ['Mean', 'Std', 'Min', 'Max', 'N']
 sum_stats = sum_stats[columns]
 
 print(sum_stats)
-sum_stats.to_markdown('tables/summary_stats.md', floatfmt=".2f", tablefmt="pipe")
+sum_stats.to_latex('tables/summary_stats.tex', float_format="%.3f",
+                  column_format='lcccccc', 
+                  escape=False, 
+                  caption='Summary Statistics for Atlanta Sample',
+                  label='tab:summary_stats')
