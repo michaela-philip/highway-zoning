@@ -21,5 +21,4 @@ results = pd.concat([results_pct.summary2().tables[1],
 
 results.to_latex('tables/initial_results.tex', float_format="%.3f",
                  column_format='lcccccc', 
-                 hrules=True, 
                  escape=False)
