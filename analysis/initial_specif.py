@@ -16,8 +16,7 @@ results_med_share = smf.ols(model_med_share, data=atl_sample).fit(cov_type='HC3'
 results = pd.concat([results_pct.summary2().tables[1],
                      results_share.summary2().tables[1],
                      results_med_pct.summary2().tables[1],
-                     results_med_share.summary2().tables[1]], 
-                    keys=['Mean Percent Black', 'Share Black', 'Median Percent Black', 'Median Share Black'])
+                     results_med_share.summary2().tables[1]])
 
 results.to_latex('tables/initial_results.tex', float_format="%.3f",
                  column_format='lcccccc', 
