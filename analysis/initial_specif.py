@@ -17,14 +17,17 @@ results = results.T.rename(columns={
     'rent': 'Rent',
     'valueh': 'Home Value',
     'hwy': 'Highway',
-    'mblack_mean_pct': 'Black (Mean Pct)',
-    'mblack_mean_share':'Black (Mean Share)',
-    'mblack_mean_pct:Residential': 'Black (Mean Pct) x Residential',
-    'mblack_mean_share:Residential':'Black (Mean Share) x Residential'
+    'mblack_mean_pct': 'Majority Black (Percent)',
+    'mblack_mean_share':'Majority Black (Share)',
+    'mblack_mean_pct:Residential': 'Majority Black (Percent) x Residential',
+    'mblack_mean_share:Residential':'Majority Black (Share) x Residential',
+    'distance_to_cbd' : 'Distance to CBD'
 }).T
 
 print(results)
 
 results.to_latex('tables/initial_results.tex', float_format="%.3f",
                  column_format='lcccccc', 
+                 caption = 'Initial Results',
+                 label = 'tab:initial_results',
                  escape=False)
