@@ -5,7 +5,7 @@ import shapely.geometry
 from intervaltree import IntervalTree
 
 ### FUNCTION TO CLASSIFY GRID BASED ON ZONING ###
-def classify_grid(df, grid):
+def classify_grid(df, grid, centroids):
     # condense zoning to residential and industrial
     zoning_map = {'dwelling': 'residential', 'apartment': 'residential', 
                   'industrial': 'industrial', 'business': 'industrial'}
@@ -26,6 +26,10 @@ def classify_grid(df, grid):
     df['maj_zoning'] = np.where(df['pct_res'] > df['pct_ind'], 'residential', 'industrial')
     output = grid.merge(df['maj_zoning'], left_on='grid_id', right_index=True)
     output['Residential'] = np.where(output['maj_zoning'] == 'residential', 1, 0)
+
+    # calculate distance between grid centroid and CBD 
+    atl_cbd = centroids[centroids['place'] == 'Atlanta'].to_crs(grid.crs).geometry.iloc[0]
+    output['distance_to_cbd'] = output.geometry.centroid.distance(atl_cbd)
     return output
 
 ### FUNCTION TO PLACE CENSUS INFO INTO GRID ###
@@ -123,7 +127,7 @@ def place_highways(grid, state59, state40, us59, us40, interstate):
     return output
 
 ### FUNCTION TO CREATE THE SAMPLE GRID ### 
-def create_grid(zoning, census, geocoded, state59, state40, us59, us40, interstate, gridsize):
+def create_grid(zoning, centroids, census, geocoded, state59, state40, us59, us40, interstate, gridsize):
     # grid is fit to size of zoning map
     a, b, c, d  = zoning.total_bounds
     step = gridsize # gridsize in meters
@@ -138,7 +142,7 @@ def create_grid(zoning, census, geocoded, state59, state40, us59, us40, intersta
     grid['grid_id'] = range(1, len(grid) + 1)
 
     # overlay zoning map with grid squares and classify each square
-    output = classify_grid(zoning, grid)
+    output = classify_grid(zoning, grid, centroids)
     print(output.columns,'zoning added to grid')
 
     # overlay census data on grid
@@ -157,18 +161,21 @@ def create_grid(zoning, census, geocoded, state59, state40, us59, us40, intersta
 ####################################################################################################
 
 census = pd.read_pickle('data/input/atl_geocoded.pkl')
-
 zoning = gpd.read_file('data/input/zoning_shapefiles/atlanta/zoning.shp')
 
 geocoded = pd.read_pickle('data/input/atl_geocoded.pkl')
 geocoded = geocoded[geocoded['is_exact'].isna()].copy()
 
-interstate = gpd.read_file('data/input/shapefiles/1960/interstates1959_del.shp')
+centroids = pd.read_csv('data/input/msas_with_central_city_cbds.csv') # from Dan Aaron Hartley
+centroids = gpd.GeoDataFrame(centroids, geometry = gpd.points_from_xy(centroids.cbd_retail_long, centroids.cbd_retail_lat), 
+                             crs = 'EPSG:4267') # best guess at CRS based off of projfinder.com
+
+interstate = gpd.read_file('data/input/shapefiles/1960/interstates1959_del.shp') # from Jaworski and Kitchens
 state59 = gpd.read_file('data/input/shapefiles/1960/stateHighwayPaved1959_del.shp')
 us59 = gpd.read_file('data/input/shapefiles/1960/usHighwayPaved1959_del.shp')
 state40 = gpd.read_file('data/input/shapefiles/1940/1940 completed shapefiles/stateHighwayPaved1940_del.shp')
 us40 = gpd.read_file('data/input/shapefiles/1940/1940 completed shapefiles/usHighwayPaved1940_del.shp')
 
-# create sample with 200m x 200m grid squares
-atl_sample = create_grid(zoning, census, geocoded, state59, state40, us59, us40, interstate, 150)
+# create sample with 150 x 150 grid squares
+atl_sample = create_grid(zoning, centroids, census, geocoded, state59, state40, us59, us40, interstate, 150)
 atl_sample.to_pickle('data/output/atl_sample.pkl')
