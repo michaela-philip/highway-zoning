@@ -33,5 +33,6 @@ print(sum_stats)
 sum_stats.to_latex('tables/summary_stats.tex', float_format="%.2f",
                   column_format='lcccccc', 
                   escape=False, 
-                  caption='Summary Statistics for Atlanta Sample',
+                  caption='Sample Grid Summary Statistics',
+                  position = 'h',
                   label='tab:summary_stats')

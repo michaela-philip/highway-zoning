@@ -30,4 +30,5 @@ results.to_latex('tables/initial_results.tex', float_format="%.3f",
                  column_format='lcccccc', 
                  caption = 'Initial Results',
                  label = 'tab:initial_results',
+                 position = 'h',
                  escape=False)
