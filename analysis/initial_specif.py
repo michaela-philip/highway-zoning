@@ -32,5 +32,4 @@ results.style.format(precision=3).to_latex('tables/initial_results.tex',
                  label = 'tab:initial_results',
                  position = 'h',
                  position_float = 'centering',
-                 hrules = True,
-                 clines='all;index')
+                 hrules = True)

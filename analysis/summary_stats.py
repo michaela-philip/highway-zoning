@@ -36,5 +36,4 @@ sum_stats.style.format(precision=2).to_latex('tables/summary_stats.tex',
                   caption='Sample Grid Summary Statistics',
                   position = 'h',
                   label='tab:summary_stats',
-                  hrules=True,
-                  clines='all;index')
+                  hrules=True)
