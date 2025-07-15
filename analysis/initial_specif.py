@@ -4,10 +4,10 @@ import statsmodels.formula.api as smf
 
 atl_sample = pd.read_pickle('data/output/atl_sample.pkl')
 
-model_pct = 'hwy ~ mblack_mean_pct + Residential + (mblack_mean_pct * Residential) + rent + valueh'
-model_share = 'hwy ~ mblack_mean_share + Residential + (mblack_mean_share * Residential) + rent + valueh'
-model_med_pct = 'hwy ~ mblack_median_pct + Residential + (mblack_median_pct * Residential) + rent + valueh'
-model_med_share = 'hwy ~ mblack_median_share + Residential + (mblack_median_share * Residential) + rent + valueh'
+model_pct = 'hwy ~ mblack_mean_pct + Residential + (mblack_mean_pct * Residential) + rent + valueh + distance_to_cbd'
+model_share = 'hwy ~ mblack_mean_share + Residential + (mblack_mean_share * Residential) + rent + valueh + distance_to_cbd'
+model_med_pct = 'hwy ~ mblack_median_pct + Residential + (mblack_median_pct * Residential) + rent + valueh + distance_to_cbd'
+model_med_share = 'hwy ~ mblack_median_share + Residential + (mblack_median_share * Residential) + rent + valueh + distance_to_cbd'
 
 results_pct = smf.ols(model_pct, data=atl_sample).fit(cov_type='HC3')
 results_share = smf.ols(model_share, data=atl_sample).fit(cov_type='HC3')
