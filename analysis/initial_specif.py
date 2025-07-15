@@ -26,9 +26,9 @@ results = results.T.rename(columns={
 
 print(results)
 
-results.to_latex('tables/initial_results.tex', float_format="%.3f",
+results.style.format(precision=3).to_latex('tables/initial_results.tex',
                  column_format='lcccccc', 
                  caption = 'Initial Results',
                  label = 'tab:initial_results',
                  position = 'h',
-                 escape=False)
+                 position_float = 'centering')

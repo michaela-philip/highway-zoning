@@ -30,9 +30,9 @@ columns = ['Mean', 'Std', 'Min', 'Max', 'N']
 sum_stats = sum_stats[columns]
 
 print(sum_stats)
-sum_stats.to_latex('tables/summary_stats.tex', float_format="%.2f",
+sum_stats.style.format(precision=2).to_latex('tables/summary_stats.tex',
                   column_format='lcccccc', 
-                  escape=False, 
+                  position_float = 'centering',
                   caption='Sample Grid Summary Statistics',
                   position = 'h',
                   label='tab:summary_stats')
