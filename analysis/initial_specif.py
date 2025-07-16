@@ -15,9 +15,9 @@ results_share = smf.ols(model_share, data=atl_sample).fit(cov_type='HC3')
 # initial results with >= 50% black population threshold
 results = results_50_pct.summary2(title = 'Mean 50% Threshold').tables[1]
 results = results.T.rename(columns={
-    'Rent': 'rent',
-    'Home Value': 'valueh',
-    'Highway': 'hwy',
+    'rent': 'Rent',
+    'valueh':'Home Value',
+    'hwy': 'Highway',
     'mblack_50_pct': 'Majority Black (50% Threshold)',
     'mblack_50_pct:Residential': 'Majority Black (50% Threshold) x Residential',
     'distance_to_cbd':'Distance to CBD' 
