@@ -4,7 +4,7 @@ import statsmodels.formula.api as smf
 
 atl_sample = pd.read_pickle('data/output/atl_sample.pkl')
 
-model_naive = 'hwy ~ mblack_50_pct + rent + valueh + distance_to_cbd'
+model_naive = 'hwy ~ pct_black + rent + valueh + distance_to_cbd'
 model_50_pct = 'hwy ~ mblack_50_pct + Residential + (mblack_50_pct * Residential) + rent + valueh + distance_to_cbd'
 model_pct = 'hwy ~ mblack_mean_pct + Residential + (mblack_mean_pct * Residential) + rent + valueh + distance_to_cbd'
 model_share = 'hwy ~ mblack_mean_share + Residential + (mblack_mean_share * Residential) + rent + valueh + distance_to_cbd'
