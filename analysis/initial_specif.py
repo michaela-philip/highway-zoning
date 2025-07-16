@@ -20,7 +20,7 @@ results = results.T.rename(columns={
     'Highway': 'hwy',
     'mblack_50_pct': 'Majority Black (50% Threshold)',
     'mblack_50_pct:Residential': 'Majority Black (50% Threshold) x Residential',
-    'Distance to CBD': 'distance_to_cbd'
+    'distance_to_cbd':'Distance to CBD' 
 }).T
 print(results)
 
