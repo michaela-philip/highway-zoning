@@ -4,22 +4,42 @@ import statsmodels.formula.api as smf
 
 atl_sample = pd.read_pickle('data/output/atl_sample.pkl')
 
+model_naive = 'hwy ~ mblack_50_pct + rent + valueh + distance_to_cbd'
 model_50_pct = 'hwy ~ mblack_50_pct + Residential + (mblack_50_pct * Residential) + rent + valueh + distance_to_cbd'
 model_pct = 'hwy ~ mblack_mean_pct + Residential + (mblack_mean_pct * Residential) + rent + valueh + distance_to_cbd'
 model_share = 'hwy ~ mblack_mean_share + Residential + (mblack_mean_share * Residential) + rent + valueh + distance_to_cbd'
 
+results_naive = smf.ols(model_naive, data=atl_sample).fit(cov_type='HC3')
 results_50_pct = smf.ols(model_50_pct, data=atl_sample).fit(cov_type='HC3')
 results_pct = smf.ols(model_pct, data=atl_sample).fit(cov_type='HC3')
 results_share = smf.ols(model_share, data=atl_sample).fit(cov_type='HC3')
 
+# naive regression with no zoning
+results = results_naive.summary2(title = 'Naive Regression').tables[1]
+results = results.T.rename(columns={
+    'rent': 'Rent',
+    'valueh': 'Home Value',
+    'hwy': 'Highway',
+    'mblack_50_pct': 'Majority Black (50\% Threshold)',
+    'distance_to_cbd': 'Distance to CBD'
+}).T
+print(results)
+results.style.format(precision=3).to_latex('tables/naive_results.tex',
+                 column_format='lcccccc', 
+                 caption = 'Naive Regression Results',
+                 label = 'tab:naive_results',
+                 position = 'h',
+                 position_float = 'centering',
+                 hrules = True)
+
 # initial results with >= 50% black population threshold
-results = results_50_pct.summary2(title = 'Mean 50% Threshold').tables[1]
+results = results_50_pct.summary2(title = 'Mean 50\% Threshold').tables[1]
 results = results.T.rename(columns={
     'rent': 'Rent',
     'valueh':'Home Value',
     'hwy': 'Highway',
-    'mblack_50_pct': 'Majority Black (50% Threshold)',
-    'mblack_50_pct:Residential': 'Majority Black (50% Threshold) x Residential',
+    'mblack_50_pct': 'Majority Black (50\% Threshold)',
+    'mblack_50_pct:Residential': 'Majority Black (50\% Threshold) x Residential',
     'distance_to_cbd':'Distance to CBD' 
 }).T
 print(results)
