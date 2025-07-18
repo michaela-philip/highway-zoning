@@ -37,3 +37,11 @@ sum_stats.style.format(precision=2).to_latex('tables/summary_stats.tex',
                   position = 'h',
                   label='tab:summary_stats',
                   hrules=True)
+
+atl_sample.groupby('Residential')['Highway Present'].style.format(precision=2).to_latex('tables/summary_stats_hwy.tex', 
+                                                            column_format='lcc', 
+                  position_float = 'centering',
+                  caption='Highway Presence by Residential Zoning',
+                  position = 'h',
+                  label='tab:summary_stats_hwy',
+                  hrules=True)
