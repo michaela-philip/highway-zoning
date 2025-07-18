@@ -31,17 +31,39 @@ sum_stats = sum_stats[columns]
 
 print(sum_stats)
 sum_stats.style.format(precision=2).to_latex('tables/summary_stats.tex',
-                  column_format='lcccccc', 
-                  position_float = 'centering',
-                  caption='Sample Grid Summary Statistics',
-                  position = 'h',
-                  label='tab:summary_stats',
-                  hrules=True)
+                column_format='lcccccc', 
+                position_float = 'centering',
+                caption='Sample Grid Summary Statistics',
+                position = 'h',
+                label='tab:summary_stats',
+                hrules=True)
 
-atl_sample.groupby('Residential')['Highway Present'].style.format(precision=2).to_latex('tables/summary_stats_hwy.tex', 
-                                                            column_format='lcc', 
-                  position_float = 'centering',
-                  caption='Highway Presence by Residential Zoning',
-                  position = 'h',
-                  label='tab:summary_stats_hwy',
-                  hrules=True)
+# summary statistics by zoning designation
+rows = ['Residents', 'Households', 'Median Rent', 'Median Home Value', 
+        'Percent Black', 'Highway Present']
+
+agg_funcs = {
+    'Residents':'mean',
+    'Households': 'mean',
+    'Median Rent' : 'mean',
+    'Median Home Value': 'mean',
+    'Percent Black': 'mean',
+    'Highway Present':'mean'
+}
+
+zoning_sum = atl_sample.groupby('Residential')[rows].agg(agg_funcs).T
+zoning_stats = pd.DataFrame({
+    'Industrial': zoning_sum[0],
+    'Residential':zoning_sum[1]
+})
+columns = ['Industrial', 'Residential']
+zoning_stats = zoning_stats[columns]
+print(zoning_stats)
+
+zoning_stats.style.format(precision=2).to_latex('tables/summary_stats_zone.tex', 
+                column_format='lcc', 
+                position_float = 'centering',
+                caption='Summary Statistics by Zoning Designation',
+                position = 'h',
+                label='tab:summ_stats_zone',
+                hrules=True)
