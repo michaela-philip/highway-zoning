@@ -1,16 +1,17 @@
 import pandas as pd
 import statsmodels.api as sm
 import statsmodels.formula.api as smf
+import numpy as np
 
 atl_sample = pd.read_pickle('data/output/atl_sample.pkl')
 
-model_naive = 'hwy ~ pct_black + rent + valueh + distance_to_cbd'
-model_50_pct = 'hwy ~ mblack_50_pct + Residential + (mblack_50_pct * Residential) + rent + valueh + distance_to_cbd'
+model_naive = 'hwy ~ mblack_1945def + rent + np.log(valueh) + distance_to_cbd'
+model_1945def = 'hwy ~ mblack_1945def + Residential + (mblack_1945def * Residential) + rent + np.log(valueh) + distance_to_cbd'
 model_pct = 'hwy ~ mblack_mean_pct + Residential + (mblack_mean_pct * Residential) + rent + valueh + distance_to_cbd'
 model_share = 'hwy ~ mblack_mean_share + Residential + (mblack_mean_share * Residential) + rent + valueh + distance_to_cbd'
 
 results_naive = smf.ols(model_naive, data=atl_sample).fit(cov_type='HC3')
-results_50_pct = smf.ols(model_50_pct, data=atl_sample).fit(cov_type='HC3')
+results_1945def = smf.ols(model_1945def, data=atl_sample).fit(cov_type='HC3')
 results_pct = smf.ols(model_pct, data=atl_sample).fit(cov_type='HC3')
 results_share = smf.ols(model_share, data=atl_sample).fit(cov_type='HC3')
 
@@ -20,7 +21,7 @@ results = results.T.rename(columns={
     'rent': 'Rent',
     'valueh': 'Home Value',
     'hwy': 'Highway',
-    'mblack_50_pct': 'Majority Black (50\% Threshold)',
+    'mblack_1945def': 'Majority Black (60\% Threshold)',
     'distance_to_cbd': 'Distance to CBD'
 }).T
 print(results)
@@ -33,13 +34,13 @@ results.style.format(precision=3).to_latex('tables/naive_results.tex',
                  hrules = True)
 
 # initial results with >= 50% black population threshold
-results = results_50_pct.summary2(title = 'Mean 50\% Threshold').tables[1]
+results = results_1945def.summary2(title = 'Mean 60\% Threshold').tables[1]
 results = results.T.rename(columns={
     'rent': 'Rent',
     'valueh':'Home Value',
     'hwy': 'Highway',
-    'mblack_50_pct': 'Majority Black (50\% Threshold)',
-    'mblack_50_pct:Residential': 'Majority Black (50\% Threshold) x Residential',
+    'mblack_1945def': 'Majority Black (60\% Threshold)',
+    'mblack_1945def:Residential': 'Majority Black (60\% Threshold) x Residential',
     'distance_to_cbd':'Distance to CBD' 
 }).T
 print(results)
