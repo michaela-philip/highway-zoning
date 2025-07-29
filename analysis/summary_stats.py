@@ -30,29 +30,14 @@ columns = ['Mean', 'Std', 'Min', 'Max', 'N']
 sum_stats = sum_stats[columns]
 
 print(sum_stats)
-sum_stats.style.format(precision=2).to_latex('tables/summary_stats.tex',
+sum_stats.style.format(precision=2).set_table_styles({'selector':'\resizebox', 'props': '{\textwidth}{!}'}).set_properties(**{'width':'100%'}).to_latex('tables/summary_stats.tex',
                 column_format='lcccccc', 
                 position_float = 'centering',
                 caption='Sample Grid Summary Statistics',
                 position = 'h',
                 label='tab:summary_stats',
-                hrules=True)
-
-sum_stats =(sum_stats.style
-        .format(precision=2)
-         .set_table_styles([
-            {'selector': 'thead th', 'props': 'font-weight: bold; text-align: center'},
-            {'selector': 'tbody th', 'props': 'text-align: left'},  # left-align index
-            {'selector': 'tbody td', 'props': 'text-align: right'}, # right-align data
-            {'selector': 'table', 'props': 'border-collapse: collapse; border-top: 1px solid black; '
-            'border-bottom: 1px solid black'}
-    ])).to_latex('tables/summary_stats.tex',
-                 column_format = 'lcccccc',
-                 position_float = 'centering',
-                 caption = 'Sample Grid Summary Statistics',
-                 position = 'h',
-                 label = 'tab:summary_stats',
-                 hrules = True)
+                hrules=True,
+                convert_css = True)
 
 # summary statistics by zoning designation
 rows = ['Residents', 'Households', 'Median Rent', 'Median Home Value', 
