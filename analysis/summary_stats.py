@@ -1,16 +1,25 @@
 import pandas as pd
 import numpy as np
+import re
 
-def export_scaled_latex(df, path, method="adjustbox", **kwargs):
-    table = df.to_latex(**kwargs)
-    if method == "adjustbox":
-        wrapped = "\\begin{adjustbox}{width=\\linewidth}\n" + table + "\\end{adjustbox}\n"
-    elif method == "resizebox":
-        wrapped = "\\resizebox{\\linewidth}{!}{%\n" + table + "}\n"
+def scale_tabular_only(full_latex_table, method="resizebox"):
+    # Extract the tabular block only
+    match = re.search(r"(\\begin\{tabular\}.*?\\end\{tabular\})", full_latex_table, re.DOTALL)
+    if not match:
+        raise ValueError("No tabular environment found in LaTeX string.")
+    
+    tabular_block = match.group(1)
+
+    if method == "resizebox":
+        wrapped = "\\resizebox{\\linewidth}{!}{%\n" + tabular_block + "\n}\n"
+    elif method == "adjustbox":
+        wrapped = "\\begin{adjustbox}{width=\\linewidth}\n" + tabular_block + "\n\\end{adjustbox}\n"
     else:
-        raise ValueError("Invalid method")
-    with open(path, "w") as f:
-        f.write(wrapped)
+        raise ValueError("Method must be 'resizebox' or 'adjustbox'")
+
+    # Replace the original tabular with the wrapped version
+    return full_latex_table.replace(tabular_block, wrapped)
+
 
 atl_sample = pd.read_pickle('data/output/atl_sample.pkl')
 
@@ -45,8 +54,9 @@ print(sum_stats)
 sum_stats.style.format(precision=2).to_latex(column_format='lcccccc', position_float = 'centering',
                 caption='Sample Grid Summary Statistics', position = 'h', label='tab:summary_stats', hrules=True)
 
-export_scaled_latex(sum_stats.style.format(precision=2), 'tables/summary_stats.tex', column_format='lcccccc', position_float = 'centering',
-                caption='Sample Grid Summary Statistics', position = 'h', label='tab:summary_stats', hrules=True)
+scale_tabular_only(sum_stats, 'tables/summary_stats.tex')
+with open('tables/summary_stats.tex', 'w') as f:
+    f.write(sum_stats)
 
 # summary statistics by zoning designation
 rows = ['Residents', 'Households', 'Median Rent', 'Median Home Value', 
