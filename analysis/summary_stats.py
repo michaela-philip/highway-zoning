@@ -1,6 +1,17 @@
 import pandas as pd
 import numpy as np
 
+def export_scaled_latex(df, path, method="adjustbox", **kwargs):
+    table = df.to_latex(**kwargs)
+    if method == "adjustbox":
+        wrapped = "\\begin{adjustbox}{width=\\linewidth}\n" + table + "\\end{adjustbox}\n"
+    elif method == "resizebox":
+        wrapped = "\\resizebox{\\linewidth}{!}{%\n" + table + "}\n"
+    else:
+        raise ValueError("Invalid method")
+    with open(path, "w") as f:
+        f.write(wrapped)
+
 atl_sample = pd.read_pickle('data/output/atl_sample.pkl')
 
 atl_sample = atl_sample.rename(columns={
@@ -30,14 +41,12 @@ columns = ['Mean', 'Std', 'Min', 'Max', 'N']
 sum_stats = sum_stats[columns]
 
 print(sum_stats)
-sum_stats.style.format(precision=2).set_table_styles({'selector':'\resizebox', 'props': '{\textwidth}{!}'}).set_properties(**{'width':'100%'}).to_latex('tables/summary_stats.tex',
-                column_format='lcccccc', 
-                position_float = 'centering',
-                caption='Sample Grid Summary Statistics',
-                position = 'h',
-                label='tab:summary_stats',
-                hrules=True,
-                convert_css = True)
+# format and save tex file
+sum_stats.style.format(precision=2).to_latex(column_format='lcccccc', position_float = 'centering',
+                caption='Sample Grid Summary Statistics', position = 'h', label='tab:summary_stats', hrules=True)
+
+export_scaled_latex(sum_stats.style.format(precision=2), 'tables/summary_stats.tex', column_format='lcccccc', position_float = 'centering',
+                caption='Sample Grid Summary Statistics', position = 'h', label='tab:summary_stats', hrules=True)
 
 # summary statistics by zoning designation
 rows = ['Residents', 'Households', 'Median Rent', 'Median Home Value', 
