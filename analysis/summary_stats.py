@@ -2,23 +2,15 @@ import pandas as pd
 import numpy as np
 import re
 
-def scale_tabular_only(full_latex_table, method="resizebox"):
-    # Extract the tabular block only
-    match = re.search(r"(\\begin\{tabular\}.*?\\end\{tabular\})", full_latex_table, re.DOTALL)
-    if not match:
-        raise ValueError("No tabular environment found in LaTeX string.")
-    
-    tabular_block = match.group(1)
-
-    if method == "resizebox":
-        wrapped = "\\resizebox{\\linewidth}{!}{%\n" + tabular_block + "\n}\n"
-    elif method == "adjustbox":
-        wrapped = "\\begin{adjustbox}{width=\\linewidth}\n" + tabular_block + "\n\\end{adjustbox}\n"
-    else:
-        raise ValueError("Method must be 'resizebox' or 'adjustbox'")
-
-    # Replace the original tabular with the wrapped version
-    return full_latex_table.replace(tabular_block, wrapped)
+# function to export df as latex table with full page width and add'l formatting
+def export_latex_table(df, caption, label):
+    num_cols = df.shape[1]
+    col_format = '|'.join(['X'] * num_cols)
+    text = df.style.format(precision=2).to_latex(position_float = 'centering',
+                caption=caption, position = 'h', label=label, hrules=True)
+    text = text.replace('\\begin{tabular}', f'\\begin{{tabularx}}{{\\textwidth}}{{{col_format}}}').replace('\\end{tabular}', '\\end{tabularx}')
+    with open('tables/' + label + '.tex', 'w') as f:
+        f.write(text)
 
 
 atl_sample = pd.read_pickle('data/output/atl_sample.pkl')
@@ -50,13 +42,7 @@ columns = ['Mean', 'Std', 'Min', 'Max', 'N']
 sum_stats = sum_stats[columns]
 
 print(sum_stats)
-# format and save tex file
-sum_stats.style.format(precision=2).to_latex(column_format='lcccccc', position_float = 'centering',
-                caption='Sample Grid Summary Statistics', position = 'h', label='tab:summary_stats', hrules=True)
-
-scale_tabular_only(sum_stats, 'tables/summary_stats.tex')
-with open('tables/summary_stats.tex', 'w') as f:
-    f.write(sum_stats)
+export_latex_table(sum_stats, caption = 'Sample Grid Summary Statistics', label = 'tab:summary_stats')
 
 # summary statistics by zoning designation
 rows = ['Residents', 'Households', 'Median Rent', 'Median Home Value', 
@@ -78,12 +64,6 @@ zoning_stats = pd.DataFrame({
 })
 columns = ['Industrial', 'Residential']
 zoning_stats = zoning_stats[columns]
-print(zoning_stats)
 
-zoning_stats.style.format(precision=2).to_latex('tables/summary_stats_zone.tex', 
-                column_format='lcc', 
-                position_float = 'centering',
-                caption='Summary Statistics by Zoning Designation',
-                position = 'h',
-                label='tab:summ_stats_zone',
-                hrules=True)
+print(zoning_stats)
+export_latex_table(zoning_stats, caption = 'Summary Statistics by Zoning Designation', label = 'tab:summ_stats_zone')
