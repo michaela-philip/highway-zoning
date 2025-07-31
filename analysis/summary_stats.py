@@ -9,7 +9,8 @@ def export_latex_table(df, caption, label):
     text = df.style.format(precision=2).to_latex(position_float = 'centering',
                 caption=caption, position = 'h', label=label, hrules=True)
     text = text.replace('\\begin{tabular}', f'\\begin{{tabularx}}{{\\textwidth}}{{{col_format}}}').replace('\\end{tabular}', '\\end{tabularx}')
-    with open('tables/' + label + '.tex', 'w') as f:
+    filename = label.split(':')[-1] + '.tex'
+    with open('tables/' + filename, 'w') as f:
         f.write(text)
 
 
@@ -66,4 +67,4 @@ columns = ['Industrial', 'Residential']
 zoning_stats = zoning_stats[columns]
 
 print(zoning_stats)
-export_latex_table(zoning_stats, caption = 'Summary Statistics by Zoning Designation', label = 'tab:summ_stats_zone')
+export_latex_table(zoning_stats, caption = 'Summary Statistics by Zoning Designation', label = 'tab:summary_stats_zone')
