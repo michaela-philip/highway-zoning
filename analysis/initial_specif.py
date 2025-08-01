@@ -26,8 +26,8 @@ def format_regression_results(results):
 # table with one regression - no concatenating
 def export_single_regression(df, caption, label, widthmultiplier = 1.0):
     df = df.rename({
-        'rent': 'Rent',
-        'valueh': 'Home Value',
+        'np.log(rent)': '(log) Rent',
+        'np.log(valueh)': '(log) Home Value',
         'hwy': 'Highway',
         'mblack_1945def': 'Majority Black (60\% Threshold)',
         'mblack_1945def:Residential': 'Majority Black (60\% Threshold) x Residential',
@@ -39,7 +39,7 @@ def export_single_regression(df, caption, label, widthmultiplier = 1.0):
     
     # format for latex output
     num_cols = df.shape[1]
-    col_format = '|'.join(['X'] * (num_cols  + 1))
+    col_format = '|'.join(['X|'] * (num_cols  + 1))
     text = df.style.to_latex(position_float = 'centering',
                 caption=caption, position = 'h', label=label, hrules=True)
     text = text.replace('\\begin{tabular}', f'\\begin{{tabularx}}{{{widthmultiplier}\\textwidth}}{{{col_format}}}').replace('\\end{tabular}', '\\end{tabularx}')
@@ -49,7 +49,6 @@ def export_single_regression(df, caption, label, widthmultiplier = 1.0):
 
 # table with multiple regressions - definition of 'Black' as column title
 def export_multiple_regressions(df_list, caption, label):
-    df = pd.concat(df_list, axis = 1)
     def column_names(df):
         if 'mblack_1945def' in df.index:
             return df.rename(columns = {'Coefficient':'(60\% Threshold)'})
@@ -59,10 +58,10 @@ def export_multiple_regressions(df_list, caption, label):
             return df.rename(columns = {'Coefficient':'(Avg. Share)'})
         else:
             return df
-    df = column_names(df).apply()
-    df = df.rename({
-        'rent': 'Rent',
-        'valueh': 'Home Value',
+    def standardize_index(df):
+        return df.rename({
+        'np.log(rent)': '(log) Rent',
+        'np.log(valueh)': '(log) Home Value',
         'hwy': 'Highway',
         'mblack_1945def': 'Black',
         'mblack_1945def:Residential': 'Black x Residential',
@@ -72,9 +71,12 @@ def export_multiple_regressions(df_list, caption, label):
         'mblack_mean_share:Residential': 'Black x Residential',
         'distance_to_cbd': 'Distance to CBD'}, axis = 'index')
     
+    renamed_list = [standardize_index(column_names(df)) for df in df_list]    
+    df = pd.concat(renamed_list, axis = 1)
+    
     # format for latex output
     num_cols = df.shape[1]
-    col_format = '|'.join(['X'] * (num_cols  + 1))
+    col_format = '|'.join(['X|']*(num_cols+1))
     text = df.style.to_latex(position_float = 'centering',
                 caption=caption, position = 'h', label=label, hrules=True)
     text = text.replace('\\begin{tabular}', f'\\begin{{tabularx}}{{\\textwidth}}{{{col_format}}}').replace('\\end{tabular}', '\\end{tabularx}')
