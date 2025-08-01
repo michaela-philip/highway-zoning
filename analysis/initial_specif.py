@@ -8,19 +8,20 @@ def format_regression_results(results):
     df = pd.DataFrame({'coef':results.params, 'stderror': results.bse, 'pvalue': results.pvalues})[1:]
     df['pvalue'] = results.pvalues[1:]
     def sig_coef(row):
-        if row['pvalues'] < 0.001:
-            return f"{row['coef']:.3f}^***"
-        elif row['pvalues'] < 0.01:
-            return f"{row['coef']:.3f}^**"
-        elif row['pvalues'] < 0.05:
-            return f"{row['coef']:.3f}^*"
+        if row['pvalue'] < 0.001:
+            return f"{row['coef']:.3f}^{{***}}"
+        elif row['pvalue'] < 0.01:
+            return f"{row['coef']:.3f}^{{**}}"
+        elif row['pvalue'] < 0.05:
+            return f"{row['coef']:.3f}^{{*}}"
         else:
             return f"{row['coef']:.3f}"
-    df['Coefficient'] = df.apply(lambda row: f"{sig_coef(row)}\n({row['Std. Error']:.3f})", axis=1)
+    df['Coefficient'] = df.apply(lambda row: f"{sig_coef(row)}\n({row['stderror']:.3f})", axis=1)
     df = df[['Coefficient']]
     df.index.name = 'Variable'
-    df.loc['R-squared'] = results.rsquared
-    df.loc['Observations'] = results.nobs
+    df.loc['R-squared'] = [f"{results.rsquared:.3f}"]
+    df.loc['Observations'] = [f"{int(results.nobs)}"]
+    return df
 
 # table with one regression - no concatenating
 def export_single_regression(df, caption, label, widthmultiplier = 1.0):
@@ -50,12 +51,12 @@ def export_single_regression(df, caption, label, widthmultiplier = 1.0):
 def export_multiple_regressions(df_list, caption, label):
     df = pd.concat(df_list, axis = 1)
     def column_names(df):
-        if df.index.contains('mblack_1945def'):
-            return df.rename(column = '(60\% Threshold)')
-        elif df.index.contains('mblack_mean_pct'):
-            return df.rename(column = '(Avg. Percent)')
-        elif df.index.contains('mblack_mean_share'):
-            return df.rename(column = '(Avg. Share)')
+        if 'mblack_1945def' in df.index:
+            return df.rename(columns = {'Coefficient':'(60\% Threshold)'})
+        elif 'mblack_mean_pct' in df.index:
+            return df.rename(columns = {'Coefficient':'(Avg. Percent)'})
+        elif 'mblack_mean_share' in df.index:
+            return df.rename(columns = {'Coefficient':'(Avg. Share)'})
         else:
             return df
     df = column_names(df).apply()
