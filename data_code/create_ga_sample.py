@@ -98,12 +98,17 @@ def place_highways(grid, state59, state40, us59, us40, interstate):
     us40 = us40[~us40['FCLASS'].isin([9,19])]
     interstate = interstate[~interstate['FCLASS'].isin([9,19])]
 
+    # for context let's keep some record of the system in 1940 and 1959
+    built_1959  = pd.concat([state59, us59, interstate])
+    built_1940 = pd.concat([state40, us40])
+
+    # for actual analysis we need only a subset of these roads
     # include only roads that exist in 1959 and did not exist in 1940
     state_overlap = gpd.sjoin(state59, state40, how = 'inner', predicate = 'intersects')
     us_overlap = gpd.sjoin(us59, us40, how = 'inner', predicate = 'intersects')
     state = state59.overlay(state_overlap, how = 'difference', keep_geom_type=False)
     us = us59.overlay(us_overlap, how = 'difference', keep_geom_type = False)
-    
+
     state = state[~state.is_empty]
     us = us[~us.is_empty]
     interstate = interstate[~interstate.is_empty]
@@ -114,15 +119,23 @@ def place_highways(grid, state59, state40, us59, us40, interstate):
 
     # merge into grid
     atl_grid_hwy = gpd.sjoin(grid, all_roads, how = 'left', predicate = 'intersects')
+    atl_hwy59 = gpd.sjoin(grid, built_1959, how = 'left', predicate = 'intersects')
+    atl_hwy40 = gpd.sjoin(grid, built_1940, how = 'left', predicate = 'intersects')
 
     # dummy variable for presence of highway
     atl_grid_hwy['hwy'] = np.where(atl_grid_hwy['speed1'].isna(), 0, 1)
+    atl_hwy59['hwy_59'] = np.where(atl_hwy59['speed1'].isna(), 0, 1)
+    atl_hwy40['hwy_40'] = np.where(atl_hwy40['speed1'].isna(), 0, 1)
 
     # aggregate by grid_id taking max value (if any highways exist, it is 1 no matter what)
     atl_grid_hwy = atl_grid_hwy.groupby('grid_id').agg({'hwy': 'max'})
+    atl_hwy59 = atl_hwy59.groupby('grid_id').agg({'hwy_59':'max'})
+    atl_hwy40 = atl_hwy40.groupby('grid_id').agg({'hwy_40':'max'})
+
+    hwys = pd.concat([atl_grid_hwy, atl_hwy59, atl_hwy40], axis = 1)
 
     # merge in hwy indicator
-    output = grid.merge(atl_grid_hwy['hwy'], left_on='grid_id', right_index=True)
+    output = grid.merge(hwys, left_on='grid_id', right_index=True)
     return output
 
 ### FUNCTION TO CREATE THE SAMPLE GRID ### 
@@ -152,8 +165,8 @@ def create_grid(zoning, centroids, census, geocoded, state59, state40, us59, us4
     print(output.columns, 'census added to grid')
 
     # place highways into grid
-    output = output.merge(place_highways(grid, state59, state40, us59, us40, interstate)[['grid_id', 'hwy']],
-                           on='grid_id',how='left')
+    output = output.merge(place_highways(grid, state59, state40, us59, us40, interstate)[['grid_id', 'hwy', 'hwy_59', 'hwy_40']],
+                            on='grid_id',how='left')
     print(output.columns,'highways added to grid')
     return output
 
