@@ -25,12 +25,13 @@ atl_sample = atl_sample.rename(columns={
     'numprec': 'Residents',
     'serial': 'Households',
     'pct_black': 'Percent Black',
-    'hwy': 'Highway Present'
-})
+    'hwy_40': 'Highway Present (1940)',
+    'hwy_59':'Highway Present (1959)',
+    'hwy':'Highway Constructed (1940-1959)'})
 atl_sample = atl_sample.dropna(subset = 'Residents')
 
-rows = ['Residents', 'Households', 'Median Rent', 'Median Home Value', 
-        'Percent Black', 'Highway Present', 'Residential']
+rows = ['Residents', 'Households', 'Median Rent', 'Median Home Value', 'Percent Black', 
+        'Highway Present (1940)','Highway Present (1959)', 'Highway Constructed (1940-1959)', 'Residential']
 
 sum_stats = pd.DataFrame({
     'Mean': atl_sample[rows].mean(),
@@ -48,18 +49,18 @@ export_latex_table(sum_stats, caption = 'Sample Grid Summary Statistics', label 
 
 # summary statistics by zoning designation
 rows = ['Residents', 'Households', 'Median Rent', 'Median Home Value', 
-        'Percent Black', 'Highway Present']
+        'Percent Black', 'Highway Present (1940)', 'Highway Present (1959)', 'Highway Constructed (1940-1959)']
 
-agg_funcs = {
-    'Residents':'mean',
-    'Households': 'mean',
-    'Median Rent' : 'mean',
-    'Median Home Value': 'mean',
-    'Percent Black': 'mean',
-    'Highway Present':'mean'
-}
+# agg_funcs = {
+#     'Residents':'mean',
+#     'Households': 'mean',
+#     'Median Rent' : 'mean',
+#     'Median Home Value': 'mean',
+#     'Percent Black': 'mean',
+#     'Highway Present':'mean'
+# }
 
-zoning_sum = atl_sample.groupby('Residential')[rows].agg(agg_funcs).T
+zoning_sum = atl_sample.groupby('Residential')[rows].agg('mean').T
 zoning_stats = pd.DataFrame({
     'Industrial': zoning_sum[0],
     'Residential':zoning_sum[1]
