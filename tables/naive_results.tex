@@ -2,7 +2,7 @@
 \centering
 \caption{Naive Regression Results}
 \label{tab:naive_results}
-\begin{tabularx}{0.7\textwidth}{X|X}{ll}
+\begin{tabular*}{0.7\textwidth}{@{\extracolsep{\fill}}l*{1}{r}}
 \toprule
  & Coefficient \\
 Variable &  \\
@@ -11,14 +11,14 @@ Majority Black (60\% Threshold) & -0.048^{***}
 (0.010) \\
 Residential & -0.024
 (0.014) \\
-np.log(rent) & 0.008
+(log) Rent & 0.008
 (0.010) \\
-np.log(valueh) & 0.013
+(log) Home Value & 0.013
 (0.010) \\
 Distance to CBD & -0.000^{***}
 (0.000) \\
 R-squared & 0.014 \\
 Observations & 2321 \\
 \bottomrule
-\end{tabularx}
+\end{tabular*}
 \end{table}

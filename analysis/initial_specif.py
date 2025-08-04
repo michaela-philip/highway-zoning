@@ -39,7 +39,7 @@ def export_single_regression(df, caption, label, widthmultiplier = 1.0):
     
     # format for latex output
     num_cols = df.shape[1]
-    col_format = '@{\\extracolsep{\\fill}}l' + f'{{{num_cols}}}' + '{r}'
+    col_format = '@{\\extracolsep{\\fill}}l*' + f'{{{num_cols}}}' + '{r}'
     text = df.style.format(precision=2).to_latex(position_float = 'centering',
                 caption=caption, position = 'h', label=label, hrules=True, column_format = col_format)
     text = text.replace('\\begin{tabular}', f'\\begin{{tabular*}}{{{widthmultiplier}\\textwidth}}').replace('\\end{tabular}', '\\end{tabular*}')
@@ -76,7 +76,7 @@ def export_multiple_regressions(df_list, caption, label):
     
     # format for latex output
     num_cols = df.shape[1]
-    col_format = '@{\\extracolsep{\\fill}}l' + f'{{{num_cols}}}' + '{r}'
+    col_format = '@{\\extracolsep{\\fill}}l*' + f'{{{num_cols}}}' + '{r}'
     text = df.style.format(precision=2).to_latex(position_float = 'centering',
                 caption=caption, position = 'h', label=label, hrules=True, column_format = col_format)
     text = text.replace('\\begin{tabular}', f'\\begin{{tabular*}}{{\\textwidth}}').replace('\\end{tabular}', '\\end{tabular*}')

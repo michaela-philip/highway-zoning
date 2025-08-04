@@ -2,7 +2,7 @@
 \centering
 \caption{Determinants of Highway Placement}
 \label{tab:initial_results}
-\begin{tabularx}{\textwidth}{X|X|X|X}{llll}
+\begin{tabular*}{\textwidth}{@{\extracolsep{\fill}}l*{3}{r}}
 \toprule
  & (60\% Threshold) & (Avg. Percent) & (Avg. Share) \\
 Variable &  &  &  \\
@@ -19,11 +19,11 @@ Black x Residential & 0.030
 (0.024) & 0.026
 (0.025) & 0.053^{*}
 (0.026) \\
-np.log(rent) & 0.009
+(log) Rent & 0.009
 (0.010) & 0.006
 (0.010) & 0.008
 (0.010) \\
-np.log(valueh) & 0.013
+(log) Home Value & 0.013
 (0.010) & 0.014
 (0.010) & 0.015
 (0.010) \\
@@ -34,5 +34,5 @@ Distance to CBD & -0.000^{***}
 R-squared & 0.015 & 0.015 & 0.015 \\
 Observations & 2321 & 2321 & 2321 \\
 \bottomrule
-\end{tabularx}
+\end{tabular*}
 \end{table}

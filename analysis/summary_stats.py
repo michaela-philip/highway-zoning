@@ -5,7 +5,7 @@ import re
 # function to export df as latex table with full page width and add'l formatting
 def export_latex_table(df, caption, label):
     num_cols = df.shape[1]
-    col_format = '@{\\extracolsep{\\fill}}l' + f'{{{num_cols}}}' + '{r}'
+    col_format = '@{\\extracolsep{\\fill}}l*' + f'{{{num_cols}}}' + '{r}'
     text = df.style.format(precision=2).to_latex(position_float = 'centering',
                 caption=caption, position = 'h', label=label, hrules=True, column_format = col_format)
     text = text.replace('\\begin{tabular}', '\\begin{tabular*}{\\linewidth}').replace('\\end{tabular}', '\\end{tabular*}')
