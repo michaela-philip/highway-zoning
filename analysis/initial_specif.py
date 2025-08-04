@@ -16,9 +16,9 @@ def format_regression_results(results):
             return f"{row['coef']:.3f}^{{*}}"
         else:
             return f"{row['coef']:.3f}"
-    df['Coefficient'] = df.apply(lambda row: f"{sig_coef(row)}\n({row['stderror']:.3f})", axis=1)
+    df['Coefficient'] = df.apply(
+        lambda row: f"\\makecell[tr]{{{sig_coef(row)} \\\\ ({row['stderror']:.3f})}}", axis=1)
     df = df[['Coefficient']]
-    df.index.name = 'Variable'
     df.loc['R-squared'] = [f"{results.rsquared:.3f}"]
     df.loc['Observations'] = [f"{int(results.nobs)}"]
     return df
@@ -51,11 +51,11 @@ def export_single_regression(df, caption, label, widthmultiplier = 1.0):
 def export_multiple_regressions(df_list, caption, label):
     def column_names(df):
         if 'mblack_1945def' in df.index:
-            return df.rename(columns = {'Coefficient':'(60\\% Threshold)'})
+            return df.rename(columns = {'Coefficient':'60\\% Threshold'})
         elif 'mblack_mean_pct' in df.index:
-            return df.rename(columns = {'Coefficient':'(Avg. Percent)'})
+            return df.rename(columns = {'Coefficient':'Avg. Percent'})
         elif 'mblack_mean_share' in df.index:
-            return df.rename(columns = {'Coefficient':'(Avg. Share)'})
+            return df.rename(columns = {'Coefficient':'Avg. Share'})
         else:
             return df
     def standardize_index(df):
