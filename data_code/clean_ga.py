@@ -80,7 +80,8 @@ def standardize_addresses(df):
     )
     # save directions separately (steve morse doesn't include them) - can reintroduce for geocoding (census api does)
     df[['street', 'street_direction']] = df['street'].str.extract(
-        r'^(?P<street>.*?)(?:\s+(?P<street_direction>nw|ne|sw|se|n|s|e|w))?$', flags=re.IGNORECASE).str.strip()
+        r'^(?P<street>.*?)(?:\s+(?P<street_direction>nw|ne|sw|se|n|s|e|w))?$', flags=re.IGNORECASE)
+    df['street_direction'] = df['street_direction'].str.strip()
     # replace ordinal words with numbers
     ordinal_map = {
         'first': '1st',
@@ -270,18 +271,22 @@ def geocode_addresses(df_orig):
     df = df.dropna(subset = ['rawhn', 'street_match'])
 
     street_change_mask = df['new_name'].notna()
-    df.loc[street_change_mask, 'address'] = df.loc[street_change_mask, 'rawhn'].astype(str) + ' ' + df.loc[street_change_mask, 'new_name'].str.lower() + df.loc[street_change_mask, 'street_direction'].str.lower()
-    df.loc[~street_change_mask, 'address'] = df.loc[~street_change_mask, 'rawhn'].astype(str) + ' ' + df.loc[~street_change_mask, 'street_match'].str.lower() + df.loc[~street_change_mask, 'street_direction'].str.lower()
+    df['street_direction'] = df['street_direction'].fillna('')
+    df.loc[street_change_mask, 'address'] = df.loc[street_change_mask, 'rawhn'].astype(str) + ' ' + df.loc[street_change_mask, 'new_name'].str.lower() + ' ' + df.loc[street_change_mask, 'street_direction'].str.lower()
+    df.loc[~street_change_mask, 'address'] = df.loc[~street_change_mask, 'rawhn'].astype(str) + ' ' + df.loc[~street_change_mask, 'street_match'].str.lower() + ' ' + df.loc[~street_change_mask, 'street_direction'].str.lower()
     df['city'] ='Atlanta' # when I make this a function, will probably need to read in a dictionary and have it match on code
     df['state'] = 'GA' # same with this for FIPS or ICPS
     df['zipcode'] = ''
     df['id'] = df['serial'].astype(str)
     df = df[['id', 'address', 'city', 'state', 'zipcode']]
 
+    print('starting geocoding')
     # geocode using censusbatchgeocoder
     result = censusbatchgeocoder.geocode(df.to_dict(orient = 'records'), zipcode = None)
     geocoded_df = pd.DataFrame(result)
     print(f"{geocoded_df['is_exact'].notna().sum()} records geocoded")
+    print(f"{(geocoded_df['is_match'] == 'Tie').sum()} ties")
+    print(f"{(geocoded_df['is_match'] == 'No_Match').sum()} unmatched")
 
     # ties = geocoded_df[geocoded_df['is_match'] == 'Tie']
     # unmatched = geocoded_df[geocoded_df['is_match'] == 'No_Match']
@@ -345,9 +350,9 @@ print('address matching done')
 atl = interpolate_house_numbers(atl)
 print('house numbers interpolated')
 
-atl.to_csv('data/input/atl_cleaned.csv', index=False)
 atl.to_pickle('data/input/atl_cleaned.pkl')
-print('csv created')
+print('pickle created')
 
+atl = pd.read_pickle('data/input/atl_cleaned.pkl')
 atl_geocoded = geocode_addresses(atl)
 atl_geocoded.to_pickle('data/input/atl_geocoded.pkl')
