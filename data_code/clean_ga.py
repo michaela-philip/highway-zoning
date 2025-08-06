@@ -4,6 +4,7 @@ from rapidfuzz import process, distance, fuzz
 import os
 import re
 import censusbatchgeocoder
+import requests
 
 ### FUNCTION TO CLEAN AND INTERPOLATE ADDRESSES ###
 def clean_addresses(df):
@@ -63,6 +64,7 @@ def clean_addresses(df):
     return df
 
 ### FUNCTION TO STANDARDIZE ADDRESSES ###
+# two goals here - maximize matches to known streets from Steve Morse and matches to geocoding locations from US Census
 def standardize_addresses(df):
     # abbreviate street types to match steve morse, remove directional notations
     df['street'] = (df['street']
@@ -73,10 +75,12 @@ def standardize_addresses(df):
         .str.replace(r'\bdrive\b', 'dr', regex=True)
         .str.replace(r'\bplace\b', 'pl', regex=True)
         .str.replace(r'\bcourt\b', ' ct', regex=True)
-        .str.replace(r'\b(nw|ne|sw|se)\b', '', regex=True)
-        .str.replace(r'-\s*', '', regex=True)
+        .str.replace(r'-', '', regex=True)
         .str.strip()
     )
+    # save directions separately (steve morse doesn't include them) - can reintroduce for geocoding (census api does)
+    df[['street', 'street_direction']] = df['street'].str.extract(
+        r'^(?P<street>.*?)(?:\s+(?P<street_direction>nw|ne|sw|se|n|s|e|w))?$', flags=re.IGNORECASE).str.strip()
     # replace ordinal words with numbers
     ordinal_map = {
         'first': '1st',
@@ -266,8 +270,8 @@ def geocode_addresses(df_orig):
     df = df.dropna(subset = ['rawhn', 'street_match'])
 
     street_change_mask = df['new_name'].notna()
-    df.loc[street_change_mask, 'address'] = df.loc[street_change_mask, 'rawhn'].astype(str) + ' ' + df.loc[street_change_mask, 'new_name'].str.lower()
-    df.loc[~street_change_mask, 'address'] = df.loc[~street_change_mask, 'rawhn'].astype(str) + ' ' + df.loc[~street_change_mask, 'street_match'].str.lower()
+    df.loc[street_change_mask, 'address'] = df.loc[street_change_mask, 'rawhn'].astype(str) + ' ' + df.loc[street_change_mask, 'new_name'].str.lower() + df.loc[street_change_mask, 'street_direction'].str.lower()
+    df.loc[~street_change_mask, 'address'] = df.loc[~street_change_mask, 'rawhn'].astype(str) + ' ' + df.loc[~street_change_mask, 'street_match'].str.lower() + df.loc[~street_change_mask, 'street_direction'].str.lower()
     df['city'] ='Atlanta' # when I make this a function, will probably need to read in a dictionary and have it match on code
     df['state'] = 'GA' # same with this for FIPS or ICPS
     df['zipcode'] = ''
@@ -278,11 +282,32 @@ def geocode_addresses(df_orig):
     result = censusbatchgeocoder.geocode(df.to_dict(orient = 'records'), zipcode = None)
     geocoded_df = pd.DataFrame(result)
     print(f"{geocoded_df['is_exact'].notna().sum()} records geocoded")
-    
+
+    # ties = geocoded_df[geocoded_df['is_match'] == 'Tie']
+    # unmatched = geocoded_df[geocoded_df['is_match'] == 'No_Match']
+
+    # def resolve_ties(df):
+    #     url = 'https://geocoding.geo.census.gov/geocoder/locations/address'
+    #     for i in range(len(df)):
+    #         params = {
+    #             'street':df['street'][i],
+    #             'city':df['city'][i],
+    #             'state':df['state'][i],
+    #             'zip':df['zipcode'][i],
+    #             'benchmark':'4',
+    #             'format':'json'
+    #         }
+    #         response = requests.get(url, params=params)
+    #         if response.status_code == 200:
+    #             # lots to add here but generally speaking:
+    #             # look at other people's wrappers to structure this it shouldn't be hard
+    #             coordinates = list(response.json()['result']['addressMatches'][0]['coordinates'].values())
     merged = df_orig.copy()
     merged['serial'] = merged['serial'].astype(str)
     merged = pd.merge(merged, geocoded_df, left_on='serial', right_on = 'id', how = 'left')
     return merged
+
+
 
 ####################################################################################################
 
