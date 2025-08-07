@@ -81,7 +81,7 @@ def standardize_addresses(df):
     # save directions separately (steve morse doesn't include them) - can reintroduce for geocoding (census api does)
     df[['street', 'street_direction']] = df['street'].str.extract(
         r'^(?P<street>.*?)(?:\s+(?P<street_direction>nw|ne|sw|se|n|s|e|w))?$', flags=re.IGNORECASE)
-    df['street_direction'] = df['street_direction'].str.strip()
+    df['street_direction'] = df['street_direction'].str.strip().fillna('')
     # replace ordinal words with numbers
     ordinal_map = {
         'first': '1st',
@@ -215,9 +215,12 @@ def match_addresses(df, streets):
 
     # match new street names to street names that have been changed since 1940 to assist with geocoding
     street_changes = pd.read_csv('data/output/atl_street_changes.csv')
+    street_changes['old_name_min'] = street_changes['old_name'].str.split().str[0]
     df['street_match'] = df['street_match'].str.strip()
-    df = pd.merge(df, street_changes, left_on='street_match', right_on='old_name', how='left')
+    df['street_min'] = df['street_match'].str.split().str[0]
+    df = pd.merge(df, street_changes, left_on='street_min', right_on='old_name_min', how='left')
     print(df['new_name'].notna().sum(), 'streets matched to street changes')
+    df.drop(columns = ['street_min', 'old_name_min'])
 
     return df
 
@@ -271,7 +274,6 @@ def geocode_addresses(df_orig):
     df = df.dropna(subset = ['rawhn', 'street_match'])
 
     street_change_mask = df['new_name'].notna()
-    df['street_direction'] = df['street_direction'].fillna('')
     df.loc[street_change_mask, 'address'] = df.loc[street_change_mask, 'rawhn'].astype(str) + ' ' + df.loc[street_change_mask, 'new_name'].str.lower() + ' ' + df.loc[street_change_mask, 'street_direction'].str.lower()
     df.loc[~street_change_mask, 'address'] = df.loc[~street_change_mask, 'rawhn'].astype(str) + ' ' + df.loc[~street_change_mask, 'street_match'].str.lower() + ' ' + df.loc[~street_change_mask, 'street_direction'].str.lower()
     df['city'] ='Atlanta' # when I make this a function, will probably need to read in a dictionary and have it match on code
@@ -287,26 +289,7 @@ def geocode_addresses(df_orig):
     print(f"{geocoded_df['is_exact'].notna().sum()} records geocoded")
     print(f"{(geocoded_df['is_match'] == 'Tie').sum()} ties")
     print(f"{(geocoded_df['is_match'] == 'No_Match').sum()} unmatched")
-
-    # ties = geocoded_df[geocoded_df['is_match'] == 'Tie']
-    # unmatched = geocoded_df[geocoded_df['is_match'] == 'No_Match']
-
-    # def resolve_ties(df):
-    #     url = 'https://geocoding.geo.census.gov/geocoder/locations/address'
-    #     for i in range(len(df)):
-    #         params = {
-    #             'street':df['street'][i],
-    #             'city':df['city'][i],
-    #             'state':df['state'][i],
-    #             'zip':df['zipcode'][i],
-    #             'benchmark':'4',
-    #             'format':'json'
-    #         }
-    #         response = requests.get(url, params=params)
-    #         if response.status_code == 200:
-    #             # lots to add here but generally speaking:
-    #             # look at other people's wrappers to structure this it shouldn't be hard
-    #             coordinates = list(response.json()['result']['addressMatches'][0]['coordinates'].values())
+    
     merged = df_orig.copy()
     merged['serial'] = merged['serial'].astype(str)
     merged = pd.merge(merged, geocoded_df, left_on='serial', right_on = 'id', how = 'left')
