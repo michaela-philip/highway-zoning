@@ -289,6 +289,41 @@ def geocode_addresses(df_orig):
     print(f"{geocoded_df['is_exact'].notna().sum()} records geocoded")
     print(f"{(geocoded_df['is_match'] == 'Tie').sum()} ties")
     print(f"{(geocoded_df['is_match'] == 'No_Match').sum()} unmatched")
+
+    # want to deal with ties by choosing the coordinate closest to the adjacent entry 
+    def resolve_ties(df):
+        url = 'https://geocoding.geo.census.gov/geocoder/locations/address'
+        for i in range(len(df)):
+            params = {
+                'street':df['street'][i],
+                'city':df['city'][i],
+                'state':df['state'][i],
+                'zip':df['zipcode'][i],
+                'benchmark':'4',
+                'format':'json'
+            }
+            response = requests.get(url, params=params)
+            if response.status_code == 200:
+                df['coordinate1'] = response.json().get('result').get('addressMatches')[0].get('coordinates')
+                df['coordinate2'] = response.json().get('result').get('addressMatches')[1].get('coordinates')
+            else:
+                print(response.status_code, 'error')
+            # calculate distances between each set of points
+            distance1 = df['coordinate1'].distance(prev_coordinate)
+            distance2 = df['coordinate2'].distance(prev_coordinate)
+            if distance1 < distance2:
+                return df['coordinates'] == df['coordinate1']
+            else:
+                return df['coordinates'] == df['coordinate2']
+
+    while True:
+        prev_coordinate = df['coordinates'].shift(1)
+        candidates = (df['is_match'] == 'Tie' & prev_coordinate.notna())
+
+        if candidates.any():
+            df.loc[candidates, 'coordinates'] = df.loc[candidates].apply(resolve_ties)
+        else:
+            break
     
     merged = df_orig.copy()
     merged['serial'] = merged['serial'].astype(str)
