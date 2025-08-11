@@ -117,12 +117,11 @@ def format_street_changes(df):
         .str.lower()
         .str.replace(r'\([^()]*\)', '', regex=True)
         .str.replace(r'\bavenue\b', 'ave', regex=True)
-        .str.replace(r'\bstreet\b', '', regex=True)
+        .str.replace(r'\bstreet\b', 'st', regex=True)
         .str.replace(r'\broad\b', ' rd', regex=True)
         .str.replace(r'\bdrive\b', 'dr', regex=True)
         .str.replace(r'\bplace\b', 'pl', regex=True)
         .str.replace(r'\bcourt\b', ' ct', regex=True)
-        .str.replace(r'\b(nw|ne|sw|se)\b', '', regex=True)
         .str.replace(r'-\s*', '', regex=True)
         .str.strip()
     )
@@ -137,7 +136,6 @@ print('street_list csv created!')
 
 url = 'http://jolomo.net/atlanta/streets.html'
 atl_street_changes = pd.DataFrame(scrape_street_changes(url))
-atl_street_changes['new_name'] = format_street_changes(atl_street_changes['new_name'])
 atl_street_changes['old_name'] = format_street_changes(atl_street_changes['old_name'])
 
 atl_street_changes.to_csv('data/output/atl_street_changes.csv', index=False)
