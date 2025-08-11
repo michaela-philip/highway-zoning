@@ -122,21 +122,33 @@ def format_street_changes(df):
         .str.replace(r'\bdrive\b', 'dr', regex=True)
         .str.replace(r'\bplace\b', 'pl', regex=True)
         .str.replace(r'\bcourt\b', ' ct', regex=True)
+        .str.replace(r'\bboulevard\b', ' blvd', regex=True)
         .str.replace(r'-\s*', '', regex=True)
         .str.strip()
     )
     return df
 
+def minimal_format(df):
+    df = (df
+        .str.lower()
+        .str.replace(r'\([^()]*\)', '', regex=True)
+        .str.strip()
+        )
+    return df
+
 ####################################################################################################
 
-url = 'https://stevemorse.org/census/index.html?ed2street=1'
-street_list = scrape_streets(url)
-street_list.to_csv('data/output/ga_streets.csv', index=False)
-print('street_list csv created!')
+# url = 'https://stevemorse.org/census/index.html?ed2street=1'
+# street_list = scrape_streets(url)
+# street_list.to_csv('data/output/ga_streets.csv', index=False)
+# print('street_list csv created!')
 
 url = 'http://jolomo.net/atlanta/streets.html'
 atl_street_changes = pd.DataFrame(scrape_street_changes(url))
+street_to_drop = atl_street_changes['new_name'][atl_street_changes['new_name'].isin(atl_street_changes['old_name'])]
+atl_street_changes = atl_street_changes[~atl_street_changes['new_name'].isin(street_to_drop)]
 atl_street_changes['old_name'] = format_street_changes(atl_street_changes['old_name'])
+atl_street_changes['new_name'] = minimal_format(atl_street_changes['new_name'])
 
 atl_street_changes.to_csv('data/output/atl_street_changes.csv', index=False)
 print('atl street_change csv created!')
