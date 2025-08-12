@@ -4,6 +4,8 @@ import re
 
 # function to export df as latex table with full page width and add'l formatting
 def export_latex_table(df, caption, label):
+    df['Mean'] = df.apply(
+        lambda row: f"\\makecell[tr]{{{row['Mean']} \\\\ ({row['Std']:.3f})}}", axis=1)
     num_cols = df.shape[1]
     col_format = '@{\\extracolsep{\\fill}}l*' + f'{{{num_cols}}}' + '{r}'
     text = df.style.format(precision=2).to_latex(position_float = 'centering',
@@ -36,8 +38,6 @@ rows = ['Residents', 'Households', 'Median Rent', 'Median Home Value', 'Percent 
 sum_stats = pd.DataFrame({
     'Mean': atl_sample[rows].mean(),
     'Std': atl_sample[rows].std(),
-    'Min': atl_sample[rows].min(),
-    'Max': atl_sample[rows].max(),
     'N': atl_sample[rows].count(),
 })
 
@@ -60,7 +60,7 @@ rows = ['Residents', 'Households', 'Median Rent', 'Median Home Value',
 #     'Highway Present':'mean'
 # }
 
-zoning_sum = atl_sample.groupby('Residential')[rows].agg('mean').T
+zoning_sum = atl_sample.groupby('Residential')[rows].agg(['mean', 'std']).T
 zoning_stats = pd.DataFrame({
     'Industrial': zoning_sum[0],
     'Residential':zoning_sum[1]
