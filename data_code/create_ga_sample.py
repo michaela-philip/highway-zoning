@@ -156,6 +156,7 @@ def create_grid(zoning, centroids, census, geocoded, state59, state40, us59, us4
 
     # difference hwy indicator at the grid level
     output['hwy'] = output['hwy_59'] - output['hwy_40']
+    output['hwy'] = np.where(output['hwy'] < 0, 0, output['hwy'])
     return output
 
 ####################################################################################################
