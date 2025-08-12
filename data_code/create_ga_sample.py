@@ -34,8 +34,10 @@ def classify_grid(df, grid, centroids):
 
 ### FUNCTION TO PLACE CENSUS INFO INTO GRID ###
 def place_census(census, grid, geocoded):
-    census['coordinates'] = census['coordinates'].apply(shapely.Point)
-    census = gpd.GeoDataFrame(census, geometry = 'coordinates', 
+    mask = (census['coordinates'].notna() & census['longitude'].isna())
+    census.loc[mask, 'longitude'] = census.loc[mask, 'coordinates'].apply(lambda x: x[0])
+    census.loc[mask, 'latitude'] = census.loc[mask, 'coordinates'].apply(lambda x: x[1])
+    census = gpd.GeoDataFrame(census, geometry = gpd.points_from_xy(census.longitude, census.latitude), 
                             crs = 'EPSG:4269') # census geocodes in NAD83 for some reason
     census = census.to_crs(grid.crs)
     census['black_pop'] = (census['black'] * census['numprec'])
