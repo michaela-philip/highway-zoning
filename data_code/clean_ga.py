@@ -290,7 +290,7 @@ def geocode_addresses(df_orig):
 
     # geocode using censusbatchgeocoder
     print('starting geocoding')
-    third1, third2,= int(len(atl)/3), (2 * int(len(atl)/3))
+    third1, third2= int(len(df)/3), (2 * int(len(df)/3))
     d1 = df.iloc[:third1]
     d2 = df.iloc[(third1+1):(third2)]
     d3 = df.iloc[(third2 + 1):]
@@ -334,9 +334,8 @@ def geocode_addresses(df_orig):
     iter_count = 0
     max_iter = 10
     geocoded_df['coordinates'] = geocoded_df['coordinates'].str.split(',')
-    geocoded_df['prev_coordinate'] = geocoded_df['coordinates'].shift(1)
     while True:
-        # prev_coordinate = geocoded_df['coordinates'].shift(1)
+        geocoded_df['prev_coordinate'] = geocoded_df['coordinates'].shift(1)
         candidates = ((geocoded_df['is_match'] == 'Tie') & geocoded_df['prev_coordinate'].notna() & geocoded_df['coordinates'].isna())
         # since this is based on the previous coordinate, I want this to iterate as long as possible
         if candidates.any():
