@@ -5,7 +5,7 @@ import os
 import re
 import censusbatchgeocoder
 import requests
-from geopy.distance import lonlat
+import geopy, geopy.distance
 
 ### FUNCTION TO CLEAN AND INTERPOLATE ADDRESSES ###
 def clean_addresses(df):
@@ -216,12 +216,17 @@ def match_addresses(df, streets):
 
     # match new street names to street names that have been changed since 1940 to assist with geocoding
     street_changes = pd.read_csv('data/output/atl_street_changes.csv')
-    street_changes['old_name_min'] = street_changes['old_name'].str.split().str[0]
-    df['street_match'] = df['street_match'].str.strip()
-    df['street_min'] = df['street_match'].str.split().str[0]
-    df = pd.merge(df, street_changes, left_on='street_min', right_on='old_name_min', how='left')
+    street_changes['old_name'] = street_changes['old_name'].str.replace(r'\([^()]*\)', '', regex=True).str.strip()
+    def new_names(street_match):
+        match = process.extractOne(street_match, street_changes['old_name'],
+            scorer = distance.DamerauLevenshtein.normalized_similarity,
+            score_cutoff=0.7)
+        return match[0] if match is not None else np.nan
+    df['old_name'] = df['street_match'].apply(new_names)
+    df = df.merge(street_changes, on = 'old_name', how = 'left')
+
     print(df['new_name'].notna().sum(), 'streets matched to street changes')
-    df.drop(columns = ['street_min', 'old_name_min'])
+    print(len(df['serial'].unique())) 
 
     return df
 
@@ -285,14 +290,24 @@ def geocode_addresses(df_orig):
 
     # geocode using censusbatchgeocoder
     print('starting geocoding')
-    result = censusbatchgeocoder.geocode(df.to_dict(orient = 'records'), zipcode = None)
-    geocoded_df = pd.DataFrame(result)
+    third1, third2,= int(len(atl)/3), (2 * int(len(atl)/3))
+    d1 = df.iloc[:third1]
+    d2 = df.iloc[(third1+1):(third2)]
+    d3 = df.iloc[(third2 + 1):]
+    result1 = pd.DataFrame(censusbatchgeocoder.geocode(d1.to_dict(orient = 'records'), zipcode = None))
+    print('first done')
+    result2 = pd.DataFrame(censusbatchgeocoder.geocode(d2.to_dict(orient = 'records'), zipcode = None))
+    print('second done')
+    result3 = pd.DataFrame(censusbatchgeocoder.geocode(d3.to_dict(orient = 'records'), zipcode = None))
+    print('third done')
+    geocoded_df = pd.concat([result1, result2, result3])
+    geocoded_df.to_pickle('data/input/atl_geocoded.pkl')
     print(f"{geocoded_df['is_exact'].notna().sum()} records geocoded")
     print(f"{(geocoded_df['is_match'] == 'Tie').sum()} ties")
     print(f"{(geocoded_df['is_match'] == 'No_Match').sum()} unmatched")
 
     # want to deal with ties by choosing the coordinate closest to the adjacent entry 
-    def resolve_ties(row, prev_coordinate):
+    def resolve_ties(row):
         url = 'https://geocoding.geo.census.gov/geocoder/locations/address'
         params = {
             'street':row['address'],
@@ -303,26 +318,29 @@ def geocode_addresses(df_orig):
             'format':'json'
         }
         response = requests.get(url, params=params)
+        prev_coordinate = row['prev_coordinate']
         if response.status_code == 200:
             matches = response.json().get('result', {}).get('addressMatches', [])
-            c1 = (matches[0]['coordinates']['x'], matches[0]['coordinates']['y'])
-            c2 = (matches[1]['coordinates']['x'], matches[1]['coordinates']['y'])
+            if len(matches) > 0:
+                c1 = (matches[0]['coordinates']['x'], matches[0]['coordinates']['y'])
+                c2 = (matches[1]['coordinates']['x'], matches[1]['coordinates']['y'])
+                # calculate distances between each set of points
+                d1 = geopy.distance.distance((c1[1], c1[0]), (prev_coordinate[1], prev_coordinate[0])).meters
+                d2 = geopy.distance.distance((c2[1], c2[0]), (prev_coordinate[1], prev_coordinate[0])).meters
+                return c1 if d1 < d2 else c2    
         else:
-            print(response.status_code, 'error')
-        # calculate distances between each set of points
-        d1 = geopy.distance(lonlat(c1), lonlat(prev_coordinate)).meters
-        d2 = geopy.distance(lonlat(c2), lonlat(prev_coordinate)).meters
-        return c1 if d1 < d2 else c2
+            return None
 
     iter_count = 0
-    max_iter = 30
+    max_iter = 10
+    geocoded_df['coordinates'] = geocoded_df['coordinates'].str.split(',')
+    geocoded_df['prev_coordinate'] = geocoded_df['coordinates'].shift(1)
     while True:
-        prev_coordinate = geocoded_df['coordinates'].shift(1)
-        candidates = ((geocoded_df['is_match'] == 'Tie') & prev_coordinate.notna())
+        # prev_coordinate = geocoded_df['coordinates'].shift(1)
+        candidates = ((geocoded_df['is_match'] == 'Tie') & geocoded_df['prev_coordinate'].notna() & geocoded_df['coordinates'].isna())
         # since this is based on the previous coordinate, I want this to iterate as long as possible
         if candidates.any():
-            geocoded_df.loc[candidates, 'coordinates'] = geocoded_df.loc[candidates].apply(
-                lambda row: resolve_ties(row, prev_coordinate[row.name]), axis = 1)
+            geocoded_df.loc[candidates, 'coordinates'] = geocoded_df.loc[candidates].apply(resolve_ties, axis=1)
             iter_count += 1
             print(f'iter {iter_count}: {candidates.sum()} ties resolved')
         else:
