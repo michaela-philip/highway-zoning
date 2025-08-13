@@ -44,7 +44,7 @@ sum_stats = pd.DataFrame({
 columns = ['Mean', 'Min', 'Max', 'N']
 
 sum_stats['Mean'] = sum_stats.apply(
-    lambda row: f"\\makecell[tr]{{{row['Mean']} \\\\ ({row['Std']:.3f})}}", axis=1)
+    lambda row: f"\\makecell[tr]{{{row['Mean']:.2f} \\\\ ({row['Std']:.2f})}}", axis=1)
 export_latex_table(sum_stats, columns = columns, caption = 'Sample Grid Summary Statistics', label = 'tab:summary_stats')
 
 # summary statistics by zoning designation
@@ -62,7 +62,7 @@ zoning_stats = pd.DataFrame({
 columns = ['Industrial', 'Residential']
 
 zoning_stats['Industrial'] = zoning_stats.apply(
-    lambda row: f"\\makecell[tr]{{{row['Industrial']} \\\\ ({row['std_i']:.3f})}}", axis=1)
+    lambda row: f"\\makecell[tr]{{{row['Industrial']:.2f} \\\\ ({row['std_i']:.2f})}}", axis=1)
 zoning_stats['Residential'] = zoning_stats.apply(
-    lambda row: f"\\makecell[tr]{{{row['Residential']} \\\\ ({row['std_r']:.3f})}}", axis=1)
+    lambda row: f"\\makecell[tr]{{{row['Residential']:.2f} \\\\ ({row['std_r']:.2f})}}", axis=1)
 export_latex_table(zoning_stats, columns = columns, caption = 'Summary Statistics by Zoning Designation', label = 'tab:summary_stats_zone')
