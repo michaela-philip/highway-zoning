@@ -341,7 +341,7 @@ def geocode_addresses(df_orig):
         if candidates.any():
             geocoded_df.loc[candidates, 'coordinates'] = geocoded_df.loc[candidates].apply(resolve_ties, axis=1)
             iter_count += 1
-            print(f'iter {iter_count}: {candidates.sum()} ties resolved')
+            print(f'iter {iter_count}: {geocoded_df['coordinates'].notna().sum()} coordinates')
         else:
             break
         if iter_count > max_iter:
