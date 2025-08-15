@@ -43,26 +43,22 @@ def place_census(census, grid, geocoded):
     census['black_pop'] = (census['black'] * census['numprec'])
     census_grid = grid.sjoin(census, how='left', predicate='contains')
 
-    # pull in households that weren't geocoded but are likely to exist in each grid
-    grid = census_grid.groupby('grid_id').agg({'serial': ['min', 'max']}).reset_index().dropna()
-    grid.columns = ['_'.join([str(i) for i in col if i]) for col in grid.columns.values]
-
-    # create interval tree to find serials that fall within each grid's serial range
-    tree = IntervalTree()
-    for _, row in grid.iterrows():
-        tree[int(row['serial_min']): int(row['serial_max']) + 1] = int(row['grid_id'])
-
-    def assign_grid_id(serial):
-        matches = tree[serial]
-        if len(matches) == 1:
-            return list(matches)[0].data
+    # similar to while geocoding, I will interpolate grid_id by comparing neighbors
+    census = census.merge(census_grid[['serial', 'grid_id']], on = 'serial', how = 'left')
+    while True:
+        census['prev_grid'] = census['grid_id'].shift(1)
+        census['next_grid'] = census['grid_id'].shift(-1)
+        candidates = (census['grid_id'].isna() & census['prev_grid'].notna() & census['next_grid'].notna() & (census['prev_grid'] == census['next_grid'])) #if i-1 and i+1 are in the same grid, assign i to that grid
+        if candidates.any():
+            census = census.loc[candidates]
+            census.loc[candidates, 'grid_id'] = census.loc[candidates, 'prev_grid']
+            print(candidates.sum(), 'candidates')
         else:
-            return np.nan
+            break
+    census = census.drop(columns = ['prev_grid', 'next_grid'])
     
-    geocoded['serial'] = geocoded['serial'].astype(int)
-    geocoded['grid_id'] = geocoded['serial'].apply(assign_grid_id)
-    print(geocoded['grid_id'].notna().sum(), 'observations added')
-    census_grid = pd.concat([census_grid, geocoded[geocoded['grid_id'].notna()]], ignore_index=True)
+    # add in additional households to the grid
+    census_grid = pd.concat([census_grid, census], ignore_index=True)
     
     # calculate population and demographics in each grid square
     agg_funcs = {
@@ -74,7 +70,6 @@ def place_census(census, grid, geocoded):
     }
     census_grid = census_grid.dissolve(by='grid_id', aggfunc=agg_funcs)
     print('census data dissolved to grid', census_grid.columns)
-    #census_grid = census_grid.reset_index()
 
     # calculate a few different definitions of 'majority black'
     census_grid['pct_black'] = census_grid['black_pop'] / census_grid['numprec']
