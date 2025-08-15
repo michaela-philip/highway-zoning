@@ -33,7 +33,7 @@ def classify_grid(df, grid, centroids):
     return output
 
 ### FUNCTION TO PLACE CENSUS INFO INTO GRID ###
-def place_census(census, grid, geocoded):
+def place_census(census, grid):
     mask = (census['coordinates'].notna() & census['longitude'].isna())
     census.loc[mask, 'longitude'] = census.loc[mask, 'coordinates'].apply(lambda x: x[0])
     census.loc[mask, 'latitude'] = census.loc[mask, 'coordinates'].apply(lambda x: x[1])
@@ -45,17 +45,19 @@ def place_census(census, grid, geocoded):
 
     # similar to while geocoding, I will interpolate grid_id by comparing neighbors
     census = census.merge(census_grid[['serial', 'grid_id']], on = 'serial', how = 'left')
+    candidate_serials = []
     while True:
         census['prev_grid'] = census['grid_id'].shift(1)
         census['next_grid'] = census['grid_id'].shift(-1)
         candidates = (census['grid_id'].isna() & census['prev_grid'].notna() & census['next_grid'].notna() & (census['prev_grid'] == census['next_grid'])) #if i-1 and i+1 are in the same grid, assign i to that grid
         if candidates.any():
-            census = census.loc[candidates]
+            candidate_serials.extend(census.loc[candidates, 'serial'].tolist())
             census.loc[candidates, 'grid_id'] = census.loc[candidates, 'prev_grid']
             print(candidates.sum(), 'candidates')
         else:
             break
     census = census.drop(columns = ['prev_grid', 'next_grid'])
+    census = census[census['serial'].isin(candidate_serials)]
     
     # add in additional households to the grid
     census_grid = pd.concat([census_grid, census], ignore_index=True)
@@ -120,7 +122,7 @@ def place_highways(grid, state59, state40, us59, us40, interstate):
     return output
 
 ### FUNCTION TO CREATE THE SAMPLE GRID ### 
-def create_grid(zoning, centroids, census, geocoded, state59, state40, us59, us40, interstate, gridsize):
+def create_grid(zoning, centroids, census, state59, state40, us59, us40, interstate, gridsize):
     # grid is fit to size of zoning map
     a, b, c, d  = zoning.total_bounds
     step = gridsize # gridsize in meters
@@ -139,7 +141,7 @@ def create_grid(zoning, centroids, census, geocoded, state59, state40, us59, us4
     print(output.columns,'zoning added to grid')
 
     # overlay census data on grid
-    output = output.merge(place_census(census, output, geocoded)[['grid_id', 'numprec', 'black_pop', 'rent', 'valueh', 
+    output = output.merge(place_census(census, output)[['grid_id', 'numprec', 'black_pop', 'rent', 'valueh', 
                                                                   'pct_black', 'share_black', 'mblack_mean_pct', 
                                                                   'mblack_mean_share', 'mblack_1945def', 'serial']],
                            on='grid_id', how='left')
@@ -160,9 +162,6 @@ def create_grid(zoning, centroids, census, geocoded, state59, state40, us59, us4
 census = pd.read_pickle('data/input/atl_geocoded.pkl')
 zoning = gpd.read_file('data/input/zoning_shapefiles/atlanta/zoning.shp')
 
-geocoded = pd.read_pickle('data/input/atl_geocoded.pkl')
-geocoded = geocoded[geocoded['coordinates'].isna()].copy()
-
 centroids = pd.read_csv('data/input/msas_with_central_city_cbds.csv') # from Dan Aaron Hartley
 centroids = gpd.GeoDataFrame(centroids, geometry = gpd.points_from_xy(centroids.cbd_retail_long, centroids.cbd_retail_lat), 
                              crs = 'EPSG:4267') # best guess at CRS based off of projfinder.com
@@ -174,5 +173,5 @@ state40 = gpd.read_file('data/input/shapefiles/1940/1940 completed shapefiles/st
 us40 = gpd.read_file('data/input/shapefiles/1940/1940 completed shapefiles/usHighwayPaved1940_del.shp')
 
 # create sample with 150 x 150 grid squares
-atl_sample = create_grid(zoning, centroids, census, geocoded, state59, state40, us59, us40, interstate, 150)
+atl_sample = create_grid(zoning, centroids, census, state59, state40, us59, us40, interstate, 150)
 atl_sample.to_pickle('data/output/atl_sample.pkl')
