@@ -61,6 +61,7 @@ def place_census(census, grid, geocoded):
     
     geocoded['serial'] = geocoded['serial'].astype(int)
     geocoded['grid_id'] = geocoded['serial'].apply(assign_grid_id)
+    print(geocoded['grid_id'].notna().sum(), 'observations added')
     census_grid = pd.concat([census_grid, geocoded[geocoded['grid_id'].notna()]], ignore_index=True)
     
     # calculate population and demographics in each grid square
@@ -165,7 +166,7 @@ census = pd.read_pickle('data/input/atl_geocoded.pkl')
 zoning = gpd.read_file('data/input/zoning_shapefiles/atlanta/zoning.shp')
 
 geocoded = pd.read_pickle('data/input/atl_geocoded.pkl')
-geocoded = geocoded[geocoded['is_exact'].isna()].copy()
+geocoded = geocoded[geocoded['coordinates'].isna()].copy()
 
 centroids = pd.read_csv('data/input/msas_with_central_city_cbds.csv') # from Dan Aaron Hartley
 centroids = gpd.GeoDataFrame(centroids, geometry = gpd.points_from_xy(centroids.cbd_retail_long, centroids.cbd_retail_lat), 
