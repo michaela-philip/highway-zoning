@@ -9,7 +9,7 @@ def get_census(states):
     if os.path.exists(pickle_path):
         print('utilizing existing census pickle')
         df = pd.read_pickle(pickle_path)
-        df_states = df['stateicp'].unique().tolist()
+        df_states = df['statefip'].unique().tolist()
         needed_states = [state for state in states if state not in df_states]
         if not needed_states:
             print('existing pickle contains all necessary states')
@@ -18,9 +18,9 @@ def get_census(states):
             print(f'adding states {needed_states} to existing pickle')
             chunks = [] 
             for chunk in pd.read_csv(census, chunksize=1000000, low_memory = False):
-                if chunk['stateicp'].min() > max_state:
+                if chunk['statefip'].min() > max_state:
                     break
-                chunk = chunk[chunk['stateicp'].isin(needed_states)]
+                chunk = chunk[chunk['statefip'].isin(needed_states)]
                 if not chunk.empty:
                     chunks.append(chunk)
                     print(f'Chunk with {len(chunk)} rows processed')
@@ -32,9 +32,9 @@ def get_census(states):
         print('no existing pickle, processing from csv')
         chunks = [] 
         for chunk in pd.read_csv(census, chunksize=1000000, low_memory = False):
-            if chunk['stateicp'].min() > max_state:
+            if chunk['statefip'].min() > max_state:
                 break
-            chunk = chunk[chunk['stateicp'].isin(states)]
+            chunk = chunk[chunk['statefip'].isin(states)]
             if not chunk.empty:
                 chunks.append(chunk)
                 print(f'Chunk with {len(chunk)} rows processed')
@@ -43,5 +43,5 @@ def get_census(states):
             df.to_pickle('data/input/census_1940.pkl')
             print('processing complete and pickled!')
 
-states = [44, 51] # Georgia and Kentucky ICPSR
+states = [13, 21] # Georgia and Kentucky ICPSR
 get_census(states)
