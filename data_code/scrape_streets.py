@@ -191,9 +191,9 @@ def format_changes(df):
 ### SECTION TO BE EDITED UPON ADDITION OF NEW CITIES ###
 # list cities in sample
 rows = [
-    ('atlanta', 'AT', 'georgia', 'ga', 44, 1210, 350),
-    ('atlanta', 'AT', 'georgia', 'ga', 44,  890, 350),
-    ('louisville', 'LO', 'kentucky', 'ky', 51, 1110, 3750)]
+    ('atlanta', 'AT', 'georgia', 'GA', 44, 1210, 350),
+    ('atlanta', 'AT', 'georgia', 'GA', 44,  890, 350),
+    ('louisville', 'LO', 'kentucky', 'KY', 51, 1110, 3750)]
 sample = pd.DataFrame(rows, columns=['city', 'cityabbr', 'state', 'stateabbr', 'stateicp', 'countyicp', 'cityicp'])
 
 ### SCRAPE STREET NAMES ###
