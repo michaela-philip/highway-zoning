@@ -241,11 +241,11 @@ def match_addresses(df, streets):
     return df
 
 ### FUNCTION TO CALL MATCHING FUNCTION CITY BY CITY ###
-def match_addresses_citywide(df, sample, city_street_lists):
+def match_addresses_citywide(df, sample, city_streets):
     results = []
     for city in sample['city'].unique():
         city_df = df[df['city'].str.lower() == city].copy()
-        streets = city_street_lists[city]
+        streets = city_streets[city]
         matched = match_addresses(city_df, streets)
         results.append(matched) 
     # concat and return
@@ -388,7 +388,7 @@ def geocode_addresses_citywide(df, sample):
 
 ####################################################################################################
 ### MASTER FUNCTION ###
-def clean_data(census, sample, city_street_lists):
+def clean_data(census, sample, city_streets):
     cols = ['valueh', 'race', 'street', 'city', 'urban', 'countyicp', 'stateicp', 'rent', 
         'enumdist', 'respond', 'numperhh', 'numprec', 'serial', 'rawhn', 'ownershp', 'pageno', 'dwelling']
 
@@ -410,7 +410,7 @@ def clean_data(census, sample, city_street_lists):
     df = standardize_addresses(df)
     print('addresses standarized')
 
-    df = match_addresses_citywide(df, sample, city_street_lists)
+    df = match_addresses_citywide(df, sample, city_streets)
     print('address matching done')
 
     df = interpolate_house_numbers(df)
@@ -428,29 +428,44 @@ def clean_data(census, sample, city_street_lists):
 ### SECTION TO BE EDITED UPON ADDITION OF NEW CITIES ###
 # list cities in sample
 rows = [
-    ('atlanta', 'georgia', 44, 1210, 350),
-    ('atlanta', 'georgia', 44,  890, 350),
-    ('louisville', 'kentucky', 51, 1110, 3750)]
+    ('atlanta', 'georgia', 'ga', 44, 1210, 350),
+    ('atlanta', 'georgia', 'ga', 44,  890, 350),
+    ('louisville', 'kentucky', 'ky', 51, 1110, 3750)]
 
-sample = pd.DataFrame(rows, columns=['city', 'state', 'stateicp', 'countyicp', 'cityicp'])
+sample = pd.DataFrame(rows, columns=['city', 'state', 'stateabbr', 'stateicp', 'countyicp', 'cityicp'])
 
-# pull in street lists for each city
-city_street_lists = {}
+# pull in existing street lists for each city
+city_streets = {}
 for city in sample['city'].unique():
     csv_path = f'data/input/{city}_streets.csv'
     if not os.path.exists(csv_path):
         from scrape_streets import atlanta_streets, louisville_streets
         if city == 'atlanta':
-            city_street_lists[city] = atlanta_streets
+            city_streets[city] = atlanta_streets
         elif city == 'louisville':
-            city_street_lists[city] = louisville_streets
+            city_streets[city] = louisville_streets
         else:
             raise ValueError(f'Street list for {city} not found and no scraping function available.')
     else:
-        city_street_lists[city] = pd.read_csv(csv_path)
+        city_streets[city] = pd.read_csv(csv_path)
+
+# pull in street changes for each city
+city_street_changes = {}
+for city in sample['city'].unique():
+    csv_path = f'data/input/{city}_changes.csv'
+    if not os.path.exists(csv_path):
+        from scrape_streets import atlanta_changes, louisville_changes
+        if city == 'atlanta':
+            city_street_changes[city] = atlanta_changes
+        elif city == 'louisville':
+            city_street_changes[city] = louisville_changes
+        else:
+            raise ValueError(f'Street list for {city} not found and no scraping function available.')
+    else:
+        city_street_changes[city] = pd.read_csv(csv_path)
 ####################################################################################################
 
 census = pd.read_csv('data/input/census_1940.pkl')
-df = clean_data(census, sample, city_street_lists)
+df = clean_data(census, sample, city_streets)
 df.to_pickle('data/input/geocoded_data.pkl')
 print('geocoded data pickled')
