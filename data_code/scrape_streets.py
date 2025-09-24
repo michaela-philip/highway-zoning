@@ -1,17 +1,22 @@
 # should eventually turn this into a function that takes city, state as input 
 
 import pandas as pd
+import time
 from selenium import webdriver
 from webdriver_manager.chrome import ChromeDriverManager
 from selenium.webdriver.chrome.service import Service as ChromeService
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
-import time
 from selenium.webdriver.support.ui import Select
+from selenium.webdriver.support.relative_locator import locate_with
 
+##### STREET NAME SCRAPING #####
 ### FUNCTION TO SCRAPE STREET NAMES FROM STEVE MORSE ###
-def scrape_streets(url):
+def scrape_streets(url, sample):
+    city = sample['cityabbr'][0]
+    state = sample['stateabbr'][0].upper()
+
     driver = webdriver.Chrome(service=ChromeService(ChromeDriverManager().install()))
     driver.get(url)
     wait = WebDriverWait(driver, 10)
@@ -31,10 +36,10 @@ def scrape_streets(url):
     stateframe = wait.until(EC.presence_of_element_located((By.NAME, 'stateFrame')))
     driver.switch_to.frame(stateframe)
 
-    # choose Georgia
-    state = wait.until(EC.element_to_be_clickable((By.NAME, 'states')))
-    state.click()
-    state.find_element(By.XPATH, './option[@value="GA"]').click()
+    # choose state
+    statebutton = wait.until(EC.element_to_be_clickable((By.NAME, 'states')))
+    statebutton.click()
+    statebutton.find_element(By.XPATH, f'./option[@value="{state}"]').click()
 
     # go back to main frame then choose city frame
     driver.switch_to.default_content()
@@ -42,9 +47,9 @@ def scrape_streets(url):
     driver.switch_to.frame(cityframe)
 
     # choose Atlanta
-    city = wait.until(EC.element_to_be_clickable((By.NAME, 'cities')))
-    city.click()
-    city.find_element(By.XPATH, './option[@value="AT"]').click()
+    citybutton = wait.until(EC.element_to_be_clickable((By.NAME, 'cities')))
+    citybutton.click()
+    citybutton.find_element(By.XPATH, f'./option[@value="{city}"]').click()
 
     # go back to main frame then choose enumeration district frame
     driver.switch_to.default_content()
@@ -87,8 +92,20 @@ def scrape_streets(url):
     street_list = pd.DataFrame(street_list)
     return street_list 
 
+### FUNCTION TO CALL SCRAPING FUNCTION FOR EACH CITY ###
+def scrape_streets_citywise(url, sample):
+    city_streets = {}
+    for city in sample['city'].unique():
+        city_sample = sample[sample['city'] == city]
+        city_street = scrape_streets(url, city_sample)
+        city_street.to_csv(f'data/output/{city}_streets.csv', index=False)
+        print(f'{city} street_list csv created!')
+        city_streets[city] = city_street
+    return city_streets
+
+##### NAME CHANGE SCRAPING #####
 ### FUNCTION TO SCRAPE LIST OF ATL STREET CHANGES ###
-def scrape_street_changes(url):
+def scrape_atl_changes(url):
     street_changes = []
     driver = webdriver.Chrome(service=ChromeService(ChromeDriverManager().install()))
     driver.get(url)
@@ -109,7 +126,32 @@ def scrape_street_changes(url):
                 })
 
     driver.quit()
+    street_changes = pd.DataFrame(street_changes)
     return street_changes
+
+def scrape_louisville_changes(url):
+    street_changes = []
+    driver = webdriver.Chrome(service=ChromeService(ChromeDriverManager().install()))
+    driver.get(url)
+
+    header = driver.find_element(By.ID, 'Renamed_streets')
+    table = driver.find_element(locate_with(By.CLASS_NAME, 'wikitable').below(header))
+    rows = table.find_elements(By.TAG_NAME, 'tr')[1:]
+    for row in rows:
+        cols = row.find_elements(By.TAG_NAME, 'td')
+        new_name = cols[0].text
+        old_name = cols[1].text
+        if old_name:
+            street_changes.append({
+                'new_name': new_name,
+                'old_name': old_name,
+            })
+    driver.quit()
+    street_changes = pd.DataFrame(street_changes)
+    street_changes['old_name'] = street_changes['old_name'].str.split(', ')
+    street_changes = street_changes.explode('old_name').reset_index(drop=True)
+    return street_changes
+
 
 ### FUNCTION TO FORMAT STREET NAMES THE SAME WAY AS IN CENSUS/STEVE MORSE ###
 def format_street_changes(df):
@@ -136,19 +178,37 @@ def minimal_format(df):
         )
     return df
 
+def format_changes(df):
+    street_to_drop = df['new_name'][df['new_name'].isin(df['old_name'])]
+    df = df[~df['new_name'].isin(street_to_drop)]
+    df['old_name'] = format_street_changes(df['old_name'])
+    df['new_name'] = minimal_format(df['new_name'])
+    return df
+
 ####################################################################################################
 
-# url = 'https://stevemorse.org/census/index.html?ed2street=1'
-# street_list = scrape_streets(url)
-# street_list.to_csv('data/output/ga_streets.csv', index=False)
-# print('street_list csv created!')
+####################################################################################################
+### SECTION TO BE EDITED UPON ADDITION OF NEW CITIES ###
+# list cities in sample
+rows = [
+    ('atlanta', 'AT', 'georgia', 'ga', 44, 1210, 350),
+    ('atlanta', 'AT', 'georgia', 'ga', 44,  890, 350),
+    ('louisville', 'LO', 'kentucky', 'ky', 51, 1110, 3750)]
+sample = pd.DataFrame(rows, columns=['city', 'cityabbr', 'state', 'stateabbr', 'stateicp', 'countyicp', 'cityicp'])
 
+### SCRAPE STREET NAMES ###
+url = 'https://stevemorse.org/census/index.html?ed2street=1'
+city_streets = scrape_streets_citywise(url, sample)
+atlanta_streets = city_streets.get('atlanta')
+louisville_streets = city_streets.get('louisville')
+
+### SCRAPE STREET CHANGES ###
 url = 'http://jolomo.net/atlanta/streets.html'
-atl_street_changes = pd.DataFrame(scrape_street_changes(url))
-street_to_drop = atl_street_changes['new_name'][atl_street_changes['new_name'].isin(atl_street_changes['old_name'])]
-atl_street_changes = atl_street_changes[~atl_street_changes['new_name'].isin(street_to_drop)]
-atl_street_changes['old_name'] = format_street_changes(atl_street_changes['old_name'])
-atl_street_changes['new_name'] = minimal_format(atl_street_changes['new_name'])
+atlanta_changes = scrape_atl_changes(url)
+atlanta_changes = format_changes(atlanta_changes)
+atlanta_changes.to_csv('data/output/atlanta_changes.csv', index=False)
 
-atl_street_changes.to_csv('data/output/atl_street_changes.csv', index=False)
-print('atl street_change csv created!')
+url = 'https://en.wikipedia.org/wiki/List_of_roads_in_Louisville,_Kentucky'
+louisville_changes = scrape_louisville_changes(url)
+louisville_changes = format_changes(louisville_changes)
+louisville_changes.to_csv('data/output/louisville_changes.csv', index=False)
