@@ -10,12 +10,13 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import Select
 from selenium.webdriver.support.relative_locator import locate_with
+from data_code.clean import sample
 
 ##### STREET NAME SCRAPING #####
 ### FUNCTION TO SCRAPE STREET NAMES FROM STEVE MORSE ###
 def scrape_streets(url, sample):
-    city = sample['cityabbr'][0]
-    state = sample['stateabbr'][0].upper()
+    city = sample['cityabbr']
+    state = sample['stateabbr'].upper()
 
     driver = webdriver.Chrome(service=ChromeService(ChromeDriverManager().install()))
     driver.get(url)
@@ -46,7 +47,7 @@ def scrape_streets(url, sample):
     cityframe = wait.until(EC.presence_of_element_located((By.NAME, 'cityFrame')))
     driver.switch_to.frame(cityframe)
 
-    # choose Atlanta
+    # choose city
     citybutton = wait.until(EC.element_to_be_clickable((By.NAME, 'cities')))
     citybutton.click()
     citybutton.find_element(By.XPATH, f'./option[@value="{city}"]').click()
@@ -188,14 +189,6 @@ def format_changes(df):
 ####################################################################################################
 
 ####################################################################################################
-### SECTION TO BE EDITED UPON ADDITION OF NEW CITIES ###
-# list cities in sample
-rows = [
-    ('atlanta', 'AT', 'georgia', 'GA', 44, 1210, 350),
-    ('atlanta', 'AT', 'georgia', 'GA', 44,  890, 350),
-    ('louisville', 'LO', 'kentucky', 'KY', 51, 1110, 3750)]
-sample = pd.DataFrame(rows, columns=['city', 'cityabbr', 'state', 'stateabbr', 'stateicp', 'countyicp', 'cityicp'])
-
 ### SCRAPE STREET NAMES ###
 url = 'https://stevemorse.org/census/index.html?ed2street=1'
 city_streets = scrape_streets_citywise(url, sample)
