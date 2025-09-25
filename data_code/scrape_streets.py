@@ -15,7 +15,7 @@ from selenium.webdriver.support.relative_locator import locate_with
 ### FUNCTION TO SCRAPE STREET NAMES FROM STEVE MORSE ###
 def scrape_streets(url, sample):
     city = sample['cityabbr']
-    state = sample['stateabbr'].upper()
+    state = sample['stateabbr']
 
     driver = webdriver.Chrome(service=ChromeService(ChromeDriverManager().install()))
     driver.get(url)
@@ -96,7 +96,7 @@ def scrape_streets(url, sample):
 def scrape_streets_citywise(url, sample):
     city_streets = {}
     for city in sample['city'].unique():
-        city_sample = sample[sample['city'] == city]
+        city_sample = sample[sample['city'] == city].iloc[0]
         city_street = scrape_streets(url, city_sample)
         city_street.to_csv(f'data/intermed/{city}_streets.csv', index=False)
         print(f'{city} street_list csv created!')
@@ -188,23 +188,3 @@ def format_changes(df, name = None):
     return df
 
 ####################################################################################################
-
-####################################################################################################
-### SCRAPE STREET NAMES ###
-
-
-# url = 'https://stevemorse.org/census/index.html?ed2street=1'
-# city_streets = scrape_streets_citywise(url, sample)
-# atlanta_streets = city_streets.get('atlanta')
-# louisville_streets = city_streets.get('louisville')
-
-# ### SCRAPE STREET CHANGES ###
-# url = 'http://jolomo.net/atlanta/streets.html'
-# atlanta_changes = scrape_atl_changes(url)
-# atlanta_changes = format_changes(atlanta_changes)
-# atlanta_changes.to_csv('data/intermed/atlanta_changes.csv', index=False)
-
-# url = 'https://en.wikipedia.org/wiki/List_of_roads_in_Louisville,_Kentucky'
-# louisville_changes = scrape_louisville_changes(url)
-# louisville_changes = format_changes(louisville_changes)
-# louisville_changes.to_csv('data/intermed/louisville_changes.csv', index=False)
