@@ -322,7 +322,7 @@ def geocode_addresses(df_orig, city_sample):
     result3 = pd.DataFrame(censusbatchgeocoder.geocode(d3.to_dict(orient = 'records'), zipcode = None))
     print('third done')
     geocoded_df = pd.concat([result1, result2, result3])
-    geocoded_df.to_pickle('data/input/atl_geocoded.pkl')
+    geocoded_df.to_pickle('data/intermed/atl_geocoded.pkl')
     print(f"{geocoded_df['is_exact'].notna().sum()} records geocoded")
     print(f"{(geocoded_df['is_match'] == 'Tie').sum()} ties")
     print(f"{(geocoded_df['is_match'] == 'No_Match').sum()} unmatched")
@@ -392,7 +392,8 @@ def clean_data(census, sample, city_streets):
     cols = ['valueh', 'race', 'street', 'city', 'urban', 'countyicp', 'stateicp', 'rent', 
         'enumdist', 'respond', 'numperhh', 'numprec', 'serial', 'rawhn', 'ownershp', 'pageno', 'dwelling']
 
-    mask = census['countyicp'].isin(sample['countyicp']) | census['cityicp'].isin(sample['cityicp'])
+    all_countyicps = [c for sublist in sample['countyicp'] for c in (sublist if isinstance(sublist, list) else [sublist])]
+    mask = census['countyicp'].isin(all_countyicps) | census['cityicp'].isin(sample['cityicp'])
     df = census.loc[mask, cols]
 
     # recode valueh and rent missing values
@@ -417,7 +418,7 @@ def clean_data(census, sample, city_streets):
     print('house numbers interpolated')
 
     # pickle incase geocoding fails - no need to repeat entire process
-    df.to_pickle('data/input/cleaned_data.pkl')    
+    df.to_pickle('data/intermed/cleaned_data.pkl')    
     print('pickle created')
 
     df = geocode_addresses_citywide(df, sample)
@@ -427,17 +428,17 @@ def clean_data(census, sample, city_streets):
 ####################################################################################################
 ### SECTION TO BE EDITED UPON ADDITION OF NEW CITIES ###
 # list cities in sample
-rows = [
-    ('atlanta', 'georgia', 'ga', 44, 1210, 350),
-    ('atlanta', 'georgia', 'ga', 44,  890, 350),
-    ('louisville', 'kentucky', 'ky', 51, 1110, 3750)]
-
-sample = pd.DataFrame(rows, columns=['city', 'state', 'stateabbr', 'stateicp', 'countyicp', 'cityicp'])
+values = [
+    ('atlanta', 'AT', 'georgia', 'ga', 44, [1210, 890], 350),
+    ('louisville', 'LO', 'kentucky', 'ky', 51, [1110], 3750)]
+keys=['city', 'cityabbr', 'state', 'stateabbr', 'stateicp', 'countyicp', 'cityicp']
+rows = [dict(zip(keys, v)) for v in values]
+sample = pd.DataFrame(rows)
 
 # pull in existing street lists for each city
 city_streets = {}
 for city in sample['city'].unique():
-    csv_path = f'data/input/{city}_streets.csv'
+    csv_path = f'data/intermed/{city}_streets.csv'
     if not os.path.exists(csv_path):
         from scrape_streets import atlanta_streets, louisville_streets
         if city == 'atlanta':
@@ -452,7 +453,7 @@ for city in sample['city'].unique():
 # pull in street changes for each city
 city_street_changes = {}
 for city in sample['city'].unique():
-    csv_path = f'data/input/{city}_changes.csv'
+    csv_path = f'data/intermed/{city}_changes.csv'
     if not os.path.exists(csv_path):
         from scrape_streets import atlanta_changes, louisville_changes
         if city == 'atlanta':
@@ -467,5 +468,5 @@ for city in sample['city'].unique():
 
 census = pd.read_csv('data/input/census_1940.pkl')
 df = clean_data(census, sample, city_streets)
-df.to_pickle('data/input/geocoded_data.pkl')
+df.to_pickle('data/intermed/geocoded_data.pkl')
 print('geocoded data pickled')
