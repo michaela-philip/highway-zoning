@@ -10,7 +10,6 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import Select
 from selenium.webdriver.support.relative_locator import locate_with
-from data_code.clean import sample
 
 ##### STREET NAME SCRAPING #####
 ### FUNCTION TO SCRAPE STREET NAMES FROM STEVE MORSE ###
@@ -99,7 +98,7 @@ def scrape_streets_citywise(url, sample):
     for city in sample['city'].unique():
         city_sample = sample[sample['city'] == city]
         city_street = scrape_streets(url, city_sample)
-        city_street.to_csv(f'data/output/{city}_streets.csv', index=False)
+        city_street.to_csv(f'data/intermed/{city}_streets.csv', index=False)
         print(f'{city} street_list csv created!')
         city_streets[city] = city_street
     return city_streets
@@ -179,29 +178,33 @@ def minimal_format(df):
         )
     return df
 
-def format_changes(df):
+def format_changes(df, name = None):
     street_to_drop = df['new_name'][df['new_name'].isin(df['old_name'])]
     df = df[~df['new_name'].isin(street_to_drop)]
     df['old_name'] = format_street_changes(df['old_name'])
     df['new_name'] = minimal_format(df['new_name'])
+    if name is not None:
+        df.to_csv(f'data/intermed/{name}.csv', index=False)
     return df
 
 ####################################################################################################
 
 ####################################################################################################
 ### SCRAPE STREET NAMES ###
-url = 'https://stevemorse.org/census/index.html?ed2street=1'
-city_streets = scrape_streets_citywise(url, sample)
-atlanta_streets = city_streets.get('atlanta')
-louisville_streets = city_streets.get('louisville')
 
-### SCRAPE STREET CHANGES ###
-url = 'http://jolomo.net/atlanta/streets.html'
-atlanta_changes = scrape_atl_changes(url)
-atlanta_changes = format_changes(atlanta_changes)
-atlanta_changes.to_csv('data/output/atlanta_changes.csv', index=False)
 
-url = 'https://en.wikipedia.org/wiki/List_of_roads_in_Louisville,_Kentucky'
-louisville_changes = scrape_louisville_changes(url)
-louisville_changes = format_changes(louisville_changes)
-louisville_changes.to_csv('data/output/louisville_changes.csv', index=False)
+# url = 'https://stevemorse.org/census/index.html?ed2street=1'
+# city_streets = scrape_streets_citywise(url, sample)
+# atlanta_streets = city_streets.get('atlanta')
+# louisville_streets = city_streets.get('louisville')
+
+# ### SCRAPE STREET CHANGES ###
+# url = 'http://jolomo.net/atlanta/streets.html'
+# atlanta_changes = scrape_atl_changes(url)
+# atlanta_changes = format_changes(atlanta_changes)
+# atlanta_changes.to_csv('data/intermed/atlanta_changes.csv', index=False)
+
+# url = 'https://en.wikipedia.org/wiki/List_of_roads_in_Louisville,_Kentucky'
+# louisville_changes = scrape_louisville_changes(url)
+# louisville_changes = format_changes(louisville_changes)
+# louisville_changes.to_csv('data/intermed/louisville_changes.csv', index=False)
