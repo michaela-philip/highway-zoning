@@ -440,13 +440,11 @@ city_streets = {}
 for city in sample['city'].unique():
     csv_path = f'data/intermed/{city}_streets.csv'
     if not os.path.exists(csv_path):
-        from scrape_streets import atlanta_streets, louisville_streets
-        if city == 'atlanta':
-            city_streets[city] = atlanta_streets
-        elif city == 'louisville':
-            city_streets[city] = louisville_streets
-        else:
-            raise ValueError(f'Street list for {city} not found and no scraping function available.')
+        from scrape_streets import scrape_streets_citywise
+        url = 'https://stevemorse.org/census/index.html?ed2street=1'
+        city_streets = scrape_streets_citywise(url, sample)
+        atlanta_streets = city_streets.get('atlanta')
+        louisville_streets = city_streets.get('louisville')
     else:
         city_streets[city] = pd.read_csv(csv_path)
 
@@ -455,13 +453,13 @@ city_street_changes = {}
 for city in sample['city'].unique():
     csv_path = f'data/intermed/{city}_changes.csv'
     if not os.path.exists(csv_path):
-        from scrape_streets import atlanta_changes, louisville_changes
-        if city == 'atlanta':
-            city_street_changes[city] = atlanta_changes
-        elif city == 'louisville':
-            city_street_changes[city] = louisville_changes
-        else:
-            raise ValueError(f'Street list for {city} not found and no scraping function available.')
+        from scrape_streets import scrape_atl_changes, scrape_louisville_changes, format_changes
+        url_atl = 'http://jolomo.net/atlanta/streets.html'
+        url_lo = 'https://en.wikipedia.org/wiki/List_of_roads_in_Louisville,_Kentucky'
+        atlanta_changes = scrape_atl_changes(url_atl)
+        atlanta_changes = format_changes(atlanta_changes, name = 'atlanta_changes')
+        louisville_changes = scrape_louisville_changes(url_lo)
+        louisville_changes = format_changes(louisville_changes, name = 'lousiville_changes')
     else:
         city_street_changes[city] = pd.read_csv(csv_path)
 ####################################################################################################
