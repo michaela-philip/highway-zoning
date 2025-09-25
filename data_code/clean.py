@@ -429,8 +429,8 @@ def clean_data(census, sample, city_streets):
 ### SECTION TO BE EDITED UPON ADDITION OF NEW CITIES ###
 # list cities in sample
 values = [
-    ('atlanta', 'AT', 'georgia', 'ga', 44, [1210, 890], 350),
-    ('louisville', 'LO', 'kentucky', 'ky', 51, [1110], 3750)]
+    ('atlanta', 'AT', 'georgia', 'GA', 44, [1210, 890], 350),
+    ('louisville', 'LO', 'kentucky', 'KY', 51, [1110], 3750)]
 keys=['city', 'cityabbr', 'state', 'stateabbr', 'stateicp', 'countyicp', 'cityicp']
 rows = [dict(zip(keys, v)) for v in values]
 sample = pd.DataFrame(rows)
