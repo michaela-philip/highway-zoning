@@ -244,7 +244,8 @@ def match_addresses(df, streets):
 def match_addresses_citywide(df, sample, city_streets):
     results = []
     for city in sample['city'].unique():
-        city_df = df[df['city'].str.lower() == city].copy()
+        city_sample = sample[sample['city'] == city].iloc[0]
+        city_df = df[df['city'] == city_sample['cityicp']].copy()
         streets = city_streets[city]
         matched = match_addresses(city_df, streets)
         results.append(matched) 
@@ -378,8 +379,8 @@ def geocode_addresses(df_orig, city_sample):
 def geocode_addresses_citywide(df, sample):
     results = []
     for city in sample['city'].unique():
-        city_df = df[df['city'].str.lower() == city].copy()
         city_sample = sample[sample['city'] == city].iloc[0]
+        city_df = df[df['city'] == city_sample['cityicp']].copy()
         geocoded = geocode_addresses(city_df, city_sample)
         results.append(geocoded) 
     # concat and return
@@ -393,7 +394,7 @@ def clean_data(census, sample, city_streets):
         'enumdist', 'respond', 'numperhh', 'numprec', 'serial', 'rawhn', 'ownershp', 'pageno', 'dwelling']
 
     all_countyicps = [c for sublist in sample['countyicp'] for c in (sublist if isinstance(sublist, list) else [sublist])]
-    mask = census['countyicp'].isin(all_countyicps) | census['cityicp'].isin(sample['cityicp'])
+    mask = census['countyicp'].isin(all_countyicps) | census['city'].isin(sample['cityicp'])
     df = census.loc[mask, cols]
 
     # recode valueh and rent missing values
@@ -464,7 +465,7 @@ for city in sample['city'].unique():
         city_street_changes[city] = pd.read_csv(csv_path)
 ####################################################################################################
 
-census = pd.read_csv('data/input/census_1940.pkl')
+census = pd.read_pickle('data/input/census_1940.pkl')
 df = clean_data(census, sample, city_streets)
 df.to_pickle('data/intermed/geocoded_data.pkl')
 print('geocoded data pickled')
