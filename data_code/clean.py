@@ -304,6 +304,7 @@ def geocode_addresses(df_orig, city_sample):
     df['address'] = np.where(df['new_name'].notna(), 
                     df['rawhn'].astype(str).str.cat([df['new_name'].str.lower(), df['street_direction'].str.lower()], sep = ' ', na_rep = ''),
                     df['rawhn'].astype(str).str.cat([df['street_match'].str.lower(), df['street_direction'].str.lower()], sep = ' ', na_rep = ''))
+    df = df.rename(columns = {'city':'cityicp'}, inplace = True)
     df['city'] = city_sample['city'] 
     df['state'] = city_sample['state'] 
     df['zipcode'] = ''
@@ -424,7 +425,7 @@ def clean_data(census, sample, city_streets):
     # pickle incase geocoding fails - no need to repeat entire process
     df.to_pickle('data/intermed/cleaned_data.pkl')    
     print('pickle created')
-
+    df = pd.read_pickle('data/intermed/cleaned_data.pkl')
     df = geocode_addresses_citywide(df, sample)
     return df
 ####################################################################################################
