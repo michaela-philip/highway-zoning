@@ -128,21 +128,23 @@ def place_highways(grid, state59, state40, us59, us40, interstate):
     built_1940 = pd.concat([state40, us40])
 
     # overlay highways onto grid
-    hwy59 = gpd.sjoin(grid, built_1959, how = 'left', predicate = 'intersects')
+    hwy_59 = gpd.sjoin(grid, built_1959, how = 'left', predicate = 'intersects')
     hwy_40 = gpd.sjoin(grid, built_1940, how = 'left', predicate = 'intersects')
 
     # dummy variable for presence of highway
-    hwy59['hwy_59'] = np.where(hwy59['speed1'].isna(), 0, 1)
+    hwy_59['hwy_59'] = np.where(hwy_59['speed1'].isna(), 0, 1)
     hwy_40['hwy_40'] = np.where(hwy_40['speed1'].isna(), 0, 1)
 
     # aggregate by grid_id taking max value (if any highways exist, it is 1 no matter what)
-    hwy59 = hwy59.groupby('grid_id').agg({'hwy_59':'max'})
+    hwy_59 = hwy_59.groupby('grid_id').agg({'hwy_59':'max'})
     hwy_40 = hwy_40.groupby('grid_id').agg({'hwy_40':'max'})
 
-    hwys = pd.concat([hwy59, hwy_40], axis = 1)
+    hwys = pd.concat([hwy_59, hwy_40], axis = 1)
 
     # merge in hwy indicator
     output = grid.merge(hwys, left_on='grid_id', right_index=True)
+    built_1940_union = built_1940.unary_union
+    output['dist_to_hwy'] = output.geometry.centroid.apply(lambda x: x.distance(built_1940_union))
     return output
 
 ### FUNCTION TO CREATE THE SAMPLE GRID ### 
@@ -172,7 +174,7 @@ def create_grid(zoning, centroids, census, state59, state40, us59, us40, interst
     print('census added to grid')
 
     # place highways into grid
-    output = output.merge(place_highways(grid, state59, state40, us59, us40, interstate)[['grid_id', 'hwy_59', 'hwy_40']],
+    output = output.merge(place_highways(grid, state59, state40, us59, us40, interstate)[['grid_id', 'hwy_59', 'hwy_40', 'dist_to_hwy']],
                             on='grid_id',how='left')
     print('highways added to grid')
 
