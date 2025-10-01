@@ -2,7 +2,6 @@ import pandas as pd
 import numpy as np
 import geopandas as gpd
 import shapely.geometry
-from data_code.clean import sample
 
 ### FUNCTION TO CLASSIFY GRID BASED ON ZONING ###
 def classify_grid(zoning1, grid, centroids, city_sample, zoning2 = None):
@@ -43,13 +42,16 @@ def classify_grid(zoning1, grid, centroids, city_sample, zoning2 = None):
         output2 = classify_grids(zoning2)
 
         # drop all squares whose zoning classification changes
-        drop_ids = output['grid_id'][output['maj_zoning'] != output2['maj_zoning']]
+        # compare only squares that exist in both maps - squares that only come into existence later are left as is
+        overlap = output[['grid_id', 'maj_zoning']].merge(output2[['grid_id', 'maj_zoning']], 
+                                                          on='grid_id', suffixes=('_1', '_2'), how = 'inner')
+        drop_ids = overlap.loc[overlap['maj_zoning_1'] != overlap['maj_zoning_2'], 'grid_id']
         output = output[~output['grid_id'].isin(drop_ids)]
         print(len(drop_ids), 'grid squares dropped due to zoning change')
 
-    city = city_sample['city'].iloc[0]
+    city = city_sample['city']
     # calculate distance between grid centroid and CBD 
-    city_cbd = centroids[centroids['place'] == f'{city}'].to_crs(grid.crs).geometry.iloc[0]
+    city_cbd = centroids[centroids['place'].str.lower() == f'{city}'].to_crs(grid.crs).geometry.iloc[0]
     output['distance_to_cbd'] = output.geometry.centroid.distance(city_cbd)
     return output
 
@@ -143,7 +145,7 @@ def place_highways(grid, state59, state40, us59, us40, interstate):
     return output
 
 ### FUNCTION TO CREATE THE SAMPLE GRID ### 
-def create_grid(zoning, centroids, census, state59, state40, us59, us40, interstate, gridsize, zoning2 = None):
+def create_grid(zoning, centroids, census, state59, state40, us59, us40, interstate, gridsize, city_sample, zoning2 = None):
     # grid is fit to size of zoning map
     a, b, c, d  = zoning.total_bounds
     step = gridsize # gridsize in meters
@@ -158,7 +160,7 @@ def create_grid(zoning, centroids, census, state59, state40, us59, us40, interst
     grid['grid_id'] = range(1, len(grid) + 1)
 
     # overlay zoning map with grid squares and classify each square
-    output = classify_grid(zoning, grid, centroids, zoning2)
+    output = classify_grid(zoning, grid, centroids, city_sample, zoning2)
     print(output.columns,'zoning added to grid')
 
     # overlay census data on grid
@@ -186,17 +188,16 @@ def create_sample(df, sample):
         if city == 'louisville':
             city_zoning1 = zoning['louisville_1947']
             city_zoning2 = zoning['louisville_1931']
-            city_grid = create_grid(city_zoning1, centroids, city_df, state59, state40, us59, us40, interstate, gridsize = 150, zoning2 = city_zoning2)
+            city_grid = create_grid(city_zoning1, centroids, city_df, state59, state40, us59, us40, interstate, gridsize = 150, city_sample = city_sample, zoning2 = city_zoning2)
         else:
             city_zoning = zoning[city]
-            city_grid = create_grid(city_zoning, centroids, city_df, state59, state40, us59, us40, interstate, gridsize = 150)
+            city_grid = create_grid(city_zoning, centroids, city_df, state59, state40, us59, us40, interstate, city_sample = city_sample, gridsize = 150)
         city_grid['city'] = city
         output = pd.concat([output, city_grid], ignore_index=True)
     return output
 
 ####################################################################################################
-
-census = pd.read_pickle('data/input/atl_geocoded.pkl')
+census = pd.read_pickle('data/intermed/geocoded_data.pkl')
 centroids = pd.read_csv('data/input/msas_with_central_city_cbds.csv') # from Dan Aaron Hartley
 centroids = gpd.GeoDataFrame(centroids, geometry = gpd.points_from_xy(centroids.cbd_retail_long, centroids.cbd_retail_lat), 
                              crs = 'EPSG:4267') # best guess at CRS based off of projfinder.com
@@ -206,7 +207,9 @@ state59 = gpd.read_file('data/input/shapefiles/1960/stateHighwayPaved1959_del.sh
 us59 = gpd.read_file('data/input/shapefiles/1960/usHighwayPaved1959_del.shp')
 state40 = gpd.read_file('data/input/shapefiles/1940/1940 completed shapefiles/stateHighwayPaved1940_del.shp')
 us40 = gpd.read_file('data/input/shapefiles/1940/1940 completed shapefiles/usHighwayPaved1940_del.shp')
+####################################################################################################
 
+####################################################################################################
 ### SECTION TO BE EDITED UPON ADDITION OF NEW CITIES ###
 atlanta_zoning = gpd.read_file('data/input/zoning_shapefiles/atlanta/zoning.shp')
 louisville_zoning1 = gpd.read_file('data/input/zoning_shapefiles/louisville/zoning-1947.shp')
@@ -216,6 +219,13 @@ zoning = {
     'louisville_1947': louisville_zoning1,
     'louisville_1931': louisville_zoning2
 }
+values = [
+    ('atlanta', 'AT', 'georgia', 'GA', 44, [1210, 890], 350),
+    ('louisville', 'LO', 'kentucky', 'KY', 51, [1110], 3750)]
+keys=['city', 'cityabbr', 'state', 'stateabbr', 'stateicp', 'countyicp', 'cityicp']
+rows = [dict(zip(keys, v)) for v in values]
+sample = pd.DataFrame(rows)
+####################################################################################################
 
 # create sample with 150 x 150 grid squares
 output = create_sample(census, sample)
