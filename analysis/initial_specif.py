@@ -35,7 +35,8 @@ def export_single_regression(df, caption, label, widthmultiplier = 1.0):
         'mblack_mean_pct:Residential': 'Majority Black (Avg. Percent) x Residential',
         'mblack_mean_share': 'Majority Black (Avg. Share)',
         'mblack_mean_share:Residential': 'Majority Black (Avg. Share) x Residential',
-        'distance_to_cbd': 'Distance to CBD'}, axis = 'index')
+        'distance_to_cbd': 'Distance to CBD',
+        'dist_to_hwy': 'Distance to Nearest Highway (1940)'}, axis = 'index')
     
     # format for latex output
     num_cols = df.shape[1]
@@ -69,7 +70,8 @@ def export_multiple_regressions(df_list, caption, label):
         'mblack_mean_pct:Residential': 'Black x Residential',
         'mblack_mean_share': 'Black',
         'mblack_mean_share:Residential': 'Black x Residential',
-        'distance_to_cbd': 'Distance to CBD'}, axis = 'index')
+        'distance_to_cbd': 'Distance to CBD',
+        'dist_to_hwy': 'Distance to Nearest Highway (1940)'}, axis = 'index')
     
     renamed_list = [standardize_index(column_names(df)) for df in df_list]    
     df = pd.concat(renamed_list, axis = 1)
@@ -86,19 +88,19 @@ def export_multiple_regressions(df_list, caption, label):
 
 ####################################################################################################
 
-atl_sample = pd.read_pickle('data/output/atl_sample.pkl')
+sample = pd.read_pickle('data/output/sample.pkl')
 
-model_naive = 'hwy ~ mblack_1945def + Residential + np.log(rent) + np.log(valueh) + distance_to_cbd'
-results_naive = format_regression_results(smf.ols(model_naive, data=atl_sample).fit(cov_type='HC3'))
+model_naive = 'hwy ~ mblack_1945def + Residential + np.log(rent) + np.log(valueh) + distance_to_cbd + dist_to_hwy'
+results_naive = format_regression_results(smf.ols(model_naive, data=sample).fit(cov_type='HC3'))
 
-model_1945def = 'hwy ~ mblack_1945def + Residential + (mblack_1945def * Residential) + np.log(rent) + np.log(valueh) + distance_to_cbd'
-results_1945def = format_regression_results(smf.ols(model_1945def, data=atl_sample).fit(cov_type='HC3'))
+model_1945def = 'hwy ~ mblack_1945def + Residential + (mblack_1945def * Residential) + np.log(rent) + np.log(valueh) + distance_to_cbd + dist_to_hwy'
+results_1945def = format_regression_results(smf.ols(model_1945def, data=sample).fit(cov_type='HC3'))
 
-model_pct = 'hwy ~ mblack_mean_pct + Residential + (mblack_mean_pct * Residential) + np.log(rent) + np.log(valueh) + distance_to_cbd'
-results_pct = format_regression_results(smf.ols(model_pct, data=atl_sample).fit(cov_type='HC3'))
+model_pct = 'hwy ~ mblack_mean_pct + Residential + (mblack_mean_pct * Residential) + np.log(rent) + np.log(valueh) + distance_to_cbd + dist_to_hwy'
+results_pct = format_regression_results(smf.ols(model_pct, data=sample).fit(cov_type='HC3'))
 
-model_share = 'hwy ~ mblack_mean_share + Residential + (mblack_mean_share * Residential) + np.log(rent) + np.log(valueh) + distance_to_cbd'
-results_share = format_regression_results(smf.ols(model_share, data=atl_sample).fit(cov_type='HC3'))
+model_share = 'hwy ~ mblack_mean_share + Residential + (mblack_mean_share * Residential) + np.log(rent) + np.log(valueh) + distance_to_cbd + dist_to_hwy'
+results_share = format_regression_results(smf.ols(model_share, data=sample).fit(cov_type='HC3'))
 
 # naive regression in its own table
 export_single_regression(results_naive, caption = 'Naive Regression Results', label = 'tab:naive_results', widthmultiplier=0.7)
