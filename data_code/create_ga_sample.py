@@ -7,11 +7,11 @@ import shapely.geometry
 def classify_grid(zoning1, grid, centroids, city_sample, zoning2 = None):
     # condense zoning to residential and industrial
     zoning_map = {'dwelling': 'residential', 'apartment': 'residential', 
-                  'single family': 'residential', '2 family': 'residential', 
-                  '2-4 family': 'residential', 'commercial': 'industrial',
-                  'industrial': 'industrial', 'business': 'industrial',
-                  'light industry': 'industrial', 'heavy industry': 'industrial'
-                  }
+                    'single family': 'residential', '2 family': 'residential', 
+                    '2-4 family': 'residential', 'commercial': 'industrial',
+                    'industrial': 'industrial', 'business': 'industrial',
+                    'light industry': 'industrial', 'heavy industry': 'industrial'
+                    }
     zoning1['zoning'] = zoning1['Zonetype'].map(zoning_map)
     zoning1 = zoning1[zoning1['zoning'].notna()]
     zoning1 = zoning1.overlay(grid, how = 'identity')
@@ -31,7 +31,7 @@ def classify_grid(zoning1, grid, centroids, city_sample, zoning2 = None):
         output = grid.merge(df['maj_zoning'], left_on='grid_id', right_index=True)
         output['Residential'] = np.where(output['maj_zoning'] == 'residential', 1, 0)
         return output
-    
+
     output = classify_grids(zoning1)
 
     if zoning2 is not None:
@@ -44,7 +44,7 @@ def classify_grid(zoning1, grid, centroids, city_sample, zoning2 = None):
         # drop all squares whose zoning classification changes
         # compare only squares that exist in both maps - squares that only come into existence later are left as is
         overlap = output[['grid_id', 'maj_zoning']].merge(output2[['grid_id', 'maj_zoning']], 
-                                                          on='grid_id', suffixes=('_1', '_2'), how = 'inner')
+                                                            on='grid_id', suffixes=('_1', '_2'), how = 'inner')
         drop_ids = overlap.loc[overlap['maj_zoning_1'] != overlap['maj_zoning_2'], 'grid_id']
         output = output[~output['grid_id'].isin(drop_ids)]
         print(len(drop_ids), 'grid squares dropped due to zoning change')
@@ -62,9 +62,11 @@ def place_census(census, grid):
     census.loc[mask, 'latitude'] = census.loc[mask, 'coordinates'].apply(lambda x: x[1])
     census = gpd.GeoDataFrame(census, geometry = gpd.points_from_xy(census.longitude, census.latitude), 
                             crs = 'EPSG:4269') # census geocodes in NAD83 for some reason
+    print(census.describe())
     census = census.to_crs(grid.crs)
     census['black_pop'] = (census['black'] * census['numprec'])
     census_grid = grid.sjoin(census, how='left', predicate='contains')
+    print(census_grid.describe())
 
     # similar to while geocoding, I will interpolate grid_id by comparing neighbors
     census = census.merge(census_grid[['serial', 'grid_id']], on = 'serial', how = 'left')
@@ -94,7 +96,7 @@ def place_census(census, grid):
         'serial': 'count'
     }
     census_grid = census_grid.dissolve(by='grid_id', aggfunc=agg_funcs)
-    print('census data dissolved to grid', census_grid.columns)
+    print('census data dissolved to grid', census_grid.describe())
 
     # calculate a few different definitions of 'majority black'
     census_grid['pct_black'] = census_grid['black_pop'] / census_grid['numprec']
@@ -161,19 +163,19 @@ def create_grid(zoning, centroids, census, state59, state40, us59, us40, interst
 
     # overlay zoning map with grid squares and classify each square
     output = classify_grid(zoning, grid, centroids, city_sample, zoning2)
-    print(output.columns,'zoning added to grid')
+    print('zoning added to grid')
 
     # overlay census data on grid
     output = output.merge(place_census(census, output)[['grid_id', 'numprec', 'black_pop', 'rent', 'valueh', 
                                                                   'pct_black', 'share_black', 'mblack_mean_pct', 
                                                                   'mblack_mean_share', 'mblack_1945def', 'serial']],
                            on='grid_id', how='left')
-    print(output.columns, 'census added to grid')
+    print('census added to grid')
 
     # place highways into grid
     output = output.merge(place_highways(grid, state59, state40, us59, us40, interstate)[['grid_id', 'hwy_59', 'hwy_40']],
                             on='grid_id',how='left')
-    print(output.columns,'highways added to grid')
+    print('highways added to grid')
 
     # difference hwy indicator at the grid level
     output['hwy'] = output['hwy_59'] - output['hwy_40']
