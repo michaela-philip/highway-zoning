@@ -143,7 +143,7 @@ def place_highways(grid, state59, state40, us59, us40, interstate):
 
     # merge in hwy indicator
     output = grid.merge(hwys, left_on='grid_id', right_index=True)
-    built_1940_union = built_1940.unary_union
+    built_1940_union = built_1940.union_all()
     output['dist_to_hwy'] = output.geometry.centroid.apply(lambda x: x.distance(built_1940_union))
     return output
 
