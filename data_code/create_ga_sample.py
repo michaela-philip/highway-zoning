@@ -62,7 +62,6 @@ def place_census(census, grid):
     census.loc[mask, 'latitude'] = census.loc[mask, 'coordinates'].apply(lambda x: x[1])
     census = gpd.GeoDataFrame(census, geometry = gpd.points_from_xy(census.longitude, census.latitude), 
                             crs = 'EPSG:4269') # census geocodes in NAD83 for some reason
-    print(census.describe())
     census = census.to_crs(grid.crs)
     census['black_pop'] = (census['black'] * census['numprec'])
     census_grid = grid.sjoin(census, how='left', predicate='contains')
@@ -96,7 +95,7 @@ def place_census(census, grid):
         'serial': 'count'
     }
     census_grid = census_grid.dissolve(by='grid_id', aggfunc=agg_funcs)
-    print('census data dissolved to grid', census_grid.describe())
+    print('census data dissolved to grid')
 
     # calculate a few different definitions of 'majority black'
     census_grid['pct_black'] = census_grid['black_pop'] / census_grid['numprec']
@@ -180,13 +179,14 @@ def create_grid(zoning, centroids, census, state59, state40, us59, us40, interst
     # difference hwy indicator at the grid level
     output['hwy'] = output['hwy_59'] - output['hwy_40']
     output['hwy'] = np.where(output['hwy'] < 0, 0, output['hwy'])
+    output = output[output['numprec'] > 0]
     return output
 
 def create_sample(df, sample):
     output = pd.DataFrame()
     for city in sample['city'].unique():
         city_sample = sample[sample['city'] == city].iloc[0]
-        city_df = df[df['city'] == city_sample['cityicp']].copy()
+        city_df = df[df['city'] == city].copy()
         if city == 'louisville':
             city_zoning1 = zoning['louisville_1947']
             city_zoning2 = zoning['louisville_1931']
