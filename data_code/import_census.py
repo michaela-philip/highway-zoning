@@ -42,6 +42,10 @@ def get_census(states):
             df = pd.concat(chunks, ignore_index=True)
             df.to_pickle('data/input/census_1940.pkl')
             print('processing complete and pickled!')
-
+            
+####################################################################################################
+### SECTION TO BE EDITED UPON ADDITION OF NEW CITIES ###
 states = [13, 21] # Georgia and Kentucky ICPSR
+####################################################################################################
+
 get_census(states)
