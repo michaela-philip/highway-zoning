@@ -327,7 +327,6 @@ def geocode_addresses(df_orig, city_sample):
     result4 = pd.DataFrame(censusbatchgeocoder.geocode(d4.to_dict(orient = 'records'), zipcode = None))
     print('fourth done')
     geocoded_df = pd.concat([result1, result2, result3, result4])
-    geocoded_df.to_pickle('data/intermed/atl_geocoded.pkl')
     print(f"{geocoded_df['is_exact'].notna().sum()} records geocoded")
     print(f"{(geocoded_df['is_match'] == 'Tie').sum()} ties")
     print(f"{(geocoded_df['is_match'] == 'No_Match').sum()} unmatched")
