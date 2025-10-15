@@ -110,26 +110,30 @@ def place_census(census, grid):
 ### FUNCTION TO INTERPOLATE MISSING RENT AND HOME VALUES ###
 def impute_values(df):
     df = df.copy()
-    rent_mask = df['rent'].isna() & (df['numprec'] > 0)
-    value_mask = df['valueh'].isna() & (df['numprec'] > 0)
+    sindex = df.sindex
 
-    # impute rent as avg. rent of neighboring squares
-    for grid_id in df.loc[rent_mask, 'grid_id']:
-        target_geom = df.loc[df['grid_id'] == grid_id, 'geometry'].iloc[0]
-        neighbors = df['geometry'].touches(target_geom)
-        if neighbors.any():
-            neighbor_rents = df.loc[neighbors & (df['rent'].notna()), 'rent']
-            if len(neighbor_rents) > 0:
-                df.loc[df['grid_id'] == grid_id, 'rent'] = neighbor_rents.mean()
+    neighbors_dict = {}
+    for idx, geom in df['geometry'].items():
+        possible_matches_index = list(sindex.intersection(geom.bounds))
+        possible_matches = df.iloc[possible_matches_index]
+        neighbors = possible_matches[possible_matches['geometry'].touches(geom)]
+        neighbors_dict[idx] - neighbors.index.tolist()
+
+    # impute rent
+    rent_mask = df['rent'].isna() & (df['numprec'] > 0)
+    for idx in df[rent_mask].index:
+        neighbor_idxs = neighbors_dict[idx]
+        neighbor_rents = df.loc[neighbor_idxs, 'rent'].dropna()
+        if not neighbor_rents.empty:
+            df.at[idx, 'rent'] = neighbor_rents.mean()
     
-    # impute valueh as avg. valueh of neighboring squares
-    for grid_id in df.loc[value_mask, 'grid_id']:
-        target_geom = df.loc[df['grid_id'] == grid_id, 'geometry'].iloc[0]
-        neighbors = df['geometry'].touches(target_geom)
-        if neighbors.any():
-            neighbor_values = df.loc[neighbors & (df['valueh'].notna()), 'valueh']
-            if len(neighbor_values) > 0:
-                df.loc[df['grid_id'] == grid_id, 'valueh'] = neighbor_values.mean()
+    # impute valueh
+    value_mask = df['valueh'].isna() & (df['numprec'] > 0)
+    for idx in df[value_mask].index:
+        neighbor_idxs = neighbors_dict[idx]
+        neighbor_values = df.loc[neighbor_idxs, 'valueh'].dropna()
+        if not neighbor_values.empty:
+            df.at[idx, 'valueh'] = neighbor_values.mean()
     return df
 
 ### FUNCTION TO CLEAN HWY DATA AND ADD INTO GRID ###
