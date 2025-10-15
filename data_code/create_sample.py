@@ -70,15 +70,21 @@ def place_census(census, grid):
     # similar to while geocoding, I will interpolate grid_id by comparing neighbors
     census = census.merge(census_grid[['serial', 'grid_id']], on = 'serial', how = 'left')
     candidate_serials = []
+    iter_count = 0
+    max_iters = 5
     while True:
         census['prev_grid'] = census['grid_id'].shift(1)
         census['next_grid'] = census['grid_id'].shift(-1)
         candidates = (census['grid_id'].isna() & census['prev_grid'].notna() & census['next_grid'].notna() & (census['prev_grid'] == census['next_grid'])) #if i-1 and i+1 are in the same grid, assign i to that grid
         if candidates.any():
             candidate_serials.extend(census.loc[candidates, 'serial'].tolist())
-            census.loc[candidates, 'grid_id'] = census.loc[candidates, 'prev_grid']
+            census.loc[candidates, 'grid_id'] = census.loc[candidates, 'prev_grid'].values
             print(candidates.sum(), 'candidates')
+            iter_count += 1
         else:
+            break
+        if iter_count >= max_iters:
+            print('max iters reached')
             break
     census = census.drop(columns = ['prev_grid', 'next_grid'])
     census = census[census['serial'].isin(candidate_serials)]
@@ -117,7 +123,7 @@ def impute_values(df):
         possible_matches_index = list(sindex.intersection(geom.bounds))
         possible_matches = df.iloc[possible_matches_index]
         neighbors = possible_matches[possible_matches['geometry'].touches(geom)]
-        neighbors_dict[idx] - neighbors.index.tolist()
+        neighbors_dict[idx] = neighbors.index.tolist()
 
     # impute rent
     rent_mask = df['rent'].isna() & (df['numprec'] > 0)
