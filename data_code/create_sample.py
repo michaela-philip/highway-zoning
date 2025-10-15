@@ -107,6 +107,31 @@ def place_census(census, grid):
     output = grid.merge(census_grid, left_on='grid_id', right_index=True)
     return output
 
+### FUNCTION TO INTERPOLATE MISSING RENT AND HOME VALUES ###
+def impute_values(df):
+    df = df.copy()
+    rent_mask = df['rent'].isna() & (df['numprec'] > 0)
+    value_mask = df['valueh'].isna() & (df['numprec'] > 0)
+
+    # impute rent as avg. rent of neighboring squares
+    for grid_id in df.loc[rent_mask, 'grid_id']:
+        target_geom = df.loc[df['grid_id'] == grid_id, 'geometry'].iloc[0]
+        neighbors = df['geometry'].touches(target_geom)
+        if neighbors.any():
+            neighbor_rents = df.loc[neighbors & (df['rent'].notna()), 'rent']
+            if len(neighbor_rents) > 0:
+                df.loc[df['grid_id'] == grid_id, 'rent'] = neighbor_rents.mean()
+    
+    # impute valueh as avg. valueh of neighboring squares
+    for grid_id in df.loc[value_mask, 'grid_id']:
+        target_geom = df.loc[df['grid_id'] == grid_id, 'geometry'].iloc[0]
+        neighbors = df['geometry'].touches(target_geom)
+        if neighbors.any():
+            neighbor_values = df.loc[neighbors & (df['valueh'].notna()), 'valueh']
+            if len(neighbor_values) > 0:
+                df.loc[df['grid_id'] == grid_id, 'valueh'] = neighbor_values.mean()
+    return df
+
 ### FUNCTION TO CLEAN HWY DATA AND ADD INTO GRID ###
 def place_highways(grid, state59, state40, us59, us40, interstate):
     state59 = state59.to_crs(grid.crs)
@@ -172,6 +197,10 @@ def create_grid(zoning, centroids, census, state59, state40, us59, us40, interst
                                                                   'mblack_mean_share', 'mblack_1945def', 'serial']],
                            on='grid_id', how='left')
     print('census added to grid')
+
+    # interpolate missing rent and home values
+    output = impute_values(output)
+    print('missing rent and home values imputed')
 
     # place highways into grid
     output = output.merge(place_highways(grid, state59, state40, us59, us40, interstate)[['grid_id', 'hwy_59', 'hwy_40', 'dist_to_hwy']],
