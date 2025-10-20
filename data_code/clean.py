@@ -304,7 +304,7 @@ def geocode_addresses(df_orig, city_sample):
     df['address'] = np.where(df['new_name'].notna(), 
                     df['rawhn'].astype(str).str.cat([df['new_name'].str.lower(), df['street_direction'].str.lower()], sep = ' ', na_rep = ''),
                     df['rawhn'].astype(str).str.cat([df['street_match'].str.lower(), df['street_direction'].str.lower()], sep = ' ', na_rep = ''))
-    df = df.rename(columns = {'city':'cityicp'}, inplace = True)
+    df = df.rename(columns = {'city':'cityicp'})
     df['city'] = city_sample['city'] 
     df['state'] = city_sample['state'] 
     df['zipcode'] = ''
@@ -400,10 +400,11 @@ def clean_data(census, sample, city_streets):
     mask = census['countyicp'].isin(all_countyicps) | census['city'].isin(sample['cityicp'])
     df = census.loc[mask, cols]
 
-    # recode valueh and rent missing values
+    # recode valueh and rent missing values, make dummies
     df['valueh'] = df['valueh'].replace([9999998, 9999999], np.nan)
     df['rent'] = df['rent'].replace([0, 9998, 9999], np.nan)
     df['black'] = np.where(df['race'] == 200, 1, 0)
+    df['owner'] = np.where(df['ownershp'] == 10, 1, 0)
 
     # keep one observation per household/serial 
     df = df.drop_duplicates(subset = ['serial'], keep = 'first').reset_index()
