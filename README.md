@@ -17,3 +17,6 @@ These three files are written to be scalable - each script contains a section at
 
 ## Scraping Scripts
 Due to variation in sources for historical street names, scrape_streets.py contains unique functions for each city's name changes. New functions to incorporate an additional city's name changes should be written in scrape_streets.py and called in clean.py
+
+## NOTE
+Folder cnn is a modified clone of Michael Pollman's repository, found [here](https://github.com/michaelpollmann/spatialTreat-example.git).
