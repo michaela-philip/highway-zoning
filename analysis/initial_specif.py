@@ -5,7 +5,18 @@ import numpy as np
 
 from helpers.latex_formatting import export_single_regression, export_multiple_regressions, format_regression_results
 
-sample = pd.read_pickle('data/output/sample.pkl')
+df = pd.read_pickle('data/output/sample.pkl')
+from data_code.candidates import candidates_dict
+
+out_frames = []
+for city in df['city'].unique():
+    candidates = candidates_dict[city]
+    controls = df.loc[(df['city'] == city) & (~df['grid_id'].isin(candidates))].copy()
+    treated = df.loc[(df['city'] == city) & (df['hwy']==1)].copy()
+    out_frames.append(controls)
+    out_frames.append(treated)
+    
+sample = pd.concat(out_frames, ignore_index=True)
 
 model_naive = 'hwy ~ mblack_1945def + Residential + np.log(rent) + np.log(valueh) + distance_to_cbd + dist_to_hwy'
 results_naive = format_regression_results(smf.ols(model_naive, data=sample).fit(cov_type='HC3'))
