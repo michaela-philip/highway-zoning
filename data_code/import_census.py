@@ -3,7 +3,7 @@ import os
 
 ####################################################################################################
 ### SECTION TO BE EDITED UPON ADDITION OF NEW CITIES ###
-states = [13, 21] # Georgia and Kentucky ICPSR
+states = [13, 21] # Georgia and Kentucky FIPS
 
 ####################################################################################################
 census = '/homes/nber/philipm/bulk/jones_ipums549/census-ipums/current/csv/1940.csv'
