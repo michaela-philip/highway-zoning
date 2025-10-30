@@ -13,6 +13,12 @@ zoning = {
     'louisville_1947': louisville_zoning1,
     'louisville_1931': louisville_zoning2
 }
+atlanta_geology = gpd.read_file('data/input/atlanta/water_topog.shp')
+louisville_geology = gpd.read_file('data/input/louisville/water_topog.shp')
+geology = {
+    'atlanta': atlanta_geology,
+    'louisville': louisville_geology
+}
 
 ####################################################################################################
 ### FUNCTION TO CLASSIFY GRID BASED ON ZONING ###
@@ -66,6 +72,14 @@ def classify_grid(zoning1, grid, centroids, city_sample, zoning2 = None):
     city_cbd = centroids[centroids['place'].str.lower() == f'{city}'].to_crs(grid.crs).geometry.iloc[0]
     output['distance_to_cbd'] = output.geometry.centroid.distance(city_cbd)
     return output
+
+### FUNCTION TO OVERLAY GEOLOGICAL INFO ON GRID ###
+def place_geology(geology, grid):
+    geology = geology.to_crs(grid.crs)
+    geology_grid = gpd.sjoin(grid, geology, how = 'left', predicate = 'contains')
+    geology_grid = geology_grid.rename(columns = {'RASTERVALU':'elevation'})
+    geology_grid = geology_grid.dissolve(by='grid_id', aggfunc={'elevation':'mean', 'dist_water':'mean'})
+    return geology_grid
 
 ### FUNCTION TO PLACE CENSUS INFO INTO GRID ###
 def place_census(census, grid):
@@ -130,6 +144,10 @@ def impute_values(df):
     df = df.copy()
     sindex = df.sindex
 
+    # imputed variable
+    df['imputed_rent'] = np.nan
+    df['imputed_valueh'] = np.nan
+
     neighbors_dict = {}
     for idx, geom in df['geometry'].items():
         possible_matches_index = list(sindex.intersection(geom.bounds))
@@ -137,21 +155,18 @@ def impute_values(df):
         neighbors = possible_matches[possible_matches['geometry'].touches(geom)]
         neighbors_dict[idx] = neighbors.index.tolist()
 
-    # impute rent
-    rent_mask = df['rent'].isna() & (df['numprec'] > 0)
-    for idx in df[rent_mask].index:
+    for idx in df.index:
         neighbor_idxs = neighbors_dict[idx]
         neighbor_rents = df.loc[neighbor_idxs, 'rent'].dropna()
         if not neighbor_rents.empty:
-            df.at[idx, 'rent'] = neighbor_rents.mean()
+            df.at[idx, 'imputed_rent'] = neighbor_rents.mean()
     
-    # impute valueh
-    value_mask = df['valueh'].isna() & (df['numprec'] > 0)
-    for idx in df[value_mask].index:
+    for idx in df.index:
         neighbor_idxs = neighbors_dict[idx]
         neighbor_values = df.loc[neighbor_idxs, 'valueh'].dropna()
         if not neighbor_values.empty:
-            df.at[idx, 'valueh'] = neighbor_values.mean()
+            df.at[idx, 'imputed_valueh'] = neighbor_values.mean()
+
     return df
 
 ### FUNCTION TO CLEAN HWY DATA AND ADD INTO GRID ###
@@ -212,6 +227,10 @@ def create_grid(zoning, centroids, census, state59, state40, us59, us40, interst
     # overlay zoning map with grid squares and classify each square
     output = classify_grid(zoning, grid, centroids, city_sample, zoning2)
     print('zoning added to grid')
+
+    # overlay geological info 
+    output = output.merge(place_geology(geology, output)[['dist_water', 'elevation']], on = 'grid_id', how = 'left')
+    print('geology added to grid')
 
     # overlay census data on grid
     output = output.merge(place_census(census, output)[['grid_id', 'numprec', 'black_pop', 'rent', 'valueh', 
