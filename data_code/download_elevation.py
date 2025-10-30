@@ -68,15 +68,16 @@ def create_mosaic(sample):
             except Exception as e:
                 print(f"Error deleting {tif}: {e}")
 
-####################################################################################################
-### SECTION TO BE EDITED UPON ADDITION OF NEW CITIES ###
-values = [
-    ('atlanta', 'AT', 'georgia', 'GA', 44, [1210, 890], 350),
-    ('louisville', 'LO', 'kentucky', 'KY', 51, [1110], 3750)]
-keys=['city', 'cityabbr', 'state', 'stateabbr', 'stateicp', 'countyicp', 'cityicp']
-rows = [dict(zip(keys, v)) for v in values]
-sample = pd.DataFrame(rows)
-####################################################################################################
+# ####################################################################################################
+# ### SECTION TO BE EDITED UPON ADDITION OF NEW CITIES ###
+# values = [
+#     ('atlanta', 'AT', 'georgia', 'GA', 44, [1210, 890], 350),
+#     ('louisville', 'LO', 'kentucky', 'KY', 51, [1110], 3750)]
+# keys=['city', 'cityabbr', 'state', 'stateabbr', 'stateicp', 'countyicp', 'cityicp']
+# rows = [dict(zip(keys, v)) for v in values]
+# sample = pd.DataFrame(rows)
+# ####################################################################################################
 
+sample = pd.read_pickle('data/input/samplelist.pkl')
 get_geology(sample)
 create_mosaic(sample)

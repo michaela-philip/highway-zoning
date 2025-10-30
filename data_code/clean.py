@@ -7,10 +7,50 @@ import censusbatchgeocoder
 import requests
 import geopy, geopy.distance
 
-# this is a beast of a file - overview below
-# section 1: functions to clean, standardize, and match addresses
-# section 2: master function to call functions defined in section 1
-# section 3: ONLY section to be edited upon addition of new cities - add to 'sample' dataframe and run
+## this is a beast of a file - overview below
+# section 1: ONLY section to be edited upon addition of new cities - add to 'sample' dataframe and run
+# section 2: functions to clean, standardize, and match addresses
+# section 3: master function to call functions defined in section 1
+# section 4: call functions and pickle output
+
+####################################################################################################
+### SECTION TO BE EDITED UPON ADDITION OF NEW CITIES ###
+# list cities in sample
+values = [
+    ('atlanta', 'AT', 'georgia', 'GA', 44, [1210, 890], 350),
+    ('louisville', 'LO', 'kentucky', 'KY', 51, [1110], 3750)]
+keys=['city', 'cityabbr', 'state', 'stateabbr', 'stateicp', 'countyicp', 'cityicp']
+rows = [dict(zip(keys, v)) for v in values]
+sample = pd.DataFrame(rows)
+sample.to_pickle('data/input/samplelist.pkl')
+
+# pull in existing street lists for each city
+city_streets = {}
+for city in sample['city'].unique():
+    csv_path = f'data/intermed/{city}_streets.csv'
+    if not os.path.exists(csv_path):
+        from scrape_streets import scrape_streets_citywise
+        url = 'https://stevemorse.org/census/index.html?ed2street=1'
+        city_streets = scrape_streets_citywise(url, sample)
+        atlanta_streets = city_streets.get('atlanta')
+        louisville_streets = city_streets.get('louisville')
+    else:
+        city_streets[city] = pd.read_csv(csv_path)
+
+# pull in street changes for each city
+city_street_changes = {}
+for city in sample['city'].unique():
+    csv_path = f'data/intermed/{city}_changes.csv'
+    if not os.path.exists(csv_path):
+        from scrape_streets import scrape_atl_changes, scrape_louisville_changes, format_changes
+        url_atl = 'http://jolomo.net/atlanta/streets.html'
+        url_lo = 'https://en.wikipedia.org/wiki/List_of_roads_in_Louisville,_Kentucky'
+        atlanta_changes = scrape_atl_changes(url_atl)
+        atlanta_changes = format_changes(atlanta_changes, name = 'atlanta_changes')
+        louisville_changes = scrape_louisville_changes(url_lo)
+        louisville_changes = format_changes(louisville_changes, name = 'lousiville_changes')
+    else:
+        city_street_changes[city] = pd.read_csv(csv_path)
 
 ####################################################################################################
 ### FUNCTION TO CLEAN AND INTERPOLATE ADDRESSES ###
@@ -388,7 +428,6 @@ def geocode_addresses_citywide(df, sample):
         results.append(geocoded) 
     # concat and return
     return pd.concat(results, ignore_index = True)
-####################################################################################################
 
 ####################################################################################################
 ### MASTER FUNCTION ###
@@ -428,47 +467,8 @@ def clean_data(census, sample, city_streets):
     df = pd.read_pickle('data/intermed/cleaned_data.pkl')
     df = geocode_addresses_citywide(df, sample)
     return df
-####################################################################################################
 
 ####################################################################################################
-### SECTION TO BE EDITED UPON ADDITION OF NEW CITIES ###
-# list cities in sample
-values = [
-    ('atlanta', 'AT', 'georgia', 'GA', 44, [1210, 890], 350),
-    ('louisville', 'LO', 'kentucky', 'KY', 51, [1110], 3750)]
-keys=['city', 'cityabbr', 'state', 'stateabbr', 'stateicp', 'countyicp', 'cityicp']
-rows = [dict(zip(keys, v)) for v in values]
-sample = pd.DataFrame(rows)
-
-# pull in existing street lists for each city
-city_streets = {}
-for city in sample['city'].unique():
-    csv_path = f'data/intermed/{city}_streets.csv'
-    if not os.path.exists(csv_path):
-        from scrape_streets import scrape_streets_citywise
-        url = 'https://stevemorse.org/census/index.html?ed2street=1'
-        city_streets = scrape_streets_citywise(url, sample)
-        atlanta_streets = city_streets.get('atlanta')
-        louisville_streets = city_streets.get('louisville')
-    else:
-        city_streets[city] = pd.read_csv(csv_path)
-
-# pull in street changes for each city
-city_street_changes = {}
-for city in sample['city'].unique():
-    csv_path = f'data/intermed/{city}_changes.csv'
-    if not os.path.exists(csv_path):
-        from scrape_streets import scrape_atl_changes, scrape_louisville_changes, format_changes
-        url_atl = 'http://jolomo.net/atlanta/streets.html'
-        url_lo = 'https://en.wikipedia.org/wiki/List_of_roads_in_Louisville,_Kentucky'
-        atlanta_changes = scrape_atl_changes(url_atl)
-        atlanta_changes = format_changes(atlanta_changes, name = 'atlanta_changes')
-        louisville_changes = scrape_louisville_changes(url_lo)
-        louisville_changes = format_changes(louisville_changes, name = 'lousiville_changes')
-    else:
-        city_street_changes[city] = pd.read_csv(csv_path)
-####################################################################################################
-
 census = pd.read_pickle('data/input/census_1940.pkl')
 df = clean_data(census, sample, city_streets)
 df.to_pickle('data/intermed/geocoded_data.pkl')

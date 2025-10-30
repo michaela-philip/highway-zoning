@@ -1,6 +1,11 @@
 import pandas as pd
 import os
 
+####################################################################################################
+### SECTION TO BE EDITED UPON ADDITION OF NEW CITIES ###
+states = [13, 21] # Georgia and Kentucky ICPSR
+
+####################################################################################################
 census = '/homes/nber/philipm/bulk/jones_ipums549/census-ipums/current/csv/1940.csv'
 
 def get_census(states):
@@ -43,9 +48,4 @@ def get_census(states):
             df.to_pickle('data/input/census_1940.pkl')
             print('processing complete and pickled!')
             
-####################################################################################################
-### SECTION TO BE EDITED UPON ADDITION OF NEW CITIES ###
-states = [13, 21] # Georgia and Kentucky ICPSR
-####################################################################################################
-
 get_census(states)

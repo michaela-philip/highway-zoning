@@ -3,6 +3,31 @@ import numpy as np
 import geopandas as gpd
 import shapely.geometry
 
+####################################################################################################
+### SECTION TO BE EDITED UPON ADDITION OF NEW CITIES ###
+atlanta_zoning = gpd.read_file('data/input/zoning_shapefiles/atlanta/zoning.shp')
+louisville_zoning1 = gpd.read_file('data/input/zoning_shapefiles/louisville/zoning-1947.shp')
+louisville_zoning2 = gpd.read_file('data/input/zoning_shapefiles/louisville/zoning-1931.shp')
+zoning = {
+    'atlanta': atlanta_zoning,
+    'louisville_1947': louisville_zoning1,
+    'louisville_1931': louisville_zoning2
+}
+
+####################################################################################################
+### LOAD DATA ###
+census = pd.read_pickle('data/intermed/geocoded_data.pkl')
+centroids = pd.read_csv('data/input/msas_with_central_city_cbds.csv') # from Dan Aaron Hartley
+centroids = gpd.GeoDataFrame(centroids, geometry = gpd.points_from_xy(centroids.cbd_retail_long, centroids.cbd_retail_lat), 
+                             crs = 'EPSG:4267') # best guess at CRS based off of projfinder.com
+
+interstate = gpd.read_file('data/input/shapefiles/1960/interstates1959_del.shp') # from Jaworski and Kitchens
+state59 = gpd.read_file('data/input/shapefiles/1960/stateHighwayPaved1959_del.shp')
+us59 = gpd.read_file('data/input/shapefiles/1960/usHighwayPaved1959_del.shp')
+state40 = gpd.read_file('data/input/shapefiles/1940/1940 completed shapefiles/stateHighwayPaved1940_del.shp')
+us40 = gpd.read_file('data/input/shapefiles/1940/1940 completed shapefiles/usHighwayPaved1940_del.shp')
+
+####################################################################################################
 ### FUNCTION TO CLASSIFY GRID BASED ON ZONING ###
 def classify_grid(zoning1, grid, centroids, city_sample, zoning2 = None):
     # condense zoning to residential and industrial
@@ -240,36 +265,7 @@ def create_sample(df, sample):
     return output
 
 ####################################################################################################
-census = pd.read_pickle('data/intermed/geocoded_data.pkl')
-centroids = pd.read_csv('data/input/msas_with_central_city_cbds.csv') # from Dan Aaron Hartley
-centroids = gpd.GeoDataFrame(centroids, geometry = gpd.points_from_xy(centroids.cbd_retail_long, centroids.cbd_retail_lat), 
-                             crs = 'EPSG:4267') # best guess at CRS based off of projfinder.com
-
-interstate = gpd.read_file('data/input/shapefiles/1960/interstates1959_del.shp') # from Jaworski and Kitchens
-state59 = gpd.read_file('data/input/shapefiles/1960/stateHighwayPaved1959_del.shp')
-us59 = gpd.read_file('data/input/shapefiles/1960/usHighwayPaved1959_del.shp')
-state40 = gpd.read_file('data/input/shapefiles/1940/1940 completed shapefiles/stateHighwayPaved1940_del.shp')
-us40 = gpd.read_file('data/input/shapefiles/1940/1940 completed shapefiles/usHighwayPaved1940_del.shp')
-####################################################################################################
-
-####################################################################################################
-### SECTION TO BE EDITED UPON ADDITION OF NEW CITIES ###
-atlanta_zoning = gpd.read_file('data/input/zoning_shapefiles/atlanta/zoning.shp')
-louisville_zoning1 = gpd.read_file('data/input/zoning_shapefiles/louisville/zoning-1947.shp')
-louisville_zoning2 = gpd.read_file('data/input/zoning_shapefiles/louisville/zoning-1931.shp')
-zoning = {
-    'atlanta': atlanta_zoning,
-    'louisville_1947': louisville_zoning1,
-    'louisville_1931': louisville_zoning2
-}
-values = [
-    ('atlanta', 'AT', 'georgia', 'GA', 44, [1210, 890], 350),
-    ('louisville', 'LO', 'kentucky', 'KY', 51, [1110], 3750)]
-keys=['city', 'cityabbr', 'state', 'stateabbr', 'stateicp', 'countyicp', 'cityicp']
-rows = [dict(zip(keys, v)) for v in values]
-sample = pd.DataFrame(rows)
-####################################################################################################
-
 # create sample with 150 x 150 grid squares
+sample = pd.read_pickle('data/input/samplelist.pkl')
 output = create_sample(census, sample)
 output.to_pickle('data/output/sample.pkl')

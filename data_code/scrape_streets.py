@@ -1,5 +1,3 @@
-# should eventually turn this into a function that takes city, state as input 
-
 import pandas as pd
 import time
 from selenium import webdriver
@@ -11,8 +9,8 @@ from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import Select
 from selenium.webdriver.support.relative_locator import locate_with
 
-##### STREET NAME SCRAPING #####
-### FUNCTION TO SCRAPE STREET NAMES FROM STEVE MORSE ###
+####################################################################################################
+### SCRAPE STREET NAMES FROM STEVE MORSE ###
 def scrape_streets(url, sample):
     city = sample['cityabbr']
     state = sample['stateabbr']
@@ -103,8 +101,8 @@ def scrape_streets_citywise(url, sample):
         city_streets[city] = city_street
     return city_streets
 
-##### NAME CHANGE SCRAPING #####
-### FUNCTION TO SCRAPE LIST OF ATL STREET CHANGES ###
+####################################################################################################
+### SCRAPE STREET NAME CHANGES ###
 def scrape_atl_changes(url):
     street_changes = []
     driver = webdriver.Chrome(service=ChromeService(ChromeDriverManager().install()))
@@ -152,8 +150,8 @@ def scrape_louisville_changes(url):
     street_changes = street_changes.explode('old_name').reset_index(drop=True)
     return street_changes
 
-
-### FUNCTION TO FORMAT STREET NAMES THE SAME WAY AS IN CENSUS/STEVE MORSE ###
+####################################################################################################
+### FORMAT STREET NAMES FOR CONSISTENCY ###
 def format_street_changes(df):
     df = (df
         .str.lower()
@@ -186,5 +184,3 @@ def format_changes(df, name = None):
     if name is not None:
         df.to_csv(f'data/intermed/{name}.csv', index=False)
     return df
-
-####################################################################################################
