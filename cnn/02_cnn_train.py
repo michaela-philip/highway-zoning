@@ -1,29 +1,40 @@
 # -*- coding: utf-8 -*-
 
 from datetime import datetime, timedelta
-
+import pandas as pd
+import geopandas as gpd
 import torch
 import torch.nn as nn
 import torch.optim as optim
 import numpy as np
 from math import sin, cos, pi  # rotating regions
 from math import floor  # truncating naics codes
-import numba  # speed up data transform with JIT compilation
+import rasterio
+from rasterio import transform
+from pathlib import Path
+from scipy.ndimage import rotate, shift
 
 
-dataroot = 'neural-net/'
-outputroot = 'neural-net/'
+dataroot = 'cnn/'
+outputroot = 'cnn/'
 
 use_saved_model = False
 saved_model_filename = ''
 
-"""Define Constants"""
+####################################################################################################
+### PARAMETERS ###
 
-# "grid coordinates" created in R are in meters
-cell_width = 0.025 * 1.609344 * 1000  # cell width in meters (convert from miles)
-size_potential = 10  # potential locations: num_width_potential x num_width_potential
-size_padding = 20  # number of padding cells on each side of potential grid
-nc = 9  # number of channels: 1) other grocery stores 2) other businesses
+# read in data and prepare lists
+sample = pd.read_pickle('data/input/samplelist.pkl')
+candidate_list = pd.read_pickle('data/output/cnn_candidate_list.pkl')
+grid = pd.read_pickle('data/output/sample.pkl')
+hwys = grid[grid['hwy'] == 1]['grid_id'].unique().tolist()
+features = ['valueh', 'rent', 'dist_to_cbd', 'dist_water', 'owner', 'elevation']
+
+cell_width = 150  # cell width in meters (convert from miles)
+size_potential = 6  # potential locations: num_width_potential x num_width_potential
+size_padding = 5  # number of padding cells on each side of potential grid
+nc = len(features)  # number of channels: 1) other grocery stores 2) other businesses
 BATCH_SIZE_real = 32  # regions with missing grocery store per batch
 BATCH_SIZE_fill = 16  # regions with real location filled in (-> no missing) per batch
 BATCH_SIZE_random = 16  # random regions (-> no missing) per batch
@@ -39,404 +50,213 @@ epoch_set_seed = list()
 epoch_set_seed.append(curr_epoch)
 EPOCHS = 20
 ITERS = 10000
+NODATA = -9999.0
 
 print('BATCH_SIZE: ' + str(BATCH_SIZE))
 print('cell_width: ' + str(round(cell_width)) + 'm')
-# print('prob_none: ' + str(round(100 * prob_none)) + '%')
 
-"""Read in data"""
 
-dict_S_I = dict()
-dict_S_I_restaurant = dict()
-dict_S_I_recreation = dict()
-dict_S_I_religious = dict()
-dict_S_I_museum = dict()
-dict_S_I_school = dict()
-dict_S_I_daycare = dict()
-dict_S_I_gas = dict()
+####################################################################################################
+### SAMPLE/BATCH CREATION FUNCTIONS ###
+# create raster of grid data
+def gdf_to_raster(gdf, features, label, cell_width, crs=None, nodata=-9999.0):
+    if crs is None:
+        crs = gdf.crs
+    if crs is None:
+        raise ValueError("CRS must be provided either directly or through gdf.")
+    
+    # use centroids of each grid square
+    centroids = gdf.geometry.centroid
+    xs = centroids.x.values
+    ys = centroids.y.values
 
-print('reading in data')
+    minx, miny, maxx, maxy = gdf.total_bounds
+    width = int(np.ceil((maxx - minx) / cell_width))
+    height = int(np.ceil((maxy - miny) / cell_width))
+    trs = rasterio.transform.from_origin(minx, maxy, cell_width, cell_width)
 
-# read in data of businesses near each grocery store
-with open(dataroot+'grid_S_I.csv','r') as f:
-    for line in f:
-        # skip header
-        if line.startswith('s_id'):
-            continue
-        # extract data
-        slist = line.strip().split(',')
-        s_id = int(slist[0])
-        i_id = int(slist[1])
-        x = float(slist[2])
-        y = float(slist[3])
-        if slist[4] == 'NA':
-            naics = -1
+    if 'owner' in gdf.columns and gdf['owner'].dtype == object:
+        owners = pd.factorize(gdf['owner'])[0]  # integers 0..N-1
+        gdf = gdf.copy()
+        gdf['owner'] = owners.astype(float)
+
+    # create raster bounds and output array
+    bands = features + [label]
+    nb = len(bands)
+    out_array = np.full((nb, height, width), nodata, dtype='float32')
+    cols_idx = np.floor((xs - minx) / cell_width).astype(int)
+    rows_idx = np.floor((maxy - ys) / cell_width).astype(int)
+
+    valid = (cols_idx >= 0) & (cols_idx < width) & (rows_idx >= 0) & (rows_idx < height)
+
+    for i, col in enumerate(bands):
+        if col not in gdf.columns:
+            raise KeyError(f"Column '{col}' not found")
+        vals = gdf[col].to_numpy(dtype='float64')
+        mask = valid & ~np.isnan(vals)
+        out_array[i, rows_idx[mask], cols_idx[mask]] = vals[mask].astype('float32')
+
+    profile = {
+        'driver': 'GTiff',
+        'height': height,
+        'width': width,
+        'count': nb,
+        'crs': crs,
+        'transform': trs,
+        'dtype': 'float32',
+        'nodata': nodata,
+        'compress': 'lzw'
+    }
+
+    outpath = Path('data/output/rasterized.tif')
+    outpath.parent.mkdir(parents=True, exist_ok=True)
+    with rasterio.open(str(outpath), 'w', **profile) as dst:
+        for i in range(nb):
+            dst.write(out_array[i], i+1)
+    print(f'rasterization complete, file saved: {outpath}')
+
+    feature_array = out_array[:len(features), :, :]
+    label_array = out_array[len(features):, :, :]
+    # if label was one band, squeeze to 2D
+    if label_array.shape[0] == 1:
+        label_array = np.squeeze(label_array, axis=0)
+
+    # compute numeric means/stds (fallback to 0.0/1.0)
+    means, stds = [], []
+    for i in range(len(features)):
+        band = out_array[i]
+        mask = band != nodata
+        if mask.any():
+            mu = float(np.mean(band[mask]))
+            sd = float(np.std(band[mask]))
+            if sd == 0 or np.isnan(sd):
+                sd = 1.0
         else:
-            naics = int(slist[4])
-        tup = (x,y,naics)
-        # create entry if first time we encounter s_id
-        if not s_id in dict_S_I.keys():
-            dict_S_I[s_id] = list()
-        # add data to this s_id
-        dict_S_I[s_id].append(tup)
-        if floor(naics / 100) == 7225:
-            # create entry if first time we encounter s_id
-            if not s_id in dict_S_I_restaurant.keys():
-                dict_S_I_restaurant[s_id] = list()
-            # add data to this s_id
-            dict_S_I_restaurant[s_id].append(tup)
-        if floor(naics / 100) == 7139:
-            # create entry if first time we encounter s_id
-            if not s_id in dict_S_I_recreation.keys():
-                dict_S_I_recreation[s_id] = list()
-            # add data to this s_id
-            dict_S_I_recreation[s_id].append(tup)
-        if floor(naics / 100) == 8131:
-            # create entry if first time we encounter s_id
-            if not s_id in dict_S_I_religious.keys():
-                dict_S_I_religious[s_id] = list()
-            # add data to this s_id
-            dict_S_I_religious[s_id].append(tup)
-        if floor(naics / 100) == 7121:
-            # create entry if first time we encounter s_id
-            if not s_id in dict_S_I_museum.keys():
-                dict_S_I_museum[s_id] = list()
-            # add data to this s_id
-            dict_S_I_museum[s_id].append(tup)
-        if floor(naics / 100) == 6111:
-            # create entry if first time we encounter s_id
-            if not s_id in dict_S_I_school.keys():
-                dict_S_I_school[s_id] = list()
-            # add data to this s_id
-            dict_S_I_school[s_id].append(tup)
-        if floor(naics / 100) == 6244:
-            # create entry if first time we encounter s_id
-            if not s_id in dict_S_I_daycare.keys():
-                dict_S_I_daycare[s_id] = list()
-            # add data to this s_id
-            dict_S_I_daycare[s_id].append(tup)
-        if floor(naics / 100) == 4471:
-            # create entry if first time we encounter s_id
-            if not s_id in dict_S_I_gas.keys():
-                dict_S_I_gas[s_id] = list()
-            # add data to this s_id
-            dict_S_I_gas[s_id].append(tup)
+            mu, sd = 0.0, 1.0
+        means.append(mu)
+        stds.append(sd)
 
-# read in data of businesses near each grocery store
-with open(dataroot+'grid_S_random_I.csv','r') as f:
-    for line in f:
-        # skip header
-        if line.startswith('s_id'):
-            continue
-        # extract data
-        slist = line.strip().split(',')
-        s_id = int(slist[0])
-        i_id = int(slist[1])
-        x = float(slist[2])
-        y = float(slist[3])
-        if slist[4] == 'NA':
-            naics = -1
-        else:
-            naics = int(slist[4])
-        tup = (x,y,naics)
-        # create entry if first time we encounter s_id
-        if not s_id in dict_S_I.keys():
-            dict_S_I[s_id] = list()
-        # add data to this s_id
-        dict_S_I[s_id].append(tup)
-        if floor(naics / 100) == 7225:
-            # create entry if first time we encounter s_id
-            if not s_id in dict_S_I_restaurant.keys():
-                dict_S_I_restaurant[s_id] = list()
-            # add data to this s_id
-            dict_S_I_restaurant[s_id].append(tup)
-        if floor(naics / 100) == 7139:
-            # create entry if first time we encounter s_id
-            if not s_id in dict_S_I_recreation.keys():
-                dict_S_I_recreation[s_id] = list()
-            # add data to this s_id
-            dict_S_I_recreation[s_id].append(tup)
-        if floor(naics / 100) == 8131:
-            # create entry if first time we encounter s_id
-            if not s_id in dict_S_I_religious.keys():
-                dict_S_I_religious[s_id] = list()
-            # add data to this s_id
-            dict_S_I_religious[s_id].append(tup)
-        if floor(naics / 100) == 7121:
-            # create entry if first time we encounter s_id
-            if not s_id in dict_S_I_museum.keys():
-                dict_S_I_museum[s_id] = list()
-            # add data to this s_id
-            dict_S_I_museum[s_id].append(tup)
-        if floor(naics / 100) == 6111:
-            # create entry if first time we encounter s_id
-            if not s_id in dict_S_I_school.keys():
-                dict_S_I_school[s_id] = list()
-            # add data to this s_id
-            dict_S_I_school[s_id].append(tup)
-        if floor(naics / 100) == 6244:
-            # create entry if first time we encounter s_id
-            if not s_id in dict_S_I_daycare.keys():
-                dict_S_I_daycare[s_id] = list()
-            # add data to this s_id
-            dict_S_I_daycare[s_id].append(tup)
-        if floor(naics / 100) == 4471:
-            # create entry if first time we encounter s_id
-            if not s_id in dict_S_I_gas.keys():
-                dict_S_I_gas[s_id] = list()
-            # add data to this s_id
-            dict_S_I_gas[s_id].append(tup)
+    return feature_array, label_array, trs, means, stds
 
-dict_S_S = dict()
-# read in data of grocery stores near each grocery store
-with open(dataroot+'grid_S_S.csv','r') as f:
-    for line in f:
-        # skip header
-        if line.startswith('s_id'):
-            continue
-        # extract data
-        slist = line.strip().split(',')
-        s_id = int(slist[0])
-        s_id_oth = int(slist[1])
-        x = float(slist[2])
-        y = float(slist[3])
-        tup = (x,y)
-        # create entry if first time we encounter s_id
-        if not s_id in dict_S_S.keys():
-            dict_S_S[s_id] = list()
-        # add data to this s_id
-        dict_S_S[s_id].append(tup)
+# map grid_id to (row, col) in raster
+def gridid_to_rc_map(gdf, cell_width):
+    centroids = gdf.geometry.centroid
+    xs = centroids.x.values
+    ys = centroids.y.values
+    minx, miny, maxx, maxy = gdf.total_bounds
+    cols_idx = np.floor((xs - minx) / cell_width).astype(int)
+    rows_idx = np.floor((maxy - ys) / cell_width).astype(int)
+    return {int(gid): (int(r), int(c)) for gid, r, c in zip(gdf['grid_id'].values, rows_idx, cols_idx)}
 
-# read in data of grocery stores near each grocery store
-with open(dataroot+'grid_S_random_S.csv','r') as f:
-    for line in f:
-        # skip header
-        if line.startswith('s_id'):
-            continue
-        # extract data
-        slist = line.strip().split(',')
-        s_id = int(slist[0])
-        s_id_oth = int(slist[1])
-        x = float(slist[2])
-        y = float(slist[3])
-        tup = (x,y)
-        # create entry if first time we encounter s_id
-        if not s_id in dict_S_S.keys():
-            dict_S_S[s_id] = list()
-        # add data to this s_id
-        dict_S_S[s_id].append(tup)
+# get window patch from feature and label arrays
+def extract_patch_from_arrays(feature_array, row, col, window, pad_value = 0.0):
+    C, H, W = feature_array.shape
+    pad = window // 2
+    arr_p = np.pad(feature_array, ((0, 0), (pad, pad), (pad, pad)), mode = 'constant', constant_values = pad_value)
+    r0, c0 = row + pad, col + pad
+    patch = arr_p[:, r0-pad:r0+pad+1, c0-pad:c0+pad+1]
+    return patch.astype('float32')
 
-dict_S_I_mat = dict()
-for key, value in dict_S_I.items():
-    # create a numpy array
-    mat = np.empty((len(value), 2))
-    for i in range(len(value)):
-        mat[i,0] = value[i][0]
-        mat[i,1] = value[i][1]
-    dict_S_I_mat[key] = mat
-
-dict_S_I_restaurant_mat = dict()
-for key, value in dict_S_I_restaurant.items():
-    # create a numpy array
-    mat = np.empty((len(value), 2))
-    for i in range(len(value)):
-        mat[i,0] = value[i][0]
-        mat[i,1] = value[i][1]
-    dict_S_I_restaurant_mat[key] = mat
-# regions without restaurants:
-for key in set(dict_S_I.keys()) - set(dict_S_I_restaurant.keys()):
-    mat = np.empty((0,2))
-    dict_S_I_restaurant_mat[key] = mat
-
-dict_S_I_recreation_mat = dict()
-for key, value in dict_S_I_recreation.items():
-    # create a numpy array
-    mat = np.empty((len(value), 2))
-    for i in range(len(value)):
-        mat[i,0] = value[i][0]
-        mat[i,1] = value[i][1]
-    dict_S_I_recreation_mat[key] = mat
-# regions without recreation:
-for key in set(dict_S_I.keys()) - set(dict_S_I_recreation.keys()):
-    mat = np.empty((0,2))
-    dict_S_I_recreation_mat[key] = mat
-
-dict_S_I_religious_mat = dict()
-for key, value in dict_S_I_religious.items():
-    # create a numpy array
-    mat = np.empty((len(value), 2))
-    for i in range(len(value)):
-        mat[i,0] = value[i][0]
-        mat[i,1] = value[i][1]
-    dict_S_I_religious_mat[key] = mat
-# regions without religious:
-for key in set(dict_S_I.keys()) - set(dict_S_I_religious.keys()):
-    mat = np.empty((0,2))
-    dict_S_I_religious_mat[key] = mat
-
-dict_S_I_museum_mat = dict()
-for key, value in dict_S_I_museum.items():
-    # create a numpy array
-    mat = np.empty((len(value), 2))
-    for i in range(len(value)):
-        mat[i,0] = value[i][0]
-        mat[i,1] = value[i][1]
-    dict_S_I_museum_mat[key] = mat
-# regions without museum:
-for key in set(dict_S_I.keys()) - set(dict_S_I_museum.keys()):
-    mat = np.empty((0,2))
-    dict_S_I_museum_mat[key] = mat
-
-dict_S_I_school_mat = dict()
-for key, value in dict_S_I_school.items():
-    # create a numpy array
-    mat = np.empty((len(value), 2))
-    for i in range(len(value)):
-        mat[i,0] = value[i][0]
-        mat[i,1] = value[i][1]
-    dict_S_I_school_mat[key] = mat
-# regions without school:
-for key in set(dict_S_I.keys()) - set(dict_S_I_school.keys()):
-    mat = np.empty((0,2))
-    dict_S_I_school_mat[key] = mat
-
-dict_S_I_daycare_mat = dict()
-for key, value in dict_S_I_daycare.items():
-    # create a numpy array
-    mat = np.empty((len(value), 2))
-    for i in range(len(value)):
-        mat[i,0] = value[i][0]
-        mat[i,1] = value[i][1]
-    dict_S_I_daycare_mat[key] = mat
-# regions without daycare:
-for key in set(dict_S_I.keys()) - set(dict_S_I_daycare.keys()):
-    mat = np.empty((0,2))
-    dict_S_I_daycare_mat[key] = mat
-
-dict_S_I_gas_mat = dict()
-for key, value in dict_S_I_gas.items():
-    # create a numpy array
-    mat = np.empty((len(value), 2))
-    for i in range(len(value)):
-        mat[i,0] = value[i][0]
-        mat[i,1] = value[i][1]
-    dict_S_I_gas_mat[key] = mat
-# regions without gas:
-for key in set(dict_S_I.keys()) - set(dict_S_I_gas.keys()):
-    mat = np.empty((0,2))
-    dict_S_I_gas_mat[key] = mat
-
-
-dict_S_S_mat = dict()
-for key, value in dict_S_S.items():
-    # create a numpy array
-    mat = np.empty((len(value), 2))
-    for i in range(len(value)):
-        mat[i,0] = value[i][0]
-        mat[i,1] = value[i][1]
-    dict_S_S_mat[key] = mat
-# regions without grocery stores:
-for key in set(dict_S_I.keys()) - set(dict_S_S.keys()):
-    mat = np.empty((0,2))
-    dict_S_S_mat[key] = mat
-
-
-S_id_all = list(dict_S_I.keys())
-# print(S_id_all)
-S_id_real = [el for el in S_id_all if el<1000]
-# print(S_id_real)
-S_id_random = [el for el in S_id_all if el>=1000]
-# print(S_id_random)
-
-"""Transform Data to grid (functions)"""
-
-@numba.jit(nopython=True)
-def cnt_in_cell_mat(x,y):
-    out = np.zeros((2*size_padding+size_potential,2*size_padding+size_potential))
-    for i in range(len(x)):
-        if min(x[i],y[i])>= 0 and max(x[i],y[i])<2*size_padding+size_potential:
-            out[y[i],x[i]] += 1
+def apply_augmentation_to_patch(patch, theta_deg=0.0, mirror_var=1, shift_x_pixels=0.0, shift_y_pixels=0.0, order=1, cval=0.0):
+    C, H, W = patch.shape
+    out = np.empty_like(patch)
+    for ch in range(C):
+        layer = patch[ch]
+        # mirror left-right if requested
+        if mirror_var == -1:
+            layer = np.fliplr(layer)
+        # rotate about center (reshape=False keeps same H,W)
+        if theta_deg != 0.0:
+            layer = rotate(layer, angle=theta_deg, reshape=False, order=order, mode='constant', cval=cval)
+        # shift (rows, cols)
+        if shift_y_pixels != 0.0 or shift_x_pixels != 0.0:
+            layer = shift(layer, shift=(shift_y_pixels, shift_x_pixels), order=order, mode='constant', cval=cval)
+        out[ch] = layer
     return out
 
+GRID_FEATURE_ARRAY, GRID_LABEL_ARRAY, rast_transform, CHANNEL_MEANS, CHANNEL_STDS = gdf_to_raster(grid, features, 'hwy', cell_width = 150)
+GRID_LABEL_ARRAY = np.squeeze(GRID_LABEL_ARRAY)
+GRIDID_TO_RC = gridid_to_rc_map(grid, cell_width)
 
-@numba.jit(nopython=True)
-def data_shift_rotate(mat,shift_x=0,shift_y=0,theta=0,mirror_var=1):
-    # rotate by theta
-    theta = theta * pi / 180
-    if not theta == 0:
-        x = cos(theta) * mat[:,0] - sin(theta) * mat[:,1]
-        y = sin(theta) * mat[:,0] + cos(theta) * mat[:,1]
-        # rot = np.array([[cos(theta),sin(theta)],[-sin(theta),cos(theta)]])
-        # xy = mat@rot
-        # x = xy[:,0]
-        # y = xy[:,1]
-    else:
-        x = mat[:,0]
-        y = mat[:,1]
-    # mirror the region
-    if mirror_var == 1 or mirror_var == -1:
-        x = mirror_var * x
-    # shift by shift_x, shift_y
-    x = x+shift_x
-    y = y+shift_y
+# filter S_id lists to only include cells with valid label (not NODATA)
+def valid_ids_from_list(id_list):
+    out = []
+    for gid in id_list:
+        if int(gid) in GRIDID_TO_RC:
+            r,c = GRIDID_TO_RC[int(gid)]
+            if 0 <= r < GRID_LABEL_ARRAY.shape[0] and 0 <= c < GRID_LABEL_ARRAY.shape[1]:
+                if GRID_LABEL_ARRAY[r,c] != NODATA and not np.isnan(GRID_LABEL_ARRAY[r,c]):
+                    out.append(int(gid))
+    return out
 
-    return x, y  
-
-
-def data_to_grid(mat,shift_x=0,shift_y=0,theta=0,mirror_var=1):
-
-    x, y = data_shift_rotate(mat,shift_x,shift_y,theta,mirror_var)
-
-    # fit into cells
-    x = np.around(x/cell_width + size_padding).astype(int)
-    y = np.around(y/cell_width + size_padding).astype(int)
-
-    return cnt_in_cell_mat(x,y)
-
-
-# create tensor of the proper size (1 channel currently)
-grid = torch.zeros(BATCH_SIZE,nc,2*size_padding+size_potential, 2*size_padding+size_potential) #, dtype=torch.double)
+# create tensor of the proper size 
+batch_tensor = torch.zeros(BATCH_SIZE,nc,2*size_padding+size_potential, 2*size_padding+size_potential) #, dtype=torch.double)
 labels = torch.empty(BATCH_SIZE, dtype=torch.int64)
+S_id_real = valid_ids_from_list([int(g) for g in hwys])
 
+if isinstance(candidate_list, dict):
+    cand_flat = [int(x) for vals in candidate_list.values() for x in (vals or [])]
+elif isinstance(candidate_list, pd.Series):
+    cand_flat = [int(x) for vals in candidate_list.tolist() for x in (vals or [])]
+else:
+    cand_flat = [int(x) for x in candidate_list]
 
-def create_batch(grid=grid,labels=labels,sample_ids_real=S_id_real, sample_ids_random=S_id_random, return_transf=False):
+cand_flat = cand_flat  # keep existing construction above
+S_id_random = valid_ids_from_list([g for g in cand_flat if g not in S_id_real])
 
-    grid = grid*0
+S_id_real = np.array(S_id_real, dtype=int)
+S_id_random = np.array(S_id_random, dtype=int)
+
+def extract_label_patch(label_array, row, col, window, pad_value = NODATA):
+    pad = window // 2
+    H, W = label_array.shape
+    lbl_p = np.full((H + 2*pad, W + 2*pad), pad_value, dtype=label_array.dtype)
+    lbl_p[pad:pad+H, pad:pad+W] = label_array
+    r0, c0 = row + pad, col + pad
+    return lbl_p[r0-pad:r0+pad+1, c0-pad:c0+pad+1]
+
+def create_batch(batch_tensor=batch_tensor, labels=labels, sample_ids_real=S_id_real, sample_ids_random=S_id_random, return_transf=False):
+    batch_tensor = batch_tensor*0
     labels = labels*0
 
     if return_transf:
         transf = np.zeros(shape=(BATCH_SIZE,5))
 
+    window = 2*size_padding + size_potential
+    pad = window // 2
+
+    # guard: ensure sample sets not empty
+    if len(sample_ids_real) == 0 and len(sample_ids_random) == 0:
+        raise RuntimeError("sample_ids_real or sample_ids_random is empty after filtering for valid labels")
+
     for b in range(BATCH_SIZE):
 
         if b < BATCH_SIZE_real + BATCH_SIZE_fill:
-            s_id = np.random.choice(sample_ids_real)
+            if len(sample_ids_real) == 0:
+                s_id = int(np.random.choice(sample_ids_random))
+            else:
+                s_id = int(np.random.choice(sample_ids_real))
         else:
-            s_id = np.random.choice(sample_ids_random)
+            if len(sample_ids_random) == 0:
+                s_id = int(np.random.choice(sample_ids_real))
+            else:
+                s_id = int(np.random.choice(sample_ids_random))
 
-        # get the businesses near s_id
-        mat_S = dict_S_S_mat[s_id]
-        mat_I = dict_S_I_mat[s_id]
-        mat_I_restaurant = dict_S_I_restaurant_mat[s_id]
-        mat_I_recreation = dict_S_I_recreation_mat[s_id]
-        mat_I_religious = dict_S_I_religious_mat[s_id]
-        mat_I_museum = dict_S_I_museum_mat[s_id]
-        mat_I_school = dict_S_I_school_mat[s_id]
-        mat_I_daycare = dict_S_I_daycare_mat[s_id]
-        mat_I_gas = dict_S_I_gas_mat[s_id]
+        # find raster row/col for this grid_id
+        if int(s_id) not in GRIDID_TO_RC:
+            # if grid_id not found, pick arbitrary valid center
+            H = GRID_FEATURE_ARRAY.shape[1]; W = GRID_FEATURE_ARRAY.shape[2]
+            row = np.random.randint(pad, H-pad)
+            col = np.random.randint(pad, W-pad)
+        else:
+            row, col = GRIDID_TO_RC[int(s_id)]
 
-
-        # randomly pick rotation of this region
+        # random augmentations (keep same semantics as original)
         theta = np.random.rand()*360
-
-        # randomly mirror? 
         mirror_var = (np.random.rand() > 0.5)*2 - 1
-
-        # randomly pick where real store is going to be
         shift_x = np.random.rand()*cell_width*size_potential - cell_width/2
         shift_y = np.random.rand()*cell_width*size_potential - cell_width/2
 
-        # print(shift_x,shift_y,theta,mirror_var)
         if return_transf:
             transf[b,0] = s_id
             transf[b,1] = shift_x
@@ -444,100 +264,106 @@ def create_batch(grid=grid,labels=labels,sample_ids_real=S_id_real, sample_ids_r
             transf[b,3] = theta
             transf[b,4] = mirror_var
 
-        # fill tensor
-        grid[b,0,:,:] = torch.from_numpy(data_to_grid(mat_S,shift_x=shift_x,shift_y=shift_y,theta=theta,mirror_var=mirror_var))
-        if nc >= 2:
-            grid[b,1,:,:] = torch.from_numpy(data_to_grid(mat_I,shift_x=shift_x,shift_y=shift_y,theta=theta,mirror_var=mirror_var))
-        if nc >= 3:
-            grid[b,2,:,:] = torch.from_numpy(data_to_grid(mat_I_restaurant,shift_x=shift_x,shift_y=shift_y,theta=theta,mirror_var=mirror_var))
-        if nc >= 4:
-            grid[b,3,:,:] = torch.from_numpy(data_to_grid(mat_I_recreation,shift_x=shift_x,shift_y=shift_y,theta=theta,mirror_var=mirror_var))
-        if nc >= 5:
-            grid[b,4,:,:] = torch.from_numpy(data_to_grid(mat_I_gas,shift_x=shift_x,shift_y=shift_y,theta=theta,mirror_var=mirror_var))
-        if nc >= 6:
-            grid[b,5,:,:] = torch.from_numpy(data_to_grid(mat_I_religious,shift_x=shift_x,shift_y=shift_y,theta=theta,mirror_var=mirror_var))
-        if nc >= 7:
-            grid[b,6,:,:] = torch.from_numpy(data_to_grid(mat_I_museum,shift_x=shift_x,shift_y=shift_y,theta=theta,mirror_var=mirror_var))
-        if nc >= 8:
-            grid[b,7,:,:] = torch.from_numpy(data_to_grid(mat_I_daycare,shift_x=shift_x,shift_y=shift_y,theta=theta,mirror_var=mirror_var))
-        if nc >= 9:
-            grid[b,8,:,:] = torch.from_numpy(data_to_grid(mat_I_school,shift_x=shift_x,shift_y=shift_y,theta=theta,mirror_var=mirror_var))
+        patch = extract_patch_from_arrays(GRID_FEATURE_ARRAY, row, col, window, pad_value=0.0)
 
-        # include this grocery store in the covariates?
-        if b >= BATCH_SIZE_real and b < BATCH_SIZE_real+BATCH_SIZE_fill:
-            treat_x = int(round(shift_x/cell_width) + size_padding)
-            treat_y = int(round(shift_y/cell_width) + size_padding)
-            grid[b,0,treat_y,treat_x] += 1
+        # convert shifts in meters to pixels for ndimage.shift
+        shift_x_pixels = shift_x / float(cell_width)   # positive -> move right
+        shift_y_pixels = shift_y / float(cell_width)   # positive -> move down
 
-        # location of missing grocery store:
-        if b < BATCH_SIZE_real:
-            labels[b] = int(round(shift_y/cell_width)*size_potential) + int(round(shift_x/cell_width))
-        # random region without missing grocery store or grocery store is filled in:
+        # apply geometric augmentation (mirror, rotate, shift) to all channels
+        # use bilinear interpolation (order=1) for continuous channels
+        patch = apply_augmentation_to_patch(patch,
+                                            theta_deg=theta,
+                                            mirror_var=mirror_var,
+                                            shift_x_pixels=shift_x_pixels,
+                                            shift_y_pixels=shift_y_pixels,
+                                            order=1,
+                                            cval=0.0)
+        
+         # extract label patch, apply same augmentation with nearest interpolation, and read center
+        lbl_patch = extract_label_patch(GRID_LABEL_ARRAY, row, col, window, pad_value=NODATA)
+        lbl_patch_ch = lbl_patch[np.newaxis, :, :]  # shape (1,H,W)
+        lbl_aug = apply_augmentation_to_patch(lbl_patch_ch,
+                                             theta_deg=theta,
+                                             mirror_var=mirror_var,
+                                             shift_x_pixels=shift_x_pixels,
+                                             shift_y_pixels=shift_y_pixels,
+                                             order=0,  # nearest for labels
+                                             cval=NODATA)
+        center_label = lbl_aug[0, pad, pad]
+        # handle nodata after augmentation (rare) — fallback to original center if available or set 0
+        if center_label == NODATA or np.isnan(center_label):
+            original_center = GRID_LABEL_ARRAY[row, col]
+            if original_center == NODATA or np.isnan(original_center):
+                center_label = 0
+            else:
+                center_label = int(original_center)
+        labels[b] = int(center_label)
+
+        # normalize each channel using precomputed means/stds (unchanged)
+        for ch in range(patch.shape[0]):
+            mu = CHANNEL_MEANS[ch] if ch < len(CHANNEL_MEANS) else 0.0
+            sd = CHANNEL_STDS[ch] if ch < len(CHANNEL_STDS) else 1.0
+            if sd == 0 or np.isnan(sd):
+                sd = 1.0
+            patch[ch] = (patch[ch] - mu) / sd
+        # if patch channels do not match nc, truncate or pad with zeros
+        C = patch.shape[0]
+        if C >= nc:
+            patch = patch[:nc, :, :]
         else:
-            labels[b] = pow(size_potential,2)  # index 1 larger than locations (start at 0)
+            pad_ch = np.zeros((nc - C, window, window), dtype='float32')
+            patch = np.vstack([patch, pad_ch])
+
+        # assign patch channels to grid tensor
+        for ch in range(nc):
+            batch_tensor[b, ch, :, :] = torch.from_numpy(patch[ch])
+
+        # if you want to include the center cell as in original 'filled' case:
+        if b >= BATCH_SIZE_real and b < BATCH_SIZE_real+BATCH_SIZE_fill:
+            treat_x = pad
+            treat_y = pad
+            batch_tensor[b,0,treat_y,treat_x] += 1
+
 
     if not return_transf:
-        return grid, labels
+        return batch_tensor, labels
     else:
-        return grid, labels, transf
+        return batch_tensor, labels, transf
 
-"""Define Neural Net"""
-
+####################################################################################################
+### NEURAL NET FUNCTIONS AND INITIALIZATION###
+# define neural net
 class Net(nn.Module):
     def __init__(self):
         super(Net, self).__init__()
-
         main = nn.Sequential(
             nn.InstanceNorm2d(num_features=nc, affine=True),
-            nn.Conv2d(in_channels=nc,
-                out_channels=2*nc,
-                kernel_size=5, #9,
-                padding=2, #4, #(9-1)/2,
-                padding_mode='replicate', # 'zeros', 'reflect' or 'replicate' could work
-                bias=True),
+            nn.Conv2d(in_channels=nc, out_channels=2*nc, kernel_size=5, padding=2, padding_mode='replicate', bias=True),
             nn.InstanceNorm2d(num_features=2*nc, affine=True),
             nn.LeakyReLU(),
-            nn.Conv2d(in_channels=2*nc,
-                out_channels=4*nc,
-                kernel_size=21, #9,
-                padding=20, #4, #(9-1)/2,
-                padding_mode='replicate', # 'zeros', 'reflect' or 'replicate' could work
-                dilation=2,
-                bias=True),
+            nn.Conv2d(in_channels=2*nc, out_channels=4*nc, kernel_size=21, padding=20, padding_mode='replicate', dilation=2, bias=True),
             nn.InstanceNorm2d(num_features=4*nc, affine=True),
             nn.LeakyReLU(),
-            nn.Conv2d(in_channels=4*nc,
-                out_channels=4*nc,
-                kernel_size=5, #9,
-                padding=2, #4, #(9-1)/2,
-                padding_mode='replicate', # 'zeros', 'reflect' or 'replicate' could work
-                bias=True),
+            nn.Conv2d(in_channels=4*nc, out_channels=4*nc, kernel_size=5, padding=2, padding_mode='replicate', bias=True),
             nn.InstanceNorm2d(num_features=4*nc, affine=True),
             nn.LeakyReLU(),
-            nn.Conv2d(in_channels=4*nc,
-                out_channels=1,
-                kernel_size=21, #9,
-                padding=20, #4, #(9-1)/2,
-                padding_mode='replicate', # 'zeros', 'reflect' or 'replicate' could work
-                dilation=2,
-                bias=True),
+            nn.Conv2d(in_channels=4*nc, out_channels=1, kernel_size=21, padding=20, padding_mode='replicate', dilation=2, bias=True),
             nn.InstanceNorm2d(num_features=1, affine=True),
-            nn.Flatten(),  #view(-1, 1*X_dim*X_dim),
-            nn.Linear(1*pow(2*size_padding+size_potential,2), pow(size_potential,2)+1),  
+            nn.Flatten(),
+            # binary classification => 2 logits
+            nn.Linear(1 * pow(2*size_padding+size_potential, 2), 2),
         )
         self.main = main
 
     def forward(self, x):
-        output = self.main(inputs)
-        return output
+        return self.main(x)
 
-"""function to initialize optimizer"""
-
+# initialize optimizer
 def intitialize_optimizer(net):
     return optim.SGD(net.parameters(), lr=0.001, momentum=0.9)
 
-"""code for saving and loading the model"""
-
+# functions to save and load model
 def save_model(filename=None):
     if not filename:
         date = (datetime.utcnow() + timedelta(hours=-7)).strftime('%Y-%m-%d--%H-%M')
@@ -552,10 +378,12 @@ def save_model(filename=None):
                 }, path_save)
     print('file: ' + path_save)
 
-def load_model(filename,net=None,optimizer=None):
+def load_model(filename, net=None, optimizer=None):
     global epoch_set_seed
     global curr_epoch
-    path_load = outputroot + filename
+    # allow either a path relative to outputroot or an absolute/full path
+    path_load = filename if Path(filename).is_absolute() or Path(filename).exists() else Path(outputroot) / filename
+    path_load = str(path_load)
     if not net:
         net = Net()
     # if using GPU
@@ -572,25 +400,85 @@ def load_model(filename,net=None,optimizer=None):
         checkpoint = torch.load(path_load, map_location=device)
     net.load_state_dict(checkpoint['net_state_dict'])
     optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
-    curr_epoch = checkpoint['curr_epoch']
+    curr_epoch = checkpoint.get('curr_epoch', 0)
     if 'epoch_set_seed' in checkpoint.keys():
         epoch_set_seed = checkpoint['epoch_set_seed']
         print('found list in keys')
     epoch_set_seed.append(curr_epoch)
-
-
-
     return net, optimizer
 
-"""Set random seed"""
+# fine-tuning function 
+def fine_tune_on_city(sample_train_real_city, sample_train_random_city,
+                      base_model_path='cnn/base_pooled_model.tar',
+                      fine_epochs=5, fine_iters=2000, lr=1e-3, freeze_backbone=True):
+    # load base pooled model
+    net_ft, optimizer_ft = load_model(base_model_path)
+    # freeze backbone if requested (unfreeze classifier = last Linear)
+    if freeze_backbone:
+        for p in net_ft.parameters():
+            p.requires_grad = False
+        # find last linear module (assumes net.main ends with Linear)
+        if isinstance(net_ft.main[-1], nn.Linear):
+            for p in net_ft.main[-1].parameters():
+                p.requires_grad = True
+    # optimizer only for trainable params
+    trainable = [p for p in net_ft.parameters() if p.requires_grad]
+    if not trainable:
+        raise RuntimeError("No trainable parameters found; check freeze_backbone setting")
+    optimizer_city = optim.SGD(trainable, lr=lr, momentum=0.9)
+
+    # compute class weights from available city labels (optional)
+    def get_labels_for_ids(id_list):
+        labs = []
+        for gid in id_list:
+            if int(gid) in GRIDID_TO_RC:
+                r,c = GRIDID_TO_RC[int(gid)]
+                labs.append(int(GRID_LABEL_ARRAY[r, c]))
+        return np.array(labs, dtype=int)
+
+    y_real = get_labels_for_ids(sample_train_real_city)
+    y_rand = get_labels_for_ids(sample_train_random_city)
+    y_all = np.concatenate([y_real, y_rand]) if len(y_real) + len(y_rand) > 0 else np.array([0,1])
+    vals, counts = np.unique(y_all, return_counts=True)
+    total = counts.sum()
+    weights = np.ones(2, dtype=np.float32)
+    for v, c in zip(vals, counts):
+        weights[int(v)] = float(total) / (2.0 * float(c))
+    criterion_city = nn.CrossEntropyLoss(weight=torch.from_numpy(weights).to(next(net_ft.parameters()).device))
+
+    # small training loop using create_batch (pass city-specific sample lists)
+    device = torch.device('cuda' if (use_cuda and torch.cuda.is_available()) else 'cpu')
+    net_ft.to(device)
+    net_ft.train()
+    for epoch in range(fine_epochs):
+        running_loss = 0.0
+        for it in range(fine_iters):
+            data = create_batch(sample_ids_real=sample_train_real_city, sample_ids_random=sample_train_random_city)
+            inputs, labels = data
+            inputs = inputs.to(device)
+            labels = labels.to(device)
+
+            optimizer_city.zero_grad()
+            outputs = net_ft(inputs)
+            loss = criterion_city(outputs, labels)
+            loss.backward()
+            optimizer_city.step()
+
+            running_loss += float(loss.item())
+            if (it+1) % max(1, fine_iters//5) == 0:
+                avg = running_loss / max(1, fine_iters//5)
+                print(f'Fine-tune epoch {epoch+1}/{fine_epochs} iter {it+1}/{fine_iters} loss={avg:.4f}')
+                running_loss = 0.0
+
+    # return fine-tuned model and optimizer (caller can save)
+    return net_ft, optimizer_city
+
 
 # Set random seed for reproducibility
 manualSeed = 24601
 print('Random Seed: ', manualSeed)
 np.random.seed(manualSeed)
 torch.manual_seed(manualSeed)
-
-"""Pick training / evaluation sample"""
 
 # locations for training and evaluation
 num_distinct_train_real = int(len(S_id_real) * frac_train_real)
@@ -612,8 +500,7 @@ else:
     sample_eval_random = S_id_random
 sample_eval_random.sort()
 
-"""Initialize neural net"""
-
+# initialize neural net
 def weights_init(m):
     classname = m.__class__.__name__
     if classname.find('Conv') != -1:
@@ -621,7 +508,7 @@ def weights_init(m):
     elif classname.find('Linear') != -1:
         m.weight.data.normal_(0.0, 0.02)
         m.bias.data.fill_(0)
-    elif classname.find('BatchNorm') != -1:
+    elif classname.find('InstanceNorm') != -1:
         m.weight.data.normal_(1.0, 0.02)
         m.bias.data.fill_(0)
 
@@ -648,12 +535,14 @@ print('Random Seed: ', manualSeed)
 np.random.seed(manualSeed)
 torch.manual_seed(manualSeed)
 
-"""Training"""
-
-print('Starting Training')
+####################################################################################################
+### TRAINING ###
+print('starting pooled training')
 print((datetime.utcnow() + timedelta(hours=-7)).strftime('%Y-%m-%d %H:%M:%S'))
 
 bound_epochs = curr_epoch + EPOCHS
+print_interval = min(10000, max(1, ITERS // 10))
+eval_interval = min(10000, max(1, ITERS // 5))
 
 # loop over the dataset multiple times
 for epoch in range(curr_epoch, bound_epochs):
@@ -704,9 +593,9 @@ for epoch in range(curr_epoch, bound_epochs):
 
         # print statistics
         running_loss += loss.item()
-        if i % min(10000,ITERS/10) == min(10000,ITERS/10)-1:    # print every min(1000,ITERS/10) mini-batches
+        if i % print_interval == print_interval - 1:
             print('[%d / %d, %5d / %5d] loss: %.3f, accuracy: %.1f%%, real: %.1f%%, real non-zero: %.1f%%, real filled: %.1f%%, unrealized: %.1f%%' %
-                  (epoch + 1, bound_epochs, i + 1, ITERS, running_loss / min(10000,ITERS/10),
+                  (epoch + 1, bound_epochs, i + 1, ITERS, running_loss / print_interval,
                    100 * correct / total,
                    100 * correct_real / max(total_real,1),
                    100 * non_zero_real / max(total_real,1),
@@ -726,7 +615,7 @@ for epoch in range(curr_epoch, bound_epochs):
             
         # evaluation sample:
         if frac_train_real < 1 or frac_train_random < 1:
-            if i % min(10000,ITERS/5) == min(10000,ITERS/5)-1:    # print every min(1000,ITERS/10) mini-batches
+            if i % eval_interval == eval_interval - 1:    # print every min(1000,ITERS/10) mini-batches
                 eval_correct = 0
                 eval_correct_real = 0
                 eval_non_zero_real = 0
@@ -738,7 +627,7 @@ for epoch in range(curr_epoch, bound_epochs):
                 eval_total_random = 0
 
                 with torch.no_grad():
-                    for i in range(100):
+                    for j in range(100):
                         inputs, labels = create_batch(sample_ids_real=sample_eval_real,
                                                     sample_ids_random=sample_eval_random)
 
@@ -768,8 +657,30 @@ for epoch in range(curr_epoch, bound_epochs):
 
     print('Finished Epoch ' + str(epoch+1) + ' of ' + str(bound_epochs) + '. Saving model and optimizer checkpoint.')
     curr_epoch = curr_epoch + 1
-    save_model()
+    save_model('base_pooled_model.tar')
     print((datetime.utcnow() + timedelta(hours=-7)).strftime('%Y-%m-%d %H:%M:%S'))
 
 print('Finished Training')
 
+####################################################################################################
+for city in sample['city'].unique():
+    print(f"Fine-tuning for city: {city}")
+    sample_train_real_city = [g for g in S_id_real if grid.loc[grid['grid_id']==g,'city'].iloc[0]==city]
+    sample_train_random_city = [g for g in S_id_random if grid.loc[grid['grid_id']==g,'city'].iloc[0]==city]
+
+    if len(sample_train_real_city) + len(sample_train_random_city) == 0:
+        print(f"Skipping {city}: no training ids after filtering.")
+        continue
+
+    # load base pooled model (saved earlier in your main training as 'base_pooled_model.tar')
+    net_city, opt_city = fine_tune_on_city(sample_train_real_city, sample_train_random_city,
+                                           base_model_path='cnn/base_pooled_model.tar',
+                                           fine_epochs=5, fine_iters=2000, lr=1e-3, freeze_backbone=True)
+
+    # save per-city fine-tuned model
+    torch.save({
+        'net_state_dict': net_city.state_dict(),
+        'optimizer_state_dict': opt_city.state_dict(),
+        'city': city,
+        }, outputroot + f'fine_{city}.tar')
+    print(f"Saved fine-tuned model for {city}")
