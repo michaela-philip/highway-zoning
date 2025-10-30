@@ -52,16 +52,8 @@ def get_candidates(data, centroids, sample):
     return candidate_list
 
 ####################################################################################################
-### SECTION TO BE EDITED UPON ADDITION OF NEW CITIES ###
-values = [
-    ('atlanta', 'AT', 'georgia', 'GA', 44, [1210, 890], 350),
-    ('louisville', 'LO', 'kentucky', 'KY', 51, [1110], 3750)]
-keys=['city', 'cityabbr', 'state', 'stateabbr', 'stateicp', 'countyicp', 'cityicp']
-rows = [dict(zip(keys, v)) for v in values]
-sample = pd.DataFrame(rows)
-####################################################################################################
-
 data = pd.read_pickle('data/output/sample.pkl')
+sample = pd.read_pickle('data/input/samplelist.pkl')
 centroids = pd.read_csv('data/input/msas_with_central_city_cbds.csv')
 centroids = gpd.GeoDataFrame(centroids, geometry = gpd.points_from_xy(centroids.cbd_retail_long, centroids.cbd_retail_lat), 
                              crs = 'EPSG:4267') # best guess at CRS based off of projfinder.com
