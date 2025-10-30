@@ -1,7 +1,9 @@
 import pandas as pd
 import geopandas as gpd
 import itertools
-from shapely.geometry import LineString, Point
+from shapely.geometry import LineString
+import pickle
+from pathlib import Path
 
 def create_candidate_list(data, cbd):
     # get rays between each existing highway point
@@ -31,8 +33,9 @@ def create_candidate_list(data, cbd):
     # get list of grid_ids that the rays intersect
     candidates = gpd.sjoin(data, rays, how = 'inner', predicate = 'intersects')
     
-    # drop candidates that already have highways
+    # drop candidates that already have highways and those that will have highways
     candidates = candidates.loc[candidates['hwy_40'] == 0].copy()
+    candidates = candidates.loc[candidates['hwy'] == 0].copy()
     return candidates['grid_id'].unique().tolist()
 
 def get_candidates(data, centroids, sample):
@@ -41,18 +44,15 @@ def get_candidates(data, centroids, sample):
         city_data = data[data['city'] == city].copy()
         city_cbd = centroids[centroids['place'].str.lower() == f'{city}'].to_crs(city_data.crs)
         candidate_list[city] = create_candidate_list(city_data, city_cbd)
+    out_path = Path('data/output/cnn_candidate_list.pkl')
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(out_path, 'wb') as fh:
+        pickle.dump(candidate_list, fh, protocol=pickle.HIGHEST_PROTOCOL)
+
     return candidate_list
 
 ####################################################################################################
-### SECTION TO BE EDITED UPON ADDITION OF NEW CITIES ###
-values = [
-    ('atlanta', 'AT', 'georgia', 'GA', 44, [1210, 890], 350),
-    ('louisville', 'LO', 'kentucky', 'KY', 51, [1110], 3750)]
-keys=['city', 'cityabbr', 'state', 'stateabbr', 'stateicp', 'countyicp', 'cityicp']
-rows = [dict(zip(keys, v)) for v in values]
-sample = pd.DataFrame(rows)
-####################################################################################################
-
+sample = pd.read_pickle('data/input/samplelist.pkl')
 data = pd.read_pickle('data/output/sample.pkl')
 centroids = pd.read_csv('data/input/msas_with_central_city_cbds.csv')
 centroids = gpd.GeoDataFrame(centroids, geometry = gpd.points_from_xy(centroids.cbd_retail_long, centroids.cbd_retail_lat), 
