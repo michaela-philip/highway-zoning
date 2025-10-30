@@ -15,19 +15,6 @@ zoning = {
 }
 
 ####################################################################################################
-### LOAD DATA ###
-census = pd.read_pickle('data/intermed/geocoded_data.pkl')
-centroids = pd.read_csv('data/input/msas_with_central_city_cbds.csv') # from Dan Aaron Hartley
-centroids = gpd.GeoDataFrame(centroids, geometry = gpd.points_from_xy(centroids.cbd_retail_long, centroids.cbd_retail_lat), 
-                             crs = 'EPSG:4267') # best guess at CRS based off of projfinder.com
-
-interstate = gpd.read_file('data/input/shapefiles/1960/interstates1959_del.shp') # from Jaworski and Kitchens
-state59 = gpd.read_file('data/input/shapefiles/1960/stateHighwayPaved1959_del.shp')
-us59 = gpd.read_file('data/input/shapefiles/1960/usHighwayPaved1959_del.shp')
-state40 = gpd.read_file('data/input/shapefiles/1940/1940 completed shapefiles/stateHighwayPaved1940_del.shp')
-us40 = gpd.read_file('data/input/shapefiles/1940/1940 completed shapefiles/usHighwayPaved1940_del.shp')
-
-####################################################################################################
 ### FUNCTION TO CLASSIFY GRID BASED ON ZONING ###
 def classify_grid(zoning1, grid, centroids, city_sample, zoning2 = None):
     # condense zoning to residential and industrial
@@ -263,6 +250,19 @@ def create_sample(df, sample):
         city_grid['city'] = city
         output = pd.concat([output, city_grid], ignore_index=True)
     return output
+
+####################################################################################################
+### LOAD DATA ###
+census = pd.read_pickle('data/intermed/geocoded_data.pkl')
+centroids = pd.read_csv('data/input/msas_with_central_city_cbds.csv') # from Dan Aaron Hartley
+centroids = gpd.GeoDataFrame(centroids, geometry = gpd.points_from_xy(centroids.cbd_retail_long, centroids.cbd_retail_lat), 
+                             crs = 'EPSG:4267') # best guess at CRS based off of projfinder.com
+
+interstate = gpd.read_file('data/input/shapefiles/1960/interstates1959_del.shp') # from Jaworski and Kitchens
+state59 = gpd.read_file('data/input/shapefiles/1960/stateHighwayPaved1959_del.shp')
+us59 = gpd.read_file('data/input/shapefiles/1960/usHighwayPaved1959_del.shp')
+state40 = gpd.read_file('data/input/shapefiles/1940/1940 completed shapefiles/stateHighwayPaved1940_del.shp')
+us40 = gpd.read_file('data/input/shapefiles/1940/1940 completed shapefiles/usHighwayPaved1940_del.shp')
 
 ####################################################################################################
 # create sample with 150 x 150 grid squares
