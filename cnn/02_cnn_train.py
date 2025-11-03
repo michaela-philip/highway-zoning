@@ -29,7 +29,7 @@ sample = pd.read_pickle('data/input/samplelist.pkl')
 candidate_list = pd.read_pickle('data/output/cnn_candidate_list.pkl')
 grid = pd.read_pickle('data/output/sample.pkl')
 hwys = grid[grid['hwy'] == 1]['grid_id'].unique().tolist()
-features = ['valueh', 'rent', 'dist_to_cbd', 'dist_water', 'owner', 'elevation']
+features = ['valueh', 'rent', 'distance_to_cbd', 'dist_water', 'owner', 'dm_elevation']
 
 cell_width = 150  # cell width in meters (convert from miles)
 size_potential = 6  # potential locations: num_width_potential x num_width_potential
@@ -49,7 +49,7 @@ curr_epoch = 0
 epoch_set_seed = list()
 epoch_set_seed.append(curr_epoch)
 EPOCHS = 20
-ITERS = 10000
+ITERS = 5000
 NODATA = -9999.0
 
 print('BATCH_SIZE: ' + str(BATCH_SIZE))
@@ -154,7 +154,7 @@ def extract_patch_from_arrays(feature_array, row, col, window, pad_value = 0.0):
     pad = window // 2
     arr_p = np.pad(feature_array, ((0, 0), (pad, pad), (pad, pad)), mode = 'constant', constant_values = pad_value)
     r0, c0 = row + pad, col + pad
-    patch = arr_p[:, r0-pad:r0+pad+1, c0-pad:c0+pad+1]
+    patch = arr_p[:, r0-pad:r0+pad, c0-pad:c0+pad]
     return patch.astype('float32')
 
 def apply_augmentation_to_patch(patch, theta_deg=0.0, mirror_var=1, shift_x_pixels=0.0, shift_y_pixels=0.0, order=1, cval=0.0):
@@ -300,30 +300,37 @@ def create_batch(batch_tensor=batch_tensor, labels=labels, sample_ids_real=S_id_
                 center_label = int(original_center)
         labels[b] = int(center_label)
 
-        # normalize each channel using precomputed means/stds (unchanged)
-        for ch in range(patch.shape[0]):
-            mu = CHANNEL_MEANS[ch] if ch < len(CHANNEL_MEANS) else 0.0
-            sd = CHANNEL_STDS[ch] if ch < len(CHANNEL_STDS) else 1.0
-            if sd == 0 or np.isnan(sd):
-                sd = 1.0
-            patch[ch] = (patch[ch] - mu) / sd
-        # if patch channels do not match nc, truncate or pad with zeros
-        C = patch.shape[0]
-        if C >= nc:
-            patch = patch[:nc, :, :]
-        else:
-            pad_ch = np.zeros((nc - C, window, window), dtype='float32')
-            patch = np.vstack([patch, pad_ch])
+    # normalize each channel using precomputed means/stds (unchanged)
+    for ch in range(patch.shape[0]):
+        mu = CHANNEL_MEANS[ch] if ch < len(CHANNEL_MEANS) else 0.0
+        sd = CHANNEL_STDS[ch] if ch < len(CHANNEL_STDS) else 1.0
+        if sd == 0 or np.isnan(sd):
+            sd = 1.0
+        patch[ch] = (patch[ch] - mu) / sd
 
-        # assign patch channels to grid tensor
-        for ch in range(nc):
-            batch_tensor[b, ch, :, :] = torch.from_numpy(patch[ch])
+    # if patch channels do not match nc, truncate or pad with zeros
+    C = patch.shape[0]
+    if C != nc:
+        print(f"Warning: Patch channels ({C}) do not match expected channels ({nc}). Adjusting...")
+    if C >= nc:
+        patch = patch[:nc, :, :]
+    else:
+        pad_ch = np.zeros((nc - C, window, window), dtype='float32')
+        patch = np.vstack([patch, pad_ch])
 
-        # if you want to include the center cell as in original 'filled' case:
-        if b >= BATCH_SIZE_real and b < BATCH_SIZE_real+BATCH_SIZE_fill:
-            treat_x = pad
-            treat_y = pad
-            batch_tensor[b,0,treat_y,treat_x] += 1
+    # verify patch dimensions
+    if patch.shape[1:] != (window, window):
+        raise ValueError(f"Patch dimensions {patch.shape[1:]} do not match expected size ({window}, {window})")
+
+    # assign patch channels to grid tensor
+    for ch in range(nc):
+        batch_tensor[b, ch, :, :] = torch.from_numpy(patch[ch])
+
+    # if you want to include the center cell as in original 'filled' case:
+    if b >= BATCH_SIZE_real and b < BATCH_SIZE_real + BATCH_SIZE_fill:
+        treat_x = pad
+        treat_y = pad
+        batch_tensor[b, 0, treat_y, treat_x] += 1
 
 
     if not return_transf:
@@ -675,7 +682,7 @@ for city in sample['city'].unique():
     # load base pooled model (saved earlier in your main training as 'base_pooled_model.tar')
     net_city, opt_city = fine_tune_on_city(sample_train_real_city, sample_train_random_city,
                                            base_model_path='cnn/base_pooled_model.tar',
-                                           fine_epochs=5, fine_iters=2000, lr=1e-3, freeze_backbone=True)
+                                           fine_epochs=5, fine_iters=1000, lr=1e-3, freeze_backbone=True)
 
     # save per-city fine-tuned model
     torch.save({
