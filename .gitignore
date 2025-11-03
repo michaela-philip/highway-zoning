@@ -2,4 +2,4 @@ data/*
 highway-zoning-gis/*
 *.pyc
 .venv
-spatialTreat-example/*
+spatialTreat-example
