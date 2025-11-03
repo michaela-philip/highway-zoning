@@ -16,9 +16,9 @@ def export_latex_table(df, columns, caption, label):
 
 ####################################################################################################
 
-atl_sample = pd.read_pickle('data/output/atl_sample.pkl')
+sample = pd.read_pickle('data/output/sample.pkl')
 
-atl_sample = atl_sample.rename(columns={
+sample = sample.rename(columns={
     'rent': 'Median Rent',
     'valueh': 'Median Home Value',
     'black_pop': 'Black Population',
@@ -29,17 +29,17 @@ atl_sample = atl_sample.rename(columns={
     'hwy_40': 'Highway Present (1940)',
     'hwy_59':'Highway Present (1959)',
     'hwy':'Highway Constructed (1940-1959)'})
-atl_sample = atl_sample.dropna(subset = 'Residents')
+sample = sample.dropna(subset = 'Residents')
 
 rows = ['Residents', 'Households', 'Median Rent', 'Median Home Value', 'Percent Black', 
         'Highway Present (1940)','Highway Present (1959)', 'Highway Constructed (1940-1959)', 'Residential']
 
 sum_stats = pd.DataFrame({
-    'Mean': atl_sample[rows].mean(),
-    'Std': atl_sample[rows].std(),
-    'Min':atl_sample[rows].min(),
-    'Max':atl_sample[rows].max(),
-    'N': atl_sample[rows].count(),
+    'Mean': sample[rows].mean(),
+    'Std': sample[rows].std(),
+    'Min':sample[rows].min(),
+    'Max':sample[rows].max(),
+    'N': sample[rows].count(),
 })
 columns = ['Mean', 'Min', 'Max', 'N']
 
@@ -51,8 +51,8 @@ export_latex_table(sum_stats, columns = columns, caption = 'Sample Grid Summary 
 rows = ['Residents', 'Households', 'Median Rent', 'Median Home Value', 
         'Percent Black', 'Highway Present (1940)', 'Highway Present (1959)', 'Highway Constructed (1940-1959)']
 
-zoning_mean = atl_sample.groupby('Residential')[rows].agg('mean')
-zoning_std = atl_sample.groupby('Residential')[rows].agg('std')
+zoning_mean = sample.groupby('Residential')[rows].agg('mean')
+zoning_std = sample.groupby('Residential')[rows].agg('std')
 zoning_stats = pd.DataFrame({
     'Industrial': zoning_mean.T[0],
     'std_i':zoning_std.T[0],

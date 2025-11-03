@@ -7,6 +7,52 @@ import censusbatchgeocoder
 import requests
 import geopy, geopy.distance
 
+## this is a beast of a file - overview below
+# section 1: ONLY section to be edited upon addition of new cities - add to 'sample' dataframe and run
+# section 2: functions to clean, standardize, and match addresses
+# section 3: master function to call functions defined in section 1
+# section 4: call functions and pickle output
+
+####################################################################################################
+### SECTION TO BE EDITED UPON ADDITION OF NEW CITIES ###
+# list cities in sample
+values = [
+    ('atlanta', 'AT', 'georgia', 'GA', 44, [1210, 890], 350),
+    ('louisville', 'LO', 'kentucky', 'KY', 51, [1110], 3750)]
+keys=['city', 'cityabbr', 'state', 'stateabbr', 'stateicp', 'countyicp', 'cityicp']
+rows = [dict(zip(keys, v)) for v in values]
+sample = pd.DataFrame(rows)
+sample.to_pickle('data/input/samplelist.pkl')
+
+# pull in existing street lists for each city
+city_streets = {}
+for city in sample['city'].unique():
+    csv_path = f'data/intermed/{city}_streets.csv'
+    if not os.path.exists(csv_path):
+        from scrape_streets import scrape_streets_citywise
+        url = 'https://stevemorse.org/census/index.html?ed2street=1'
+        city_streets = scrape_streets_citywise(url, sample)
+        atlanta_streets = city_streets.get('atlanta')
+        louisville_streets = city_streets.get('louisville')
+    else:
+        city_streets[city] = pd.read_csv(csv_path)
+
+# pull in street changes for each city
+city_street_changes = {}
+for city in sample['city'].unique():
+    csv_path = f'data/intermed/{city}_changes.csv'
+    if not os.path.exists(csv_path):
+        from scrape_streets import scrape_atl_changes, scrape_louisville_changes, format_changes
+        url_atl = 'http://jolomo.net/atlanta/streets.html'
+        url_lo = 'https://en.wikipedia.org/wiki/List_of_roads_in_Louisville,_Kentucky'
+        atlanta_changes = scrape_atl_changes(url_atl)
+        atlanta_changes = format_changes(atlanta_changes, name = 'atlanta_changes')
+        louisville_changes = scrape_louisville_changes(url_lo)
+        louisville_changes = format_changes(louisville_changes, name = 'lousiville_changes')
+    else:
+        city_street_changes[city] = pd.read_csv(csv_path)
+
+####################################################################################################
 ### FUNCTION TO CLEAN AND INTERPOLATE ADDRESSES ###
 def clean_addresses(df):
     # extract any additional information in () from house number
@@ -31,12 +77,15 @@ def clean_addresses(df):
         next_street = df['street'].shift(-1)
         prev_page = df['pageno'].shift(1)
         next_page = df['pageno'].shift(-1)
+        prev_city = df['city'].shift(1)
+        next_city = df['city'].shift(-1)
         
         street_interp_forward_mask = (
             df['street'].isna() &
             df['rawhn'].notna() &
             prev_rawhn.notna() &
             prev_street.notna() &
+            (prev_city == df['city']) &
             (prev_page == df['pageno']) & 
             ((prev_rawhn - df['rawhn']).abs() <= 6) # norm from PVC/Logan and Zhang (2019)
             )
@@ -45,6 +94,7 @@ def clean_addresses(df):
             df['rawhn'].notna() &
             next_rawhn.notna() &
             next_street.notna() &
+            (next_city == df['city']) &
             (next_page == df['pageno']) & 
             ((next_rawhn - df['rawhn']).abs() <= 6) # norm from PVC/Logan and Zhang (2019)
             )
@@ -230,6 +280,18 @@ def match_addresses(df, streets):
 
     return df
 
+### FUNCTION TO CALL MATCHING FUNCTION CITY BY CITY ###
+def match_addresses_citywide(df, sample, city_streets):
+    results = []
+    for city in sample['city'].unique():
+        city_sample = sample[sample['city'] == city].iloc[0]
+        city_df = df[df['city'] == city_sample['cityicp']].copy()
+        streets = city_streets[city]
+        matched = match_addresses(city_df, streets)
+        results.append(matched) 
+    # concat and return
+    return pd.concat(results, ignore_index = True)
+
 ### FUNCTION TO INTERPOLATE HOUSE NUMBERS ### 
 def interpolate_house_numbers(df):
     # interpolate missing house numbers for renters - use previous house number
@@ -271,7 +333,7 @@ def interpolate_house_numbers(df):
     return df
 
 ### FUNCTION TO GEOCODE ADDRESSES ###
-def geocode_addresses(df_orig):
+def geocode_addresses(df_orig, city_sample):
     # minor restructuring per geocoder requirements
     df = df_orig.copy()
     df = df.dropna(subset = ['rawhn', 'street_match'])
@@ -282,26 +344,29 @@ def geocode_addresses(df_orig):
     df['address'] = np.where(df['new_name'].notna(), 
                     df['rawhn'].astype(str).str.cat([df['new_name'].str.lower(), df['street_direction'].str.lower()], sep = ' ', na_rep = ''),
                     df['rawhn'].astype(str).str.cat([df['street_match'].str.lower(), df['street_direction'].str.lower()], sep = ' ', na_rep = ''))
-    df['city'] ='Atlanta' # when I make this a function, will probably need to read in a dictionary and have it match on code
-    df['state'] = 'GA' # same with this for FIPS or ICPS
+    df = df.rename(columns = {'city':'cityicp'})
+    df['city'] = city_sample['city'] 
+    df['state'] = city_sample['state'] 
     df['zipcode'] = ''
     df['id'] = df['serial'].astype(str)
     df = df[['id', 'address', 'city', 'state', 'zipcode']]
 
     # geocode using censusbatchgeocoder
     print('starting geocoding')
-    third1, third2= int(len(df)/3), (2 * int(len(df)/3))
-    d1 = df.iloc[:third1]
-    d2 = df.iloc[(third1+1):(third2)]
-    d3 = df.iloc[(third2 + 1):]
+    fourth1, fourth2, fourth3= int(len(df)/3), (2 * int(len(df)/3)), (3 * int(len(df)/3))
+    d1 = df.iloc[:fourth1]
+    d2 = df.iloc[(fourth1+1):(fourth2)]
+    d3 = df.iloc[(fourth2 + 1):(fourth3)]
+    d4 = df.iloc[(fourth3 + 1):]
     result1 = pd.DataFrame(censusbatchgeocoder.geocode(d1.to_dict(orient = 'records'), zipcode = None))
     print('first done')
     result2 = pd.DataFrame(censusbatchgeocoder.geocode(d2.to_dict(orient = 'records'), zipcode = None))
     print('second done')
     result3 = pd.DataFrame(censusbatchgeocoder.geocode(d3.to_dict(orient = 'records'), zipcode = None))
     print('third done')
-    geocoded_df = pd.concat([result1, result2, result3])
-    geocoded_df.to_pickle('data/input/atl_geocoded.pkl')
+    result4 = pd.DataFrame(censusbatchgeocoder.geocode(d4.to_dict(orient = 'records'), zipcode = None))
+    print('fourth done')
+    geocoded_df = pd.concat([result1, result2, result3, result4])
     print(f"{geocoded_df['is_exact'].notna().sum()} records geocoded")
     print(f"{(geocoded_df['is_match'] == 'Tie').sum()} ties")
     print(f"{(geocoded_df['is_match'] == 'No_Match').sum()} unmatched")
@@ -353,47 +418,58 @@ def geocode_addresses(df_orig):
     merged = pd.merge(merged, geocoded_df, left_on='serial', right_on = 'id', how = 'left')
     return merged
 
-
+### FUNCTION TO GEOCODE ADDRESSES CITY BY CITY ###
+def geocode_addresses_citywide(df, sample):
+    results = []
+    for city in sample['city'].unique():
+        city_sample = sample[sample['city'] == city].iloc[0]
+        city_df = df[df['city'] == city_sample['cityicp']].copy()
+        geocoded = geocode_addresses(city_df, city_sample)
+        results.append(geocoded) 
+    # concat and return
+    return pd.concat(results, ignore_index = True)
 
 ####################################################################################################
-
-if not os.path.exists('data/output/ga_streets.csv'):
-    from scrape_streets import street_list
-else:
-    street_list = pd.read_csv('data/output/ga_streets.csv')
-
-ga = pd.read_pickle('data/input/ga_1940.pkl')
-
-# keep only columns and counties we need
-cols = ['valueh', 'race', 'street', 'city', 'urban', 'countyicp', 'stateicp', 'rent', 
+### MASTER FUNCTION ###
+def clean_data(census, sample, city_streets):
+    cols = ['valueh', 'race', 'street', 'city', 'urban', 'countyicp', 'stateicp', 'rent', 
         'enumdist', 'respond', 'numperhh', 'numprec', 'serial', 'rawhn', 'ownershp', 'pageno', 'dwelling']
-ga2 = ga.loc[ga['countyicp'].isin([1210, 890]), cols]
-atl = ga2[ga2['city'] == 350].copy()
 
-# recode valueh and rent missing values
-atl['valueh'] = atl['valueh'].replace([9999998, 9999999], np.nan)
-atl['rent'] = atl['rent'].replace([0, 9998, 9999], np.nan)
-atl['black'] = np.where(atl['race'] == 200, 1, 0)
+    all_countyicps = [c for sublist in sample['countyicp'] for c in (sublist if isinstance(sublist, list) else [sublist])]
+    mask = census['countyicp'].isin(all_countyicps) | census['city'].isin(sample['cityicp'])
+    df = census.loc[mask, cols]
 
-# keep one observation per household/serial 
-atl = atl.drop_duplicates(subset = ['serial'], keep = 'first').reset_index()
-print(f'number of records:{len(atl)}')
+    # recode valueh and rent missing values, make dummies
+    df['valueh'] = df['valueh'].replace([9999998, 9999999], np.nan)
+    df['rent'] = df['rent'].replace([0, 9998, 9999], np.nan)
+    df['black'] = np.where(df['race'] == 200, 1, 0)
+    df['owner'] = np.where(df['ownershp'] == 10, 1, 0)
 
-atl = clean_addresses(atl)
-print('address cleaning done')
+    # keep one observation per household/serial 
+    df = df.drop_duplicates(subset = ['serial'], keep = 'first').reset_index()
+    print(f'number of records:{len(df)}')
 
-atl = standardize_addresses(atl)
-print('addresses standarized')
+    df = clean_addresses(df)
+    print('address cleaning done')
 
-atl = match_addresses(atl, street_list)
-print('address matching done')
+    df = standardize_addresses(df)
+    print('addresses standarized')
 
-atl = interpolate_house_numbers(atl)
-print('house numbers interpolated')
+    df = match_addresses_citywide(df, sample, city_streets)
+    print('address matching done')
 
-atl.to_pickle('data/input/atl_cleaned.pkl')
-print('pickle created')
+    df = interpolate_house_numbers(df)
+    print('house numbers interpolated')
 
-atl = pd.read_pickle('data/input/atl_cleaned.pkl')
-atl_geocoded = geocode_addresses(atl)
-atl_geocoded.to_pickle('data/input/atl_geocoded.pkl')
+    # pickle incase geocoding fails - no need to repeat entire process
+    df.to_pickle('data/intermed/cleaned_data.pkl')    
+    print('pickle created')
+    df = pd.read_pickle('data/intermed/cleaned_data.pkl')
+    df = geocode_addresses_citywide(df, sample)
+    return df
+
+####################################################################################################
+census = pd.read_pickle('data/input/census_1940.pkl')
+df = clean_data(census, sample, city_streets)
+df.to_pickle('data/intermed/geocoded_data.pkl')
+print('geocoded data pickled')
