@@ -466,6 +466,7 @@ def clean_data(census, sample, city_streets):
     print('pickle created')
     df = pd.read_pickle('data/intermed/cleaned_data.pkl')
     df = geocode_addresses_citywide(df, sample)
+    df = df.rename(columns= {'city_x': 'cityicp', 'city_y': 'city'})
     return df
 
 ####################################################################################################
