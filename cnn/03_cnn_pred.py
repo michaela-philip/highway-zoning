@@ -9,18 +9,25 @@ from math import floor  # truncating naics codes
 import numba  # speed up data transform with JIT compilation
 
 # Root directory for dataset
-dataroot = 'neural-net/'
-outputroot = 'neural-net/'
+dataroot = 'cnn/'
+outputroot = 'cnn/'
 
 saved_model_filename = 'checkpoint-epoch-<epoch>-YYYY-MM-DD--hh-mm.tar'
 
-"""Define Constants"""
+####################################################################################################
+### PARAMETERS ###
+# read in data and prepare lists
+sample = pd.read_pickle('data/input/samplelist.pkl')
+candidate_list = pd.read_pickle('data/output/cnn_candidate_list.pkl')
+grid = pd.read_pickle('data/output/sample.pkl')
+hwys = grid[grid['hwy'] == 1]['grid_id'].unique().tolist()
+features = ['valueh', 'rent', 'distance_to_cbd', 'dist_water', 'owner', 'dm_elevation']
 
 # "grid coordinates" created in R are in meters
-cell_width = 0.025 * 1.609344 * 1000  # cell width in meters (convert from miles)
-size_potential = 10  # potential locations: num_width_potential x num_width_potential
-size_padding = 20  # number of padding cells on each side of potential grid
-nc = 9  # number of channels: 1) other grocery stores 2) other businesses
+cell_width = 150  # cell width in meters (convert from miles)
+size_potential = 6  # potential locations: num_width_potential x num_width_potential
+size_padding = 5  # number of padding cells on each side of potential grid
+nc = len(features)  # number of channels: 1) other grocery stores 2) other businesses
 
 num_batches_predict = 5000
 # change ratio of what regions to simulate since we don't care much about the real ones
