@@ -124,7 +124,8 @@ def place_census(census, grid):
         'black_pop': 'sum',
         'rent' : 'median',
         'valueh': 'median',
-        'serial': 'count'
+        'serial': 'count',
+        'owner':'mean'
     }
     census_grid = census_grid.dissolve(by='grid_id', aggfunc=agg_funcs)
     print('census data dissolved to grid')
@@ -210,7 +211,7 @@ def place_highways(grid, state59, state40, us59, us40, interstate):
     return output
 
 ### FUNCTION TO CREATE THE SAMPLE GRID ### 
-def create_grid(zoning, centroids, census, state59, state40, us59, us40, interstate, gridsize, city_sample, zoning2 = None):
+def create_grid(zoning, centroids, geology, census, state59, state40, us59, us40, interstate, gridsize, city_sample, zoning2 = None):
     # grid is fit to size of zoning map
     a, b, c, d  = zoning.total_bounds
     step = gridsize # gridsize in meters
@@ -235,7 +236,7 @@ def create_grid(zoning, centroids, census, state59, state40, us59, us40, interst
     # overlay census data on grid
     output = output.merge(place_census(census, output)[['grid_id', 'numprec', 'black_pop', 'rent', 'valueh', 
                                                                   'pct_black', 'share_black', 'mblack_mean_pct', 
-                                                                  'mblack_mean_share', 'mblack_1945def', 'serial']],
+                                                                  'mblack_mean_share', 'mblack_1945def', 'serial', 'owner']],
                            on='grid_id', how='left')
     print('census added to grid')
 
@@ -254,7 +255,8 @@ def create_grid(zoning, centroids, census, state59, state40, us59, us40, interst
 
     # bits and pieces
     output = output[output['numprec'] > 0]
-    avg_elev = output.loc['hwy' == 1, 'elevation'].mean()
+    avg_elev = output.loc[output['hwy'] == 1, 'elevation'].mean()
+    print('average elevation in hwy grids:', avg_elev)
     output['dm_elevation'] = output['elevation'] - avg_elev
     return output
 
@@ -263,13 +265,14 @@ def create_sample(df, sample):
     for city in sample['city'].unique():
         city_sample = sample[sample['city'] == city].iloc[0]
         city_df = df[df['city'] == city].copy()
+        city_geology = geology[city]
         if city == 'louisville':
             city_zoning1 = zoning['louisville_1947']
             city_zoning2 = zoning['louisville_1931']
-            city_grid = create_grid(city_zoning1, centroids, city_df, state59, state40, us59, us40, interstate, gridsize = 150, city_sample = city_sample, zoning2 = city_zoning2)
+            city_grid = create_grid(city_zoning1, centroids, city_geology, city_df, state59, state40, us59, us40, interstate, gridsize = 150, city_sample = city_sample, zoning2 = city_zoning2)
         else:
             city_zoning = zoning[city]
-            city_grid = create_grid(city_zoning, centroids, city_df, state59, state40, us59, us40, interstate, city_sample = city_sample, gridsize = 150)
+            city_grid = create_grid(city_zoning, centroids, city_geology, city_df, state59, state40, us59, us40, interstate, city_sample = city_sample, gridsize = 150)
         city_grid['city'] = city
         output = pd.concat([output, city_grid], ignore_index=True)
     return output
