@@ -20,18 +20,19 @@ for city in df['city'].unique():
     out_frames.append(treated)
     
 sample = pd.concat(out_frames, ignore_index=True)
+sample = sample.dropna(subset = ['rent', 'valueh']).copy()
 
-model_naive = 'hwy ~ mblack_1945def + Residential + np.log(rent) + np.log(valueh) + distance_to_cbd + dist_to_hwy + C(city)'
-results_naive = format_regression_results(smf.ols(model_naive, data=sample).fit(cov_type='HC3'))
+model_naive = 'hwy ~ mblack_1945def + Residential + np.log(rent) + np.log(valueh) + dist_water + C(city)'
+results_naive = format_regression_results(smf.ols(model_naive, data=sample).fit(cov_type='cluster', cov_kwds={'groups': sample['city']}))
 
-model_1945def = 'hwy ~ mblack_1945def + Residential + (mblack_1945def * Residential) + np.log(rent) + np.log(valueh) + distance_to_cbd + dist_to_hwy + C(city)'
-results_1945def = format_regression_results(smf.ols(model_1945def, data=sample).fit(cov_type='HC3'))
+model_1945def = 'hwy ~ mblack_1945def + Residential + (mblack_1945def * Residential) + np.log(rent) + np.log(valueh) + dist_water + C(city)'
+results_1945def = format_regression_results(smf.ols(model_1945def, data=sample).fit(cov_type='cluster', cov_kwds={'groups': sample['city']}))
 
-model_pct = 'hwy ~ mblack_mean_pct + Residential + (mblack_mean_pct * Residential) + np.log(rent) + np.log(valueh) + distance_to_cbd + dist_to_hwy + C(city)'
-results_pct = format_regression_results(smf.ols(model_pct, data=sample).fit(cov_type='HC3'))
+model_pct = 'hwy ~ mblack_mean_pct + Residential + (mblack_mean_pct * Residential) + np.log(rent) + np.log(valueh) + dist_water + C(city)'
+results_pct = format_regression_results(smf.ols(model_pct, data=sample).fit(cov_type='cluster', cov_kwds={'groups': sample['city']}))
 
-model_share = 'hwy ~ mblack_mean_share + Residential + (mblack_mean_share * Residential) + np.log(rent) + np.log(valueh) + distance_to_cbd + dist_to_hwy + C(city)'
-results_share = format_regression_results(smf.ols(model_share, data=sample).fit(cov_type='HC3'))
+model_share = 'hwy ~ mblack_mean_share + Residential + (mblack_mean_share * Residential) + np.log(rent) + np.log(valueh) + dist_water + C(city)'
+results_share = format_regression_results(smf.ols(model_share, data=sample).fit(cov_type='cluster', cov_kwds={'groups': sample['city']}))
 
 # naive regression in its own table
 export_single_regression(results_naive, caption = 'Naive Regression Results', label = 'tab:naive_results', widthmultiplier=0.7)
