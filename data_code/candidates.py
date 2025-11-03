@@ -3,6 +3,7 @@ import geopandas as gpd
 import itertools
 from shapely.geometry import LineString
 import pickle
+import scipy.stats as stats
 from pathlib import Path
 
 def create_candidate_list(data, cbd):
@@ -32,6 +33,10 @@ def create_candidate_list(data, cbd):
     
     # get list of grid_ids that the rays intersect
     candidates = gpd.sjoin(data, rays, how = 'inner', predicate = 'intersects')
+
+    # keep candidates within 1 z-score of demeaned elevation 
+    elev_z = stats.zscore(candidates['dm_elevation'])
+    candidates = candidates.loc[(elev_z > -1) & (elev_z < 1)].copy()
     
     # drop candidates that already have highways and those that will have highways
     candidates = candidates.loc[candidates['hwy_40'] == 0].copy()
