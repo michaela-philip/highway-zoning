@@ -251,7 +251,11 @@ def create_grid(zoning, centroids, census, state59, state40, us59, us40, interst
     # difference hwy indicator at the grid level
     output['hwy'] = output['hwy_59'] - output['hwy_40']
     output['hwy'] = np.where(output['hwy'] < 0, 0, output['hwy'])
+
+    # bits and pieces
     output = output[output['numprec'] > 0]
+    avg_elev = output.loc['hwy' == 1, 'elevation'].mean()
+    output['dm_elevation'] = output['elevation'] - avg_elev
     return output
 
 def create_sample(df, sample):
