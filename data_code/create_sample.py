@@ -168,6 +168,11 @@ def impute_values(df):
         if not neighbor_values.empty:
             df.at[idx, 'imputed_valueh'] = neighbor_values.mean()
 
+    df['rent_avail'] = np.where(df['rent'].notna(), 1, 0)
+    df['valueh_avail'] = np.where(df['valueh'].notna(), 1, 0)
+    df['rent'] = df['rent'].fillna(0)
+    df['valueh'] = df['valueh'].fillna(0)
+
     return df
 
 ### FUNCTION TO CLEAN HWY DATA AND ADD INTO GRID ###
