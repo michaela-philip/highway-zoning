@@ -3,3 +3,4 @@ highway-zoning-gis/*
 *.pyc
 .venv
 spatialTreat-example
+*.tar
