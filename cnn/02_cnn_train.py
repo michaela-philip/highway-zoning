@@ -1,11 +1,12 @@
 # -*- coding: utf-8 -*-
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import pandas as pd
 import geopandas as gpd
 import torch
 import torch.nn as nn
 import torch.optim as optim
+import torch.nn.functional as F
 import numpy as np
 from math import sin, cos, pi  # rotating regions
 from math import floor  # truncating naics codes
@@ -29,7 +30,8 @@ sample = pd.read_pickle('data/input/samplelist.pkl')
 candidate_list = pd.read_pickle('data/output/cnn_candidate_list.pkl')
 grid = pd.read_pickle('data/output/sample.pkl')
 hwys = grid[grid['hwy'] == 1]['grid_id'].unique().tolist()
-features = ['valueh', 'rent', 'distance_to_cbd', 'dist_water', 'owner', 'dm_elevation']
+features = ['valueh', 'rent', 'distance_to_cbd', 'dist_water', 'dist_to_hwy', 'owner', 'elevation', 'city']
+normalize_features = ['valueh', 'rent', 'distance_to_cbd', 'dist_water', 'dist_to_hwy', 'owner', 'elevation'] # the only features i want to demean
 
 cell_width = 150  # cell width in meters (convert from miles)
 size_potential = 6  # potential locations: num_width_potential x num_width_potential
@@ -48,8 +50,8 @@ use_cuda = True
 curr_epoch = 0
 epoch_set_seed = list()
 epoch_set_seed.append(curr_epoch)
-EPOCHS = 20
-ITERS = 5000
+EPOCHS = 10
+ITERS = 1000
 NODATA = -9999.0
 
 print('BATCH_SIZE: ' + str(BATCH_SIZE))
@@ -58,6 +60,36 @@ print('cell_width: ' + str(round(cell_width)) + 'm')
 
 ####################################################################################################
 ### SAMPLE/BATCH CREATION FUNCTIONS ###
+# normalize features before creating the raster
+def normalize_features_per_city(grid, features, nodata=-9999.0):
+    city_means = {}
+    city_stds = {}
+
+    for city in grid['city'].unique():
+        city_data = grid[grid['city'] == city]
+        city_means[city] = {}
+        city_stds[city] = {}
+
+        for feature in features:
+            valid_mask = city_data[feature] != nodata
+            if valid_mask.any():
+                city_means[city][feature] = city_data.loc[valid_mask, feature].mean()
+                city_stds[city][feature] = city_data.loc[valid_mask, feature].std()
+            else:
+                city_means[city][feature] = 0.0
+                city_stds[city][feature] = 1.0
+
+    # Normalize the grid
+    for city in grid['city'].unique():
+        for feature in features:
+            mean = city_means[city][feature]
+            std = city_stds[city][feature]
+            std = std if std != 0 and not np.isnan(std) else 1.0  
+            city_mask = grid['city'] == city
+            grid.loc[city_mask, feature] = (grid.loc[city_mask, feature] - mean) / std
+
+    return grid
+
 # create raster of grid data
 def gdf_to_raster(gdf, features, label, cell_width, crs=None, nodata=-9999.0):
     if crs is None:
@@ -75,10 +107,10 @@ def gdf_to_raster(gdf, features, label, cell_width, crs=None, nodata=-9999.0):
     height = int(np.ceil((maxy - miny) / cell_width))
     trs = rasterio.transform.from_origin(minx, maxy, cell_width, cell_width)
 
-    if 'owner' in gdf.columns and gdf['owner'].dtype == object:
-        owners = pd.factorize(gdf['owner'])[0]  # integers 0..N-1
+    if 'city' in gdf.columns and gdf['city'].dtype == object:
+        cities = pd.factorize(gdf['city'])[0]  # integers 0..N-1
         gdf = gdf.copy()
-        gdf['owner'] = owners.astype(float)
+        gdf['city'] = cities.astype(float)
 
     # create raster bounds and output array
     bands = features + [label]
@@ -174,6 +206,8 @@ def apply_augmentation_to_patch(patch, theta_deg=0.0, mirror_var=1, shift_x_pixe
         out[ch] = layer
     return out
 
+grid = normalize_features_per_city(grid, normalize_features, nodata=NODATA)
+print(grid[features].describe())
 GRID_FEATURE_ARRAY, GRID_LABEL_ARRAY, rast_transform, CHANNEL_MEANS, CHANNEL_STDS = gdf_to_raster(grid, features, 'hwy', cell_width = 150)
 GRID_LABEL_ARRAY = np.squeeze(GRID_LABEL_ARRAY)
 GRIDID_TO_RC = gridid_to_rc_map(grid, cell_width)
@@ -300,14 +334,6 @@ def create_batch(batch_tensor=batch_tensor, labels=labels, sample_ids_real=S_id_
                 center_label = int(original_center)
         labels[b] = int(center_label)
 
-    # normalize each channel using precomputed means/stds (unchanged)
-    for ch in range(patch.shape[0]):
-        mu = CHANNEL_MEANS[ch] if ch < len(CHANNEL_MEANS) else 0.0
-        sd = CHANNEL_STDS[ch] if ch < len(CHANNEL_STDS) else 1.0
-        if sd == 0 or np.isnan(sd):
-            sd = 1.0
-        patch[ch] = (patch[ch] - mu) / sd
-
     # if patch channels do not match nc, truncate or pad with zeros
     C = patch.shape[0]
     if C != nc:
@@ -365,6 +391,30 @@ class Net(nn.Module):
 
     def forward(self, x):
         return self.main(x)
+
+class FocalLoss(nn.Module):
+    def __init__(self, alpha=1, gamma=2, reduction='mean'):
+        super(FocalLoss, self).__init__()
+        self.alpha = alpha
+        self.gamma = gamma
+        self.reduction = reduction
+
+    def forward(self, inputs, targets):
+        # Get per-sample cross entropy loss
+        ce_loss = F.cross_entropy(inputs, targets, reduction='none')  # shape (B,)
+        
+        # Compute pt (probability for true class)
+        pt = torch.exp(-ce_loss)  # shape (B,)
+
+        # Apply focal loss formula
+        focal_loss = self.alpha * (1 - pt) ** self.gamma * ce_loss
+
+        if self.reduction == 'mean':
+            return focal_loss.mean()
+        elif self.reduction == 'sum':
+            return focal_loss.sum()
+        else:
+            return focal_loss
 
 # initialize optimizer
 def intitialize_optimizer(net):
@@ -509,15 +559,18 @@ sample_eval_random.sort()
 
 # initialize neural net
 def weights_init(m):
-    classname = m.__class__.__name__
-    if classname.find('Conv') != -1:
-        m.weight.data.normal_(0.0, 0.02)
-    elif classname.find('Linear') != -1:
-        m.weight.data.normal_(0.0, 0.02)
-        m.bias.data.fill_(0)
-    elif classname.find('InstanceNorm') != -1:
-        m.weight.data.normal_(1.0, 0.02)
-        m.bias.data.fill_(0)
+    if isinstance(m, nn.Conv2d):
+        nn.init.kaiming_normal_(m.weight, a=0.2, mode='fan_in', nonlinearity='leaky_relu')
+        if m.bias is not None:
+            nn.init.constant_(m.bias, 0.0)
+    elif isinstance(m, nn.InstanceNorm2d):
+        if m.weight is not None:
+            nn.init.constant_(m.weight, 1.0)
+        if m.bias is not None:
+            nn.init.constant_(m.bias, 0.0)
+    elif isinstance(m, nn.Linear):
+        nn.init.xavier_uniform_(m.weight)
+        nn.init.constant_(m.bias, 0.0)
 
 
 if use_saved_model:
@@ -530,8 +583,18 @@ else:
         net.cuda()
     optimizer = intitialize_optimizer(net)
 
-criterion = nn.CrossEntropyLoss()
+# Ensure GRID_LABEL_ARRAY contains only binary labels (0 and 1)
+GRID_LABEL_ARRAY = np.where((GRID_LABEL_ARRAY == 0) | (GRID_LABEL_ARRAY == 1), GRID_LABEL_ARRAY, 0)
 
+# Compute class weights for binary classification
+unique, counts = np.unique(GRID_LABEL_ARRAY, return_counts=True)
+if len(counts) != 2:
+    raise ValueError(f"Expected 2 classes, but found {len(counts)} unique labels: {unique}")
+total = counts.sum()
+class_weights = torch.tensor([total / (2.0 * c) for c in counts], dtype=torch.float32).to('cuda' if use_cuda and torch.cuda.is_available() else 'cpu')
+
+# Define the weighted loss function
+criterion = FocalLoss(alpha = 0.25, gamma = 2.0)
 if use_cuda and torch.cuda.is_available():
     net.cuda()
 
@@ -545,7 +608,7 @@ torch.manual_seed(manualSeed)
 ####################################################################################################
 ### TRAINING ###
 print('starting pooled training')
-print((datetime.utcnow() + timedelta(hours=-7)).strftime('%Y-%m-%d %H:%M:%S'))
+print((datetime.now(timezone.utc) + timedelta(hours=-7)).strftime('%Y-%m-%d %H:%M:%S'))
 
 bound_epochs = curr_epoch + EPOCHS
 print_interval = min(10000, max(1, ITERS // 10))
@@ -583,6 +646,10 @@ for epoch in range(curr_epoch, bound_epochs):
         outputs = net(inputs)
         loss = criterion(outputs, labels)
         loss.backward()
+        # for name, param in net.named_parameters():
+        #     if param.grad is not None:
+        #         print(f"Gradient for {name}: max={param.grad.abs().max().item()}, min={param.grad.abs().min().item()}")
+        torch.nn.utils.clip_grad_norm_(net.parameters(), max_norm=1.0)
         optimizer.step()
 
         # determine accuracy of taking "prediction"
@@ -608,7 +675,7 @@ for epoch in range(curr_epoch, bound_epochs):
                    100 * non_zero_real / max(total_real,1),
                    100 * correct_fill / max(total_fill,1),
                    100 * correct_random / max(total_random,1)))
-            print((datetime.utcnow() + timedelta(hours=-7)).strftime('%Y-%m-%d %H:%M:%S'))
+            print((datetime.now(timezone.utc) + timedelta(hours=-7)).strftime('%Y-%m-%d %H:%M:%S'))
             running_loss = 0.0
             correct = 0
             correct_real = 0
@@ -664,30 +731,30 @@ for epoch in range(curr_epoch, bound_epochs):
 
     print('Finished Epoch ' + str(epoch+1) + ' of ' + str(bound_epochs) + '. Saving model and optimizer checkpoint.')
     curr_epoch = curr_epoch + 1
-    save_model('base_pooled_model.tar')
-    print((datetime.utcnow() + timedelta(hours=-7)).strftime('%Y-%m-%d %H:%M:%S'))
+    save_model('base_pooled_model2.tar')
+    print((datetime.now(timezone.utc) + timedelta(hours=-7)).strftime('%Y-%m-%d %H:%M:%S'))
 
 print('Finished Training')
 
 ####################################################################################################
-for city in sample['city'].unique():
-    print(f"Fine-tuning for city: {city}")
-    sample_train_real_city = [g for g in S_id_real if grid.loc[grid['grid_id']==g,'city'].iloc[0]==city]
-    sample_train_random_city = [g for g in S_id_random if grid.loc[grid['grid_id']==g,'city'].iloc[0]==city]
+# for city in sample['city'].unique():
+#     print(f"Fine-tuning for city: {city}")
+#     sample_train_real_city = [g for g in S_id_real if grid.loc[grid['grid_id']==g,'city'].iloc[0]==city]
+#     sample_train_random_city = [g for g in S_id_random if grid.loc[grid['grid_id']==g,'city'].iloc[0]==city]
 
-    if len(sample_train_real_city) + len(sample_train_random_city) == 0:
-        print(f"Skipping {city}: no training ids after filtering.")
-        continue
+#     if len(sample_train_real_city) + len(sample_train_random_city) == 0:
+#         print(f"Skipping {city}: no training ids after filtering.")
+#         continue
 
-    # load base pooled model (saved earlier in your main training as 'base_pooled_model.tar')
-    net_city, opt_city = fine_tune_on_city(sample_train_real_city, sample_train_random_city,
-                                           base_model_path='cnn/base_pooled_model.tar',
-                                           fine_epochs=5, fine_iters=1000, lr=1e-3, freeze_backbone=True)
+#     # load base pooled model (saved earlier in your main training as 'base_pooled_model.tar')
+#     net_city, opt_city = fine_tune_on_city(sample_train_real_city, sample_train_random_city,
+#                                            base_model_path='cnn/base_pooled_model.tar',
+#                                            fine_epochs=5, fine_iters=1000, lr=1e-3, freeze_backbone=True)
 
-    # save per-city fine-tuned model
-    torch.save({
-        'net_state_dict': net_city.state_dict(),
-        'optimizer_state_dict': opt_city.state_dict(),
-        'city': city,
-        }, outputroot + f'fine_{city}.tar')
-    print(f"Saved fine-tuned model for {city}")
+#     # save per-city fine-tuned model
+#     torch.save({
+#         'net_state_dict': net_city.state_dict(),
+#         'optimizer_state_dict': opt_city.state_dict(),
+#         'city': city,
+#         }, outputroot + f'fine_{city}.tar')
+#     print(f"Saved fine-tuned model for {city}")
