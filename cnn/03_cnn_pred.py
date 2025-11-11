@@ -1,22 +1,24 @@
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import pandas as pd
 import geopandas as gpd
 import torch
 import torch.nn as nn
 import torch.optim as optim
+import torch.nn.functional as F
 import numpy as np
 from math import sin, cos, pi  # rotating regions
-from math import floor  # truncating naics codes
+from math import floor, ceil  # truncating naics codes
 import rasterio
 from rasterio import transform
 from pathlib import Path
 from scipy.ndimage import rotate, shift
 
-# Root directory for dataset
+
 dataroot = 'cnn/'
 outputroot = 'cnn/'
 
-saved_model_filename = 'checkpoint-epoch-<epoch>-YYYY-MM-DD--hh-mm.tar'
+use_saved_model = True
+saved_model_filename = 'cnn/base_pooled_model2.tar'  # path to saved model for prediction
 
 ####################################################################################################
 ### PARAMETERS ###
@@ -26,19 +28,29 @@ sample = pd.read_pickle('data/input/samplelist.pkl')
 candidate_list = pd.read_pickle('data/output/cnn_candidate_list.pkl')
 grid = pd.read_pickle('data/output/sample.pkl')
 hwys = grid[grid['hwy'] == 1]['grid_id'].unique().tolist()
-features = ['valueh', 'rent', 'distance_to_cbd', 'dist_water', 'owner', 'dm_elevation']
+features = ['valueh', 'rent', 'distance_to_cbd', 'dist_water', 'dist_to_hwy', 'owner', 'elevation', 'city']
+normalize_features = ['valueh', 'rent', 'distance_to_cbd', 'dist_water', 'dist_to_hwy', 'owner', 'elevation'] # the only features i want to demean
 
 cell_width = 150  # cell width in meters (convert from miles)
 size_potential = 6  # potential locations: num_width_potential x num_width_potential
 size_padding = 5  # number of padding cells on each side of potential grid
 nc = len(features)  # number of channels: 1) other grocery stores 2) other businesses
 
-num_batches_predict = 5000
-# change ratio of what regions to simulate since we don't care much about the real ones
+candidates = 0
+for city in candidate_list.keys():
+    candidates += len(candidate_list[city])
+
+obs = grid.shape[0]
+
+
 BATCH_SIZE_real = 2  # regions with missing grocery store per batch
 BATCH_SIZE_fill = 2  # regions with real location filled in (-> no missing) per batch
 BATCH_SIZE_random = 28  # random regions (-> no missing) per batch
 BATCH_SIZE = BATCH_SIZE_real + BATCH_SIZE_fill + BATCH_SIZE_random
+num_batches_predict = ceil(obs / BATCH_SIZE)
+
+frac_train_real = 1  # fraction of real regions to use for training
+frac_train_random = 1  # fraction of random (unrealized) regions to use for training
 
 use_cuda = True
 
@@ -46,7 +58,7 @@ curr_epoch = 0
 epoch_set_seed = list()
 epoch_set_seed.append(curr_epoch)
 EPOCHS = 20
-ITERS = 5000
+ITERS = 1000
 NODATA = -9999.0
 
 print('BATCH_SIZE: ' + str(BATCH_SIZE))
@@ -55,6 +67,36 @@ print('cell_width: ' + str(round(cell_width)) + 'm')
 
 ####################################################################################################
 ### SAMPLE/BATCH CREATION FUNCTIONS ###
+# normalize features before creating the raster
+def normalize_features_per_city(grid, features, nodata=-9999.0):
+    city_means = {}
+    city_stds = {}
+
+    for city in grid['city'].unique():
+        city_data = grid[grid['city'] == city]
+        city_means[city] = {}
+        city_stds[city] = {}
+
+        for feature in features:
+            valid_mask = city_data[feature] != nodata
+            if valid_mask.any():
+                city_means[city][feature] = city_data.loc[valid_mask, feature].mean()
+                city_stds[city][feature] = city_data.loc[valid_mask, feature].std()
+            else:
+                city_means[city][feature] = 0.0
+                city_stds[city][feature] = 1.0
+
+    # Normalize the grid
+    for city in grid['city'].unique():
+        for feature in features:
+            mean = city_means[city][feature]
+            std = city_stds[city][feature]
+            std = std if std != 0 and not np.isnan(std) else 1.0  
+            city_mask = grid['city'] == city
+            grid.loc[city_mask, feature] = (grid.loc[city_mask, feature] - mean) / std
+
+    return grid
+
 # create raster of grid data
 def gdf_to_raster(gdf, features, label, cell_width, crs=None, nodata=-9999.0):
     if crs is None:
@@ -72,10 +114,10 @@ def gdf_to_raster(gdf, features, label, cell_width, crs=None, nodata=-9999.0):
     height = int(np.ceil((maxy - miny) / cell_width))
     trs = rasterio.transform.from_origin(minx, maxy, cell_width, cell_width)
 
-    if 'owner' in gdf.columns and gdf['owner'].dtype == object:
-        owners = pd.factorize(gdf['owner'])[0]  # integers 0..N-1
+    if 'city' in gdf.columns and gdf['city'].dtype == object:
+        cities = pd.factorize(gdf['city'])[0]  # integers 0..N-1
         gdf = gdf.copy()
-        gdf['owner'] = owners.astype(float)
+        gdf['city'] = cities.astype(float)
 
     # create raster bounds and output array
     bands = features + [label]
@@ -171,6 +213,8 @@ def apply_augmentation_to_patch(patch, theta_deg=0.0, mirror_var=1, shift_x_pixe
         out[ch] = layer
     return out
 
+grid = normalize_features_per_city(grid, normalize_features, nodata=NODATA)
+print(grid[features].describe())
 GRID_FEATURE_ARRAY, GRID_LABEL_ARRAY, rast_transform, CHANNEL_MEANS, CHANNEL_STDS = gdf_to_raster(grid, features, 'hwy', cell_width = 150)
 GRID_LABEL_ARRAY = np.squeeze(GRID_LABEL_ARRAY)
 GRIDID_TO_RC = gridid_to_rc_map(grid, cell_width)
@@ -212,7 +256,7 @@ def extract_label_patch(label_array, row, col, window, pad_value = NODATA):
     r0, c0 = row + pad, col + pad
     return lbl_p[r0-pad:r0+pad+1, c0-pad:c0+pad+1]
 
-def create_batch(batch_tensor=batch_tensor, labels=labels, sample_ids_real=S_id_real, sample_ids_random=S_id_random, return_transf=False):
+def create_batch(batch_tensor=batch_tensor, labels=labels, sample_ids_real=S_id_real, sample_ids_random=S_id_random, return_transf=True):
     batch_tensor = batch_tensor*0
     labels = labels*0
 
@@ -297,14 +341,6 @@ def create_batch(batch_tensor=batch_tensor, labels=labels, sample_ids_real=S_id_
                 center_label = int(original_center)
         labels[b] = int(center_label)
 
-    # normalize each channel using precomputed means/stds (unchanged)
-    for ch in range(patch.shape[0]):
-        mu = CHANNEL_MEANS[ch] if ch < len(CHANNEL_MEANS) else 0.0
-        sd = CHANNEL_STDS[ch] if ch < len(CHANNEL_STDS) else 1.0
-        if sd == 0 or np.isnan(sd):
-            sd = 1.0
-        patch[ch] = (patch[ch] - mu) / sd
-
     # if patch channels do not match nc, truncate or pad with zeros
     C = patch.shape[0]
     if C != nc:
@@ -363,9 +399,48 @@ class Net(nn.Module):
     def forward(self, x):
         return self.main(x)
 
+class FocalLoss(nn.Module):
+    def __init__(self, alpha=1, gamma=2, reduction='mean'):
+        super(FocalLoss, self).__init__()
+        self.alpha = alpha
+        self.gamma = gamma
+        self.reduction = reduction
+
+    def forward(self, inputs, targets):
+        # Get per-sample cross entropy loss
+        ce_loss = F.cross_entropy(inputs, targets, reduction='none')  # shape (B,)
+        
+        # Compute pt (probability for true class)
+        pt = torch.exp(-ce_loss)  # shape (B,)
+
+        # Apply focal loss formula
+        focal_loss = self.alpha * (1 - pt) ** self.gamma * ce_loss
+
+        if self.reduction == 'mean':
+            return focal_loss.mean()
+        elif self.reduction == 'sum':
+            return focal_loss.sum()
+        else:
+            return focal_loss
+
 # initialize optimizer
 def intitialize_optimizer(net):
     return optim.SGD(net.parameters(), lr=0.001, momentum=0.9)
+
+# # functions to save and load model
+# def save_model(filename=None):
+#     if not filename:
+#         date = (datetime.utcnow() + timedelta(hours=-7)).strftime('%Y-%m-%d--%H-%M')
+#         filename = 'checkpoint-epoch-' + str(curr_epoch) + '-' + date + '.tar'
+#     path_save = outputroot + filename
+#     # save the model
+#     torch.save({
+#                 'net_state_dict': net.state_dict(),
+#                 'optimizer_state_dict': optimizer.state_dict(),
+#                 'curr_epoch': curr_epoch,
+#                 'epoch_set_seed': epoch_set_seed,
+#                 }, path_save)
+#     print('file: ' + path_save)
 
 def load_model(filename, net=None, optimizer=None):
     global epoch_set_seed
@@ -396,122 +471,160 @@ def load_model(filename, net=None, optimizer=None):
     epoch_set_seed.append(curr_epoch)
     return net, optimizer
 
-# fine-tuning function 
-def fine_tune_on_city(sample_train_real_city, sample_train_random_city,
-                      base_model_path='cnn/base_pooled_model.tar',
-                      fine_epochs=5, fine_iters=2000, lr=1e-3, freeze_backbone=True):
-    # load base pooled model
-    net_ft, optimizer_ft = load_model(base_model_path)
-    # freeze backbone if requested (unfreeze classifier = last Linear)
-    if freeze_backbone:
-        for p in net_ft.parameters():
-            p.requires_grad = False
-        # find last linear module (assumes net.main ends with Linear)
-        if isinstance(net_ft.main[-1], nn.Linear):
-            for p in net_ft.main[-1].parameters():
-                p.requires_grad = True
-    # optimizer only for trainable params
-    trainable = [p for p in net_ft.parameters() if p.requires_grad]
-    if not trainable:
-        raise RuntimeError("No trainable parameters found; check freeze_backbone setting")
-    optimizer_city = optim.SGD(trainable, lr=lr, momentum=0.9)
+# # fine-tuning function 
+# def fine_tune_on_city(sample_train_real_city, sample_train_random_city,
+#                       base_model_path='cnn/base_pooled_model.tar',
+#                       fine_epochs=5, fine_iters=2000, lr=1e-3, freeze_backbone=True):
+#     # load base pooled model
+#     net_ft, optimizer_ft = load_model(base_model_path)
+#     # freeze backbone if requested (unfreeze classifier = last Linear)
+#     if freeze_backbone:
+#         for p in net_ft.parameters():
+#             p.requires_grad = False
+#         # find last linear module (assumes net.main ends with Linear)
+#         if isinstance(net_ft.main[-1], nn.Linear):
+#             for p in net_ft.main[-1].parameters():
+#                 p.requires_grad = True
+#     # optimizer only for trainable params
+#     trainable = [p for p in net_ft.parameters() if p.requires_grad]
+#     if not trainable:
+#         raise RuntimeError("No trainable parameters found; check freeze_backbone setting")
+#     optimizer_city = optim.SGD(trainable, lr=lr, momentum=0.9)
 
-    # compute class weights from available city labels (optional)
-    def get_labels_for_ids(id_list):
-        labs = []
-        for gid in id_list:
-            if int(gid) in GRIDID_TO_RC:
-                r,c = GRIDID_TO_RC[int(gid)]
-                labs.append(int(GRID_LABEL_ARRAY[r, c]))
-        return np.array(labs, dtype=int)
+#     # compute class weights from available city labels (optional)
+#     def get_labels_for_ids(id_list):
+#         labs = []
+#         for gid in id_list:
+#             if int(gid) in GRIDID_TO_RC:
+#                 r,c = GRIDID_TO_RC[int(gid)]
+#                 labs.append(int(GRID_LABEL_ARRAY[r, c]))
+#         return np.array(labs, dtype=int)
 
-    y_real = get_labels_for_ids(sample_train_real_city)
-    y_rand = get_labels_for_ids(sample_train_random_city)
-    y_all = np.concatenate([y_real, y_rand]) if len(y_real) + len(y_rand) > 0 else np.array([0,1])
-    vals, counts = np.unique(y_all, return_counts=True)
-    total = counts.sum()
-    weights = np.ones(2, dtype=np.float32)
-    for v, c in zip(vals, counts):
-        weights[int(v)] = float(total) / (2.0 * float(c))
-    criterion_city = nn.CrossEntropyLoss(weight=torch.from_numpy(weights).to(next(net_ft.parameters()).device))
+#     y_real = get_labels_for_ids(sample_train_real_city)
+#     y_rand = get_labels_for_ids(sample_train_random_city)
+#     y_all = np.concatenate([y_real, y_rand]) if len(y_real) + len(y_rand) > 0 else np.array([0,1])
+#     vals, counts = np.unique(y_all, return_counts=True)
+#     total = counts.sum()
+#     weights = np.ones(2, dtype=np.float32)
+#     for v, c in zip(vals, counts):
+#         weights[int(v)] = float(total) / (2.0 * float(c))
+#     criterion_city = nn.CrossEntropyLoss(weight=torch.from_numpy(weights).to(next(net_ft.parameters()).device))
 
-    # small training loop using create_batch (pass city-specific sample lists)
-    device = torch.device('cuda' if (use_cuda and torch.cuda.is_available()) else 'cpu')
-    net_ft.to(device)
-    net_ft.train()
-    for epoch in range(fine_epochs):
-        running_loss = 0.0
-        for it in range(fine_iters):
-            data = create_batch(sample_ids_real=sample_train_real_city, sample_ids_random=sample_train_random_city)
-            inputs, labels = data
-            inputs = inputs.to(device)
-            labels = labels.to(device)
+#     # small training loop using create_batch (pass city-specific sample lists)
+#     device = torch.device('cuda' if (use_cuda and torch.cuda.is_available()) else 'cpu')
+#     net_ft.to(device)
+#     net_ft.train()
+#     for epoch in range(fine_epochs):
+#         running_loss = 0.0
+#         for it in range(fine_iters):
+#             data = create_batch(sample_ids_real=sample_train_real_city, sample_ids_random=sample_train_random_city)
+#             inputs, labels = data
+#             inputs = inputs.to(device)
+#             labels = labels.to(device)
 
-            optimizer_city.zero_grad()
-            outputs = net_ft(inputs)
-            loss = criterion_city(outputs, labels)
-            loss.backward()
-            optimizer_city.step()
+#             optimizer_city.zero_grad()
+#             outputs = net_ft(inputs)
+#             loss = criterion_city(outputs, labels)
+#             loss.backward()
+#             optimizer_city.step()
 
-            running_loss += float(loss.item())
-            if (it+1) % max(1, fine_iters//5) == 0:
-                avg = running_loss / max(1, fine_iters//5)
-                print(f'Fine-tune epoch {epoch+1}/{fine_epochs} iter {it+1}/{fine_iters} loss={avg:.4f}')
-                running_loss = 0.0
+#             running_loss += float(loss.item())
+#             if (it+1) % max(1, fine_iters//5) == 0:
+#                 avg = running_loss / max(1, fine_iters//5)
+#                 print(f'Fine-tune epoch {epoch+1}/{fine_epochs} iter {it+1}/{fine_iters} loss={avg:.4f}')
+#                 running_loss = 0.0
 
-    # return fine-tuned model and optimizer (caller can save)
-    return net_ft, optimizer_city
+#     # return fine-tuned model and optimizer (caller can save)
+#     return net_ft, optimizer_city
 
-"""Set random seed"""
+# # Set random seed for reproducibility
+# manualSeed = 24601
+# print('Random Seed: ', manualSeed)
+# np.random.seed(manualSeed)
+# torch.manual_seed(manualSeed)
 
-# Set random seed for reproducibility
-manualSeed = 24601
-#manualSeed = random.randint(1, 10000) # use if you want new results
-print("Random Seed: ", manualSeed)
-np.random.seed(manualSeed)
-torch.manual_seed(manualSeed)
+# locations for training and evaluation
+num_distinct_train_real = int(len(S_id_real) * frac_train_real)
+num_distinct_train_random = int(len(S_id_random) * frac_train_random)
 
-"""load neural net"""
+sample_train_real = list(np.random.choice(a=S_id_real,size=num_distinct_train_real,replace=False))
+sample_train_real.sort()
+sample_train_random = list(np.random.choice(a=S_id_random,size=num_distinct_train_random,replace=False))
+sample_train_random.sort()
 
-net, optimizer = load_model(saved_model_filename)
+if num_distinct_train_real < len(S_id_real):
+    sample_eval_real = list(set(S_id_real) - set(sample_train_real))
+else:
+    sample_eval_real = S_id_real
+sample_eval_real.sort()
+if num_distinct_train_random < len(S_id_random):
+    sample_eval_random = list(set(S_id_random) - set(sample_train_random))
+else:
+    sample_eval_random = S_id_random
+sample_eval_random.sort()
 
-criterion = nn.CrossEntropyLoss()
+# initialize neural net
+def weights_init(m):
+    if isinstance(m, nn.Conv2d):
+        nn.init.kaiming_normal_(m.weight, a=0.2, mode='fan_in', nonlinearity='leaky_relu')
+        if m.bias is not None:
+            nn.init.constant_(m.bias, 0.0)
+    elif isinstance(m, nn.InstanceNorm2d):
+        if m.weight is not None:
+            nn.init.constant_(m.weight, 1.0)
+        if m.bias is not None:
+            nn.init.constant_(m.bias, 0.0)
+    elif isinstance(m, nn.Linear):
+        nn.init.xavier_uniform_(m.weight)
+        nn.init.constant_(m.bias, 0.0)
 
+
+if use_saved_model:
+    print('Loading model')
+    net, optimizer = load_model(saved_model_filename)
+else:
+    net = Net()
+    net.apply(weights_init)
+    if use_cuda and torch.cuda.is_available():
+        net.cuda()
+    optimizer = intitialize_optimizer(net)
+
+# Ensure GRID_LABEL_ARRAY contains only binary labels (0 and 1)
+GRID_LABEL_ARRAY = np.where((GRID_LABEL_ARRAY == 0) | (GRID_LABEL_ARRAY == 1), GRID_LABEL_ARRAY, 0)
+
+# Compute class weights for binary classification
+unique, counts = np.unique(GRID_LABEL_ARRAY, return_counts=True)
+if len(counts) != 2:
+    raise ValueError(f"Expected 2 classes, but found {len(counts)} unique labels: {unique}")
+total = counts.sum()
+class_weights = torch.tensor([total / (2.0 * c) for c in counts], dtype=torch.float32).to('cuda' if use_cuda and torch.cuda.is_available() else 'cpu')
+
+# Define the weighted loss function
+criterion = FocalLoss(alpha = 0.25, gamma = 2.0)
 if use_cuda and torch.cuda.is_available():
     net.cuda()
 
 # Set random seed for reproducibility: increment to ensure different training samples after load
 manualSeed = 24601 + curr_epoch
 #manualSeed = random.randint(1, 10000) # use if you want new results
-print("Random Seed: ", manualSeed)
+print('Random Seed: ', manualSeed)
 np.random.seed(manualSeed)
 torch.manual_seed(manualSeed)
 
-"""Functions to transform output into list for saving to file"""
+# transform output into list
+def reverse_augmentation_to_coordinates(coords, theta_deg=0.0, mirror_var=1, shift_x_pixels=0.0, shift_y_pixels=0.0):
+    theta_rad = -theta_deg * np.pi / 180  # Reverse rotation
+    if mirror_var == -1:
+        coords[:, 0] = -coords[:, 0]  # Reverse mirroring
+    if theta_deg != 0.0:
+        rot_matrix = np.array([[np.cos(theta_rad), -np.sin(theta_rad)],
+                               [np.sin(theta_rad), np.cos(theta_rad)]])
+        coords = coords @ rot_matrix.T
+    coords[:, 0] -= shift_x_pixels  # Reverse X shift
+    coords[:, 1] -= shift_y_pixels  # Reverse Y shift
+    return coords
 
-@numba.jit
-def data_reverse_shift_rotate(xy,shift_x=0,shift_y=0,theta=0,mirror_var=1):
-    # reverse shift
-    xy[:,0] -= shift_x
-    xy[:,1] -= shift_y
-
-    # reverse mirroring
-    if mirror_var == 1 or mirror_var == -1:
-        xy[:,0] = mirror_var * xy[:,0]
-    
-    # reverse rotation by theta
-    theta = theta * pi / 180
-    if not theta == 0:
-        # x = cos(theta) * mat[:,0] - sin(theta) * mat[:,1]
-        # y = sin(theta) * mat[:,0] + cos(theta) * mat[:,1]
-        rot = np.array([[cos(theta),sin(theta)],[-sin(theta),cos(theta)]])
-        xy = xy@np.linalg.inv(rot)
-        # x = xy[:,0]
-        # y = xy[:,1]
-    return xy
-
-
-def add_to_list(xy,o,r):
+def add_to_list(xy, o, r):
     for i in range(len(xy)):
         if i == len(xy) - 1:
             tup = (str(int(round(xy[i,0]))), str(r), 'NA', 'NA', str(o[i]))
@@ -522,35 +635,37 @@ def add_to_list(xy,o,r):
 
 def outputs_to_loc(outputs,transf):
     o = outputs.cpu().numpy()
+    print(o.shape)
     g = np.linspace(start=cell_width/2,
                     stop=cell_width/2 + cell_width*size_potential,
                     num=size_potential, endpoint=False)
     
     for b in range(BATCH_SIZE):
+        print(o[b,:].shape)
         # grid cell midpoints
         xy = np.zeros(shape=(pow(size_potential,2)+1,3))
+        print(xy.shape, len(xy))
         # set s_id
         xy[:,0] = int(transf[b,0])
         # set relative location
         xy[0:pow(size_potential,2),1] = np.tile(g,size_potential)
         xy[0:pow(size_potential,2),2] = np.repeat(g,size_potential)
 
-        xy[0:pow(size_potential,2),1:3] = data_reverse_shift_rotate(xy[0:pow(size_potential,2),1:3],
-                                                                    shift_x=transf[b,1],
-                                                                    shift_y=transf[b,2],
-                                                                    theta=transf[b,3],
-                                                                    mirror_var=transf[b,4])
+        xy[0:pow(size_potential,2),1:3] = reverse_augmentation_to_coordinates(xy[0:pow(size_potential, 2), 1:3],
+                                             theta_deg=transf[b,3],
+                                             mirror_var=transf[b, 4],
+                                             shift_x_pixels=transf[b, 1] / float(cell_width),
+                                             shift_y_pixels=transf[b, 2] / float(cell_width))
         add_to_list(xy,o[b,:],b < BATCH_SIZE_real)
 
-"""run the neural net on many practice examples to guess real locations"""
-
+# run prediction loop
 list_out = list()
 
 with torch.no_grad():
     for i in range(num_batches_predict):
         # show progress
         if i % 100 == 0:
-            print(str(i+1) + "/" + str(num_batches_predict) + " - time: " + (datetime.utcnow() + timedelta(hours=-7)).strftime('%Y-%m-%d %H:%M:%S'))
+            print(str(i+1) + "/" + str(num_batches_predict) + " - time: " + (datetime.now(timezone.utc) + timedelta(hours=-7)).strftime('%Y-%m-%d %H:%M:%S'))
 
         # get the inputs; data is a list of [inputs, labels]
         data = create_batch(return_transf=True)
@@ -572,11 +687,8 @@ with torch.no_grad():
 
 print(len(list_out))
 
-"""Save the resulting file
-
-"""
-
-date = (datetime.utcnow() + timedelta(hours=-7)).strftime('%Y-%m-%d--%H-%M')
+# save resulting file
+date = (datetime.now(timezone.utc) + timedelta(hours=-7)).strftime('%Y-%m-%d %H:%M:%S')
 filename_out = 'predicted_activation-' + date + '.csv'
 
 with open(dataroot+filename_out,'w') as f:
