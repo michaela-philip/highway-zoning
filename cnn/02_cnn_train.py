@@ -42,15 +42,15 @@ BATCH_SIZE_fill = 16  # regions with real location filled in (-> no missing) per
 BATCH_SIZE_random = 16  # random regions (-> no missing) per batch
 BATCH_SIZE = BATCH_SIZE_real + BATCH_SIZE_fill + BATCH_SIZE_random
 
-frac_train_real = 1  # fraction of real regions to use for training
-frac_train_random = 1  # fraction of random (unrealized) regions to use for training
+frac_train_real = 0.7  # fraction of real regions to use for training
+frac_train_random = 0.7  # fraction of random (unrealized) regions to use for training
 
 use_cuda = True
 
 curr_epoch = 0
 epoch_set_seed = list()
 epoch_set_seed.append(curr_epoch)
-EPOCHS = 10
+EPOCHS = 20
 ITERS = 1000
 NODATA = -9999.0
 
