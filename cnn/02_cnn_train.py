@@ -14,13 +14,14 @@ import rasterio
 from rasterio import transform
 from pathlib import Path
 from scipy.ndimage import rotate, shift
+import time
 
 
 dataroot = 'cnn/'
 outputroot = 'cnn/'
 
 use_saved_model = False
-saved_model_filename = ''
+saved_model_filename = 'base_pooled_model.tar'
 
 ####################################################################################################
 ### PARAMETERS ###
@@ -250,8 +251,8 @@ def extract_label_patch(label_array, row, col, window, pad_value = NODATA):
     return lbl_p[r0-pad:r0+pad+1, c0-pad:c0+pad+1]
 
 def create_batch(batch_tensor=batch_tensor, labels=labels, sample_ids_real=S_id_real, sample_ids_random=S_id_random, return_transf=False):
-    batch_tensor = batch_tensor*0
-    labels = labels*0
+    batch_tensor.zero_()
+    labels.zero_()
 
     if return_transf:
         transf = np.zeros(shape=(BATCH_SIZE,5))
@@ -325,6 +326,7 @@ def create_batch(batch_tensor=batch_tensor, labels=labels, sample_ids_real=S_id_
                                              order=0,  # nearest for labels
                                              cval=NODATA)
         center_label = lbl_aug[0, pad, pad]
+        
         # handle nodata after augmentation (rare) — fallback to original center if available or set 0
         if center_label == NODATA or np.isnan(center_label):
             original_center = GRID_LABEL_ARRAY[row, col]
@@ -334,29 +336,29 @@ def create_batch(batch_tensor=batch_tensor, labels=labels, sample_ids_real=S_id_
                 center_label = int(original_center)
         labels[b] = int(center_label)
 
-    # if patch channels do not match nc, truncate or pad with zeros
-    C = patch.shape[0]
-    if C != nc:
-        print(f"Warning: Patch channels ({C}) do not match expected channels ({nc}). Adjusting...")
-    if C >= nc:
-        patch = patch[:nc, :, :]
-    else:
-        pad_ch = np.zeros((nc - C, window, window), dtype='float32')
-        patch = np.vstack([patch, pad_ch])
+        # if patch channels do not match nc, truncate or pad with zeros
+        C = patch.shape[0]
+        if C != nc:
+            print(f"Warning: Patch channels ({C}) do not match expected channels ({nc}). Adjusting...")
+        if C >= nc:
+            patch = patch[:nc, :, :]
+        else:
+            pad_ch = np.zeros((nc - C, window, window), dtype='float32')
+            patch = np.vstack([patch, pad_ch])
 
-    # verify patch dimensions
-    if patch.shape[1:] != (window, window):
-        raise ValueError(f"Patch dimensions {patch.shape[1:]} do not match expected size ({window}, {window})")
+        # verify patch dimensions
+        if patch.shape[1:] != (window, window):
+            raise ValueError(f"Patch dimensions {patch.shape[1:]} do not match expected size ({window}, {window})")
 
-    # assign patch channels to grid tensor
-    for ch in range(nc):
-        batch_tensor[b, ch, :, :] = torch.from_numpy(patch[ch])
+        # assign patch channels to grid tensor
+        for ch in range(nc):
+            batch_tensor[b, ch, :, :] = torch.from_numpy(patch[ch])
 
-    # if you want to include the center cell as in original 'filled' case:
-    if b >= BATCH_SIZE_real and b < BATCH_SIZE_real + BATCH_SIZE_fill:
-        treat_x = pad
-        treat_y = pad
-        batch_tensor[b, 0, treat_y, treat_x] += 1
+        # if you want to include the center cell as in original 'filled' case:
+        if b >= BATCH_SIZE_real and b < BATCH_SIZE_real + BATCH_SIZE_fill:
+            treat_x = pad
+            treat_y = pad
+            batch_tensor[b, 0, treat_y, treat_x] += 1
 
 
     if not return_transf:
@@ -423,7 +425,7 @@ def intitialize_optimizer(net):
 # functions to save and load model
 def save_model(filename=None):
     if not filename:
-        date = (datetime.utcnow() + timedelta(hours=-7)).strftime('%Y-%m-%d--%H-%M')
+        date = (datetime.now(timezone.utc) + timedelta(hours=-7)).strftime('%Y-%m-%d--%H-%M')
         filename = 'checkpoint-epoch-' + str(curr_epoch) + '-' + date + '.tar'
     path_save = outputroot + filename
     # save the model
@@ -464,78 +466,78 @@ def load_model(filename, net=None, optimizer=None):
     epoch_set_seed.append(curr_epoch)
     return net, optimizer
 
-# fine-tuning function 
-def fine_tune_on_city(sample_train_real_city, sample_train_random_city,
-                      base_model_path='cnn/base_pooled_model.tar',
-                      fine_epochs=5, fine_iters=2000, lr=1e-3, freeze_backbone=True):
-    # load base pooled model
-    net_ft, optimizer_ft = load_model(base_model_path)
-    # freeze backbone if requested (unfreeze classifier = last Linear)
-    if freeze_backbone:
-        for p in net_ft.parameters():
-            p.requires_grad = False
-        # find last linear module (assumes net.main ends with Linear)
-        if isinstance(net_ft.main[-1], nn.Linear):
-            for p in net_ft.main[-1].parameters():
-                p.requires_grad = True
-    # optimizer only for trainable params
-    trainable = [p for p in net_ft.parameters() if p.requires_grad]
-    if not trainable:
-        raise RuntimeError("No trainable parameters found; check freeze_backbone setting")
-    optimizer_city = optim.SGD(trainable, lr=lr, momentum=0.9)
+# # fine-tuning function 
+# def fine_tune_on_city(sample_train_real_city, sample_train_random_city,
+#                       base_model_path='cnn/base_pooled_model.tar',
+#                       fine_epochs=5, fine_iters=2000, lr=1e-3, freeze_backbone=True):
+#     # load base pooled model
+#     net_ft, optimizer_ft = load_model(base_model_path)
+#     # freeze backbone if requested (unfreeze classifier = last Linear)
+#     if freeze_backbone:
+#         for p in net_ft.parameters():
+#             p.requires_grad = False
+#         # find last linear module (assumes net.main ends with Linear)
+#         if isinstance(net_ft.main[-1], nn.Linear):
+#             for p in net_ft.main[-1].parameters():
+#                 p.requires_grad = True
+#     # optimizer only for trainable params
+#     trainable = [p for p in net_ft.parameters() if p.requires_grad]
+#     if not trainable:
+#         raise RuntimeError("No trainable parameters found; check freeze_backbone setting")
+#     optimizer_city = optim.SGD(trainable, lr=lr, momentum=0.9)
 
-    # compute class weights from available city labels (optional)
-    def get_labels_for_ids(id_list):
-        labs = []
-        for gid in id_list:
-            if int(gid) in GRIDID_TO_RC:
-                r,c = GRIDID_TO_RC[int(gid)]
-                labs.append(int(GRID_LABEL_ARRAY[r, c]))
-        return np.array(labs, dtype=int)
+#     # compute class weights from available city labels (optional)
+#     def get_labels_for_ids(id_list):
+#         labs = []
+#         for gid in id_list:
+#             if int(gid) in GRIDID_TO_RC:
+#                 r,c = GRIDID_TO_RC[int(gid)]
+#                 labs.append(int(GRID_LABEL_ARRAY[r, c]))
+#         return np.array(labs, dtype=int)
 
-    y_real = get_labels_for_ids(sample_train_real_city)
-    y_rand = get_labels_for_ids(sample_train_random_city)
-    y_all = np.concatenate([y_real, y_rand]) if len(y_real) + len(y_rand) > 0 else np.array([0,1])
-    vals, counts = np.unique(y_all, return_counts=True)
-    total = counts.sum()
-    weights = np.ones(2, dtype=np.float32)
-    for v, c in zip(vals, counts):
-        weights[int(v)] = float(total) / (2.0 * float(c))
-    criterion_city = nn.CrossEntropyLoss(weight=torch.from_numpy(weights).to(next(net_ft.parameters()).device))
+#     y_real = get_labels_for_ids(sample_train_real_city)
+#     y_rand = get_labels_for_ids(sample_train_random_city)
+#     y_all = np.concatenate([y_real, y_rand]) if len(y_real) + len(y_rand) > 0 else np.array([0,1])
+#     vals, counts = np.unique(y_all, return_counts=True)
+#     total = counts.sum()
+#     weights = np.ones(2, dtype=np.float32)
+#     for v, c in zip(vals, counts):
+#         weights[int(v)] = float(total) / (2.0 * float(c))
+#     criterion_city = nn.CrossEntropyLoss(weight=torch.from_numpy(weights).to(next(net_ft.parameters()).device))
 
-    # small training loop using create_batch (pass city-specific sample lists)
-    device = torch.device('cuda' if (use_cuda and torch.cuda.is_available()) else 'cpu')
-    net_ft.to(device)
-    net_ft.train()
-    for epoch in range(fine_epochs):
-        running_loss = 0.0
-        for it in range(fine_iters):
-            data = create_batch(sample_ids_real=sample_train_real_city, sample_ids_random=sample_train_random_city)
-            inputs, labels = data
-            inputs = inputs.to(device)
-            labels = labels.to(device)
+#     # small training loop using create_batch (pass city-specific sample lists)
+#     device = torch.device('cuda' if (use_cuda and torch.cuda.is_available()) else 'cpu')
+#     net_ft.to(device)
+#     net_ft.train()
+#     for epoch in range(fine_epochs):
+#         running_loss = 0.0
+#         for it in range(fine_iters):
+#             data = create_batch(sample_ids_real=sample_train_real_city, sample_ids_random=sample_train_random_city)
+#             inputs, labels = data
+#             inputs = inputs.to(device)
+#             labels = labels.to(device)
 
-            optimizer_city.zero_grad()
-            outputs = net_ft(inputs)
-            loss = criterion_city(outputs, labels)
-            loss.backward()
-            optimizer_city.step()
+#             optimizer_city.zero_grad()
+#             outputs = net_ft(inputs)
+#             loss = criterion_city(outputs, labels)
+#             loss.backward()
+#             optimizer_city.step()
 
-            running_loss += float(loss.item())
-            if (it+1) % max(1, fine_iters//5) == 0:
-                avg = running_loss / max(1, fine_iters//5)
-                print(f'Fine-tune epoch {epoch+1}/{fine_epochs} iter {it+1}/{fine_iters} loss={avg:.4f}')
-                running_loss = 0.0
+#             running_loss += float(loss.item())
+#             if (it+1) % max(1, fine_iters//5) == 0:
+#                 avg = running_loss / max(1, fine_iters//5)
+#                 print(f'Fine-tune epoch {epoch+1}/{fine_epochs} iter {it+1}/{fine_iters} loss={avg:.4f}')
+#                 running_loss = 0.0
 
-    # return fine-tuned model and optimizer (caller can save)
-    return net_ft, optimizer_city
+#     # return fine-tuned model and optimizer (caller can save)
+#     return net_ft, optimizer_city
 
 
-# Set random seed for reproducibility
-manualSeed = 24601
-print('Random Seed: ', manualSeed)
-np.random.seed(manualSeed)
-torch.manual_seed(manualSeed)
+# # Set random seed for reproducibility
+# manualSeed = 24601
+# print('Random Seed: ', manualSeed)
+# np.random.seed(manualSeed)
+# torch.manual_seed(manualSeed)
 
 # locations for training and evaluation
 num_distinct_train_real = int(len(S_id_real) * frac_train_real)
@@ -596,6 +598,7 @@ class_weights = torch.tensor([total / (2.0 * c) for c in counts], dtype=torch.fl
 # Define the weighted loss function
 criterion = FocalLoss(alpha = 0.25, gamma = 2.0)
 if use_cuda and torch.cuda.is_available():
+    print('using CUDA')
     net.cuda()
 
 # Set random seed for reproducibility: increment to ensure different training samples after load
@@ -730,8 +733,9 @@ for epoch in range(curr_epoch, bound_epochs):
 
 
     print('Finished Epoch ' + str(epoch+1) + ' of ' + str(bound_epochs) + '. Saving model and optimizer checkpoint.')
+    torch.cuda.empty_cache()
     curr_epoch = curr_epoch + 1
-    save_model('base_pooled_model2.tar')
+    save_model('base_pooled_model3.tar')
     print((datetime.now(timezone.utc) + timedelta(hours=-7)).strftime('%Y-%m-%d %H:%M:%S'))
 
 print('Finished Training')
