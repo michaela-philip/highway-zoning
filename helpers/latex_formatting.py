@@ -1,4 +1,19 @@
 import pandas as pd
+import re
+
+# dictionary of preferred index/variable names
+rename_dict = {
+    'np.log(rent)': '(log) Rent',
+    'np.log(valueh)': '(log) Home Value',
+    'hwy': 'Highway',
+    'mblack_1945def': 'Black',
+    'mblack_1945def:Residential': 'Black x Residential',
+    'mblack_mean_pct': 'Black',
+    'mblack_mean_pct:Residential': 'Black x Residential',
+    'mblack_mean_share': 'Black',
+    'mblack_mean_share:Residential': 'Black x Residential',
+    'distance_to_cbd': 'Distance to CBD',
+    'dist_to_hwy': 'Distance to Nearest Highway (1940)'}
 
 # function to export df as latex table with full page width and add'l formatting
 def format_regression_results(results):
@@ -21,19 +36,10 @@ def format_regression_results(results):
     return df
 
 # table with one regression - no concatenating
-def export_single_regression(df, caption, label, widthmultiplier = 1.0):
-    df = df.rename({
-        'np.log(rent)': '(log) Rent',
-        'np.log(valueh)': '(log) Home Value',
-        'hwy': 'Highway',
-        'mblack_1945def': 'Majority Black (60\\% Threshold)',
-        'mblack_1945def:Residential': 'Majority Black (60\\% Threshold) x Residential',
-        'mblack_mean_pct': 'Majority Black (Avg. Percent)',
-        'mblack_mean_pct:Residential': 'Majority Black (Avg. Percent) x Residential',
-        'mblack_mean_share': 'Majority Black (Avg. Share)',
-        'mblack_mean_share:Residential': 'Majority Black (Avg. Share) x Residential',
-        'distance_to_cbd': 'Distance to CBD',
-        'dist_to_hwy': 'Distance to Nearest Highway (1940)'}, axis = 'index')
+def export_single_regression(df, caption, label, widthmultiplier = 1.0, leaveout = None):
+    df = df.rename(rename_dict, axis = 'index')
+    df = df.drop(index=leaveout, errors='ignore') if leaveout is not None else df
+    df = df[~df.index.str.contains(r'^C\(city\)\[.*\]$', na=False, flags=re.IGNORECASE)]
     
     # format for latex output
     num_cols = df.shape[1]
@@ -46,7 +52,7 @@ def export_single_regression(df, caption, label, widthmultiplier = 1.0):
         f.write(text)
 
 # table with multiple regressions - definition of 'Black' as column title
-def export_multiple_regressions(df_list, caption, label):
+def export_multiple_regressions(df_list, caption, label, leaveout = None):
     def column_names(df):
         if 'mblack_1945def' in df.index:
             return df.rename(columns = {'Coefficient':'60\\% Threshold'})
@@ -57,21 +63,12 @@ def export_multiple_regressions(df_list, caption, label):
         else:
             return df
     def standardize_index(df):
-        return df.rename({
-        'np.log(rent)': '(log) Rent',
-        'np.log(valueh)': '(log) Home Value',
-        'hwy': 'Highway',
-        'mblack_1945def': 'Black',
-        'mblack_1945def:Residential': 'Black x Residential',
-        'mblack_mean_pct': 'Black',
-        'mblack_mean_pct:Residential': 'Black x Residential',
-        'mblack_mean_share': 'Black',
-        'mblack_mean_share:Residential': 'Black x Residential',
-        'distance_to_cbd': 'Distance to CBD',
-        'dist_to_hwy': 'Distance to Nearest Highway (1940)'}, axis = 'index')
+        return df.rename(rename_dict, axis = 'index')
     
     renamed_list = [standardize_index(column_names(df)) for df in df_list]    
     df = pd.concat(renamed_list, axis = 1)
+    df = df.drop(index=leaveout, errors='ignore') if leaveout is not None else df
+    df = df[~df.index.str.contains(r'^C\(city\)\[.*\]$', na=False, flags=re.IGNORECASE)]
     
     # format for latex output
     num_cols = df.shape[1]
