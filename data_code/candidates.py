@@ -86,9 +86,8 @@ def create_candidate_list(data, cbd):
     elev_z = stats.zscore(candidates['dm_elevation'])
     candidates = candidates.loc[(elev_z > -1) & (elev_z < 1)].copy()
     
-    # drop candidates that already have highways and those that will have highways
+    # drop candidates that already have highways
     candidates = candidates.loc[candidates['hwy_40'] == 0].copy()
-    candidates = candidates.loc[candidates['hwy'] == 0].copy()
     return candidates['grid_id'].unique().tolist()
 
 def get_candidates(data, centroids, sample):
