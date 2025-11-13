@@ -20,8 +20,8 @@ import time
 dataroot = 'cnn/'
 outputroot = 'cnn/'
 
-use_saved_model = False
-saved_model_filename = 'base_pooled_model.tar'
+use_saved_model = True
+saved_model_filename = 'base_pooled_model3.tar'
 
 ####################################################################################################
 ### PARAMETERS ###
@@ -51,7 +51,7 @@ use_cuda = True
 curr_epoch = 0
 epoch_set_seed = list()
 epoch_set_seed.append(curr_epoch)
-EPOCHS = 20
+EPOCHS = 10
 ITERS = 1000
 NODATA = -9999.0
 
