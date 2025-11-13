@@ -17,12 +17,13 @@ from data_code.candidates import candidate_dict
 out_frames = []
 for city in df['city'].unique():
     candidates = candidate_dict[city]
-    controls = df.loc[(df['city'] == city) & (~df['grid_id'].isin(candidates))].copy()
-    treated = df.loc[(df['city'] == city) & (df['hwy']==1)].copy()
+    controls = df.loc[(df['city'] == city) & (df['grid_id'].isin(candidates))].copy()
+    treated = df.loc[(df['city'] == city) & (df['hwy']==1) & (~df['grid_id'].isin(candidates))].copy()
     out_frames.append(controls)
     out_frames.append(treated)
 sample = pd.concat(out_frames, ignore_index=True)
 
+# naive meaning utilizing the whole sample
 model_naive = 'hwy ~ mblack_1945def + Residential + (mblack_1945def * Residential) + np.log(rent) + np.log(valueh) + dist_water + owner + C(city)'
 results_naive = format_regression_results(smf.ols(model_naive, data=df).fit(cov_type='cluster', cov_kwds={'groups': df['city']}))
 
@@ -43,5 +44,3 @@ export_multiple_regressions([results_1945def, results_pct, results_share],
                             caption = 'Determinants of Highway Placement',
                             label = 'tab:initial_results',
                             leaveout = ['dist_water', 'owner'])
-
-export_single_regression(results_1945def, caption = 'Determinants of Highway Placement', label = 'tab:pref_specif', widthmultiplier = 0.7, leaveout = ['dist_water', 'owner'])
