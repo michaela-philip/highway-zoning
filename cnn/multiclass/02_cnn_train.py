@@ -16,8 +16,8 @@ from pathlib import Path
 from scipy.ndimage import rotate, shift
 
 
-dataroot = 'cnn/multiclass'
-outputroot = 'cnn/multiclass'
+dataroot = 'cnn/multiclass/'
+outputroot = 'cnn/multiclass/'
 
 use_saved_model = False
 saved_model_filename = ''
@@ -50,7 +50,7 @@ use_cuda = True
 curr_epoch = 0
 epoch_set_seed = list()
 epoch_set_seed.append(curr_epoch)
-EPOCHS = 20
+EPOCHS = 10
 ITERS = 1000
 NODATA = -9999.0
 
@@ -215,12 +215,13 @@ S_id_real = hwys
 
 if isinstance(candidate_list, dict):
     cand_flat = [int(x) for vals in candidate_list.values() for x in (vals or [])]
+    S_id_random = cand_flat  # Use the flattened list of grid IDs
 elif isinstance(candidate_list, pd.Series):
     cand_flat = [int(x) for vals in candidate_list.tolist() for x in (vals or [])]
+    S_id_random = candidate_list['grid_id'].tolist()
 else:
     cand_flat = [int(x) for x in candidate_list]
-
-S_id_random = candidate_list.keys().tolist() if isinstance(candidate_list, dict) else candidate_list['grid_id'].tolist()
+    S_id_random = candidate_list['grid_id'].tolist()
 
 S_id_real = np.array(S_id_real, dtype=int)
 S_id_random = np.array(S_id_random, dtype=int)
@@ -581,7 +582,7 @@ for epoch in range(curr_epoch, bound_epochs):
 
     print('Finished Epoch ' + str(epoch+1) + ' of ' + str(bound_epochs) + '. Saving model and optimizer checkpoint.')
     curr_epoch = curr_epoch + 1
-    save_model('base_pooled_model2.tar')
+    save_model('mc_model1.tar')
     print((datetime.now(timezone.utc) + timedelta(hours=-7)).strftime('%Y-%m-%d %H:%M:%S'))
 
 print('Finished Training')
