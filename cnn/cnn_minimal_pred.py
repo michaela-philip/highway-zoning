@@ -19,7 +19,7 @@ dataroot = 'cnn/'
 outputroot = 'cnn/'
 
 use_saved_model = False
-saved_model_filename = ''
+saved_model_filename = 'minimal_model.tar'
 
 ####################################################################################################
 ### PARAMETERS ###
@@ -180,12 +180,28 @@ def gridid_to_rc_map(gdf, cell_width):
     return {int(gid): (int(r), int(c)) for gid, r, c in zip(gdf['grid_id'].values, rows_idx, cols_idx)}
 
 # get window patch from feature and label arrays
-def extract_patch_from_arrays(feature_array, row, col, window, pad_value = 0.0):
+def extract_patch_from_arrays(feature_array, row, col, window, pad_value=0.0):
     C, H, W = feature_array.shape
     pad = window // 2
-    arr_p = np.pad(feature_array, ((0, 0), (pad, pad), (pad, pad)), mode = 'constant', constant_values = pad_value)
-    r0, c0 = row + pad, col + pad
-    patch = arr_p[:, r0-pad:r0+pad, c0-pad:c0+pad]
+
+    # Create an empty patch with padding value
+    patch = np.full((C, window, window), pad_value, dtype=feature_array.dtype)
+
+    # Compute the bounds of the patch
+    r_start = max(0, row - pad)
+    r_end = min(H, row + pad + 1)
+    c_start = max(0, col - pad)
+    c_end = min(W, col + pad + 1)
+
+    # Compute the corresponding indices in the patch
+    pr_start = max(0, pad - row)
+    pr_end = pr_start + (r_end - r_start)
+    pc_start = max(0, pad - col)
+    pc_end = pc_start + (c_end - c_start)
+
+    # Copy the valid region from the feature array to the patch
+    patch[:, pr_start:pr_end, pc_start:pc_end] = feature_array[:, r_start:r_end, c_start:c_end]
+
     return patch.astype('float32')
 
 def apply_augmentation_to_patch(patch, theta_deg=0.0, mirror_var=1, shift_x_pixels=0.0, shift_y_pixels=0.0, order=1, cval=0.0):
@@ -223,7 +239,7 @@ def valid_ids_from_list(id_list):
     return out
 
 # create tensor of the proper size 
-batch_tensor = torch.zeros(BATCH_SIZE,nc,2*size_padding+size_potential, 2*size_padding+size_potential) #, dtype=torch.double)
+batch_tensor = torch.zeros(BATCH_SIZE,nc,2*size_padding+size_potential +1, 2*size_padding+size_potential+1) #, dtype=torch.double)
 labels = torch.empty(BATCH_SIZE, dtype=torch.int64)
 S_id_real = valid_ids_from_list([int(g) for g in hwys])
 
@@ -255,7 +271,7 @@ def create_batch(batch_tensor=batch_tensor, labels=labels, sample_ids_real=S_id_
     if return_transf:
         transf = np.zeros(shape=(BATCH_SIZE,5))
 
-    window = 2*size_padding + size_potential
+    window = 2*size_padding + size_potential + 1 # want the s_id grid to be dead center
     pad = window // 2
 
     # guard: ensure sample sets not empty
@@ -385,7 +401,7 @@ class Net(nn.Module):
             nn.InstanceNorm2d(num_features=1, affine=True),
             nn.Flatten(),
             # binary classification => 2 logits
-            nn.Linear(1 * pow(2*size_padding+size_potential, 2), 2),
+            nn.Linear(1 * pow(2*size_padding+size_potential + 1, 2), 2),
         )
         self.main = main
 
