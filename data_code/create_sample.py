@@ -216,7 +216,7 @@ def place_highways(grid, state59, state40, us59, us40, interstate):
     return output
 
 ### FUNCTION TO CREATE THE SAMPLE GRID ### 
-def create_grid(zoning, centroids, geology, census, state59, state40, us59, us40, interstate, gridsize, city_sample, zoning2 = None):
+def create_grid(zoning, centroids, geology, census, state59, state40, us59, us40, interstate, gridsize, city_sample, zoning2 = None, grid_0 = 1):
     # grid is fit to size of zoning map
     a, b, c, d  = zoning.total_bounds
     step = gridsize # gridsize in meters
@@ -228,7 +228,7 @@ def create_grid(zoning, centroids, geology, census, state59, state40, us59, us40
     print('grid created')
 
     # numeric id for each grid square to assist with aggregation
-    grid['grid_id'] = range(1, len(grid) + 1)
+    grid['grid_id'] = range(grid_0, grid_0 + len(grid))
 
     # overlay zoning map with grid squares and classify each square
     output = classify_grid(zoning, grid, centroids, city_sample, zoning2)
@@ -274,12 +274,13 @@ def create_sample(df, sample):
         if city == 'louisville':
             city_zoning1 = zoning['louisville_1947']
             city_zoning2 = zoning['louisville_1931']
-            city_grid = create_grid(city_zoning1, centroids, city_geology, city_df, state59, state40, us59, us40, interstate, gridsize = 150, city_sample = city_sample, zoning2 = city_zoning2)
+            city_grid = create_grid(city_zoning1, centroids, city_geology, city_df, state59, state40, us59, us40, interstate, gridsize = 150, city_sample = city_sample, zoning2 = city_zoning2, grid_0 = grid_0)
         else:
             city_zoning = zoning[city]
-            city_grid = create_grid(city_zoning, centroids, city_geology, city_df, state59, state40, us59, us40, interstate, city_sample = city_sample, gridsize = 150)
+            city_grid = create_grid(city_zoning, centroids, city_geology, city_df, state59, state40, us59, us40, interstate, city_sample = city_sample, gridsize = 150, grid_0 = grid_0)
         city_grid['city'] = city
         output = pd.concat([output, city_grid], ignore_index=True)
+        grid_0 = output['grid_id'].max() + 1
     return output
 
 ####################################################################################################
