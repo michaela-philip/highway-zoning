@@ -4,3 +4,4 @@ highway-zoning-gis/*
 .venv
 spatialTreat-example
 *.tar
+*.csv
