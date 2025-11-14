@@ -261,7 +261,7 @@ def create_batch(batch_tensor=batch_tensor, labels=labels, sample_ids_real=S_id_
     labels = labels*0
 
     if return_transf:
-        transf = np.zeros(shape=(BATCH_SIZE,5))
+        transf = [{} for _ in range(BATCH_SIZE)]
 
     window = 2*size_padding + size_potential
     pad = window // 2
@@ -299,12 +299,14 @@ def create_batch(batch_tensor=batch_tensor, labels=labels, sample_ids_real=S_id_
         shift_y = np.random.rand()*cell_width*size_potential - cell_width/2
 
         if return_transf:
-            transf[b,0] = s_id
-            transf[b,1] = shift_x
-            transf[b,2] = shift_y
-            transf[b,3] = theta
-            transf[b,4] = mirror_var
-
+            transf[b] = {
+                's_id': s_id,
+                'shift_x': shift_x,
+                'shift_y': shift_y,
+                'theta': theta,
+                'mirror_var': mirror_var,
+                'city': grid.loc[grid['grid_id'] == s_id, 'city'].iloc[0]
+            }
         patch = extract_patch_from_arrays(GRID_FEATURE_ARRAY, row, col, window, pad_value=0.0)
 
         # convert shifts in meters to pixels for ndimage.shift
@@ -341,29 +343,29 @@ def create_batch(batch_tensor=batch_tensor, labels=labels, sample_ids_real=S_id_
                 center_label = int(original_center)
         labels[b] = int(center_label)
 
-    # if patch channels do not match nc, truncate or pad with zeros
-    C = patch.shape[0]
-    if C != nc:
-        print(f"Warning: Patch channels ({C}) do not match expected channels ({nc}). Adjusting...")
-    if C >= nc:
-        patch = patch[:nc, :, :]
-    else:
-        pad_ch = np.zeros((nc - C, window, window), dtype='float32')
-        patch = np.vstack([patch, pad_ch])
+        # if patch channels do not match nc, truncate or pad with zeros
+        C = patch.shape[0]
+        if C != nc:
+            print(f"Warning: Patch channels ({C}) do not match expected channels ({nc}). Adjusting...")
+        if C >= nc:
+            patch = patch[:nc, :, :]
+        else:
+            pad_ch = np.zeros((nc - C, window, window), dtype='float32')
+            patch = np.vstack([patch, pad_ch])
 
-    # verify patch dimensions
-    if patch.shape[1:] != (window, window):
-        raise ValueError(f"Patch dimensions {patch.shape[1:]} do not match expected size ({window}, {window})")
+        # verify patch dimensions
+        if patch.shape[1:] != (window, window):
+            raise ValueError(f"Patch dimensions {patch.shape[1:]} do not match expected size ({window}, {window})")
 
-    # assign patch channels to grid tensor
-    for ch in range(nc):
-        batch_tensor[b, ch, :, :] = torch.from_numpy(patch[ch])
+        # assign patch channels to grid tensor
+        for ch in range(nc):
+            batch_tensor[b, ch, :, :] = torch.from_numpy(patch[ch])
 
-    # if you want to include the center cell as in original 'filled' case:
-    if b >= BATCH_SIZE_real and b < BATCH_SIZE_real + BATCH_SIZE_fill:
-        treat_x = pad
-        treat_y = pad
-        batch_tensor[b, 0, treat_y, treat_x] += 1
+        # if you want to include the center cell as in original 'filled' case:
+        if b >= BATCH_SIZE_real and b < BATCH_SIZE_real + BATCH_SIZE_fill:
+            treat_x = pad
+            treat_y = pad
+            batch_tensor[b, 0, treat_y, treat_x] += 1
 
 
     if not return_transf:
@@ -624,39 +626,28 @@ def reverse_augmentation_to_coordinates(coords, theta_deg=0.0, mirror_var=1, shi
     coords[:, 1] -= shift_y_pixels  # Reverse Y shift
     return coords
 
-def add_to_list(xy, o, r):
-    for i in range(len(xy)):
-        if i == len(xy) - 1:
-            tup = (str(int(round(xy[i,0]))), str(r), 'NA', 'NA', str(o[i]))
-        else:
-            tup = (str(int(round(xy[i,0]))), str(r), str(int(round(xy[i,1]))), str(int(round(xy[i,2]))), str(o[i]))
-        list_out.append(tup)
+def add_to_list(s_id, o, r, city):
+    list_out.append((s_id, o.tolist(), r, city))
 
 
 def outputs_to_loc(outputs,transf):
-    o = outputs.cpu().numpy()
-    print(o.shape)
-    g = np.linspace(start=cell_width/2,
-                    stop=cell_width/2 + cell_width*size_potential,
-                    num=size_potential, endpoint=False)
+    o = torch.softmax(outputs, dim=1).cpu().numpy()
     
     for b in range(BATCH_SIZE):
-        print(o[b,:].shape)
-        # grid cell midpoints
-        xy = np.zeros(shape=(pow(size_potential,2)+1,3))
-        print(xy.shape, len(xy))
-        # set s_id
-        xy[:,0] = int(transf[b,0])
-        # set relative location
-        xy[0:pow(size_potential,2),1] = np.tile(g,size_potential)
-        xy[0:pow(size_potential,2),2] = np.repeat(g,size_potential)
+        s_id = int(transf[b]['s_id'])
+        city = transf[b]['city']
+        # # set relative location
+        # xy[0:pow(size_potential, 2), 1] = np.tile(g, size_potential)
+        # xy[0:pow(size_potential, 2), 2] = np.repeat(g, size_potential)
 
-        xy[0:pow(size_potential,2),1:3] = reverse_augmentation_to_coordinates(xy[0:pow(size_potential, 2), 1:3],
-                                             theta_deg=transf[b,3],
-                                             mirror_var=transf[b, 4],
-                                             shift_x_pixels=transf[b, 1] / float(cell_width),
-                                             shift_y_pixels=transf[b, 2] / float(cell_width))
-        add_to_list(xy,o[b,:],b < BATCH_SIZE_real)
+        # xy[0:pow(size_potential, 2), 1:3] = reverse_augmentation_to_coordinates(
+        #     xy[0:pow(size_potential, 2), 1:3],
+        #     theta_deg=transf[b]['theta'],
+        #     mirror_var=transf[b]['mirror_var'],
+        #     shift_x_pixels=transf[b]['shift_x'] / float(cell_width),
+        #     shift_y_pixels=transf[b]['shift_y'] / float(cell_width)
+        # )
+        add_to_list(s_id, o[b], b < BATCH_SIZE_real, city)
 
 # run prediction loop
 list_out = list()
@@ -692,6 +683,11 @@ date = (datetime.now(timezone.utc) + timedelta(hours=-7)).strftime('%Y-%m-%d %H:
 filename_out = 'predicted_activation-' + date + '.csv'
 
 with open(dataroot+filename_out,'w') as f:
-    f.write('s_id,real_missing,x,y,activation\n')
+    f.write('s_id,real_missing,prob_1, prob_0,city\n')  
     for e in list_out:
-        f.write(','.join(e) + '\n')
+        s_id = str(e[0])  
+        real_missing = str(e[2])  
+        prob_1 = e[1][0]  
+        prob_0 = e[1][1]  
+        city = e[3]  
+        f.write(f"{s_id},{real_missing},{prob_1},{prob_0},{city}\n")  
