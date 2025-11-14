@@ -30,8 +30,8 @@ sample = pd.read_pickle('data/input/samplelist.pkl')
 candidate_list = pd.read_pickle('data/output/cnn_candidate_list.pkl')
 grid = pd.read_pickle('data/output/sample.pkl')
 hwys = grid[grid['hwy'] == 1]['grid_id'].unique().tolist()
-features = ['valueh', 'rent', 'distance_to_cbd', 'dist_water', 'dist_to_hwy', 'owner', 'elevation', 'city']
-normalize_features = ['valueh', 'rent', 'distance_to_cbd', 'dist_water', 'dist_to_hwy', 'owner', 'elevation'] # the only features i want to demean
+features = ['distance_to_cbd', 'dist_water', 'hwy', 'elevation', 'city']
+normalize_features = ['distance_to_cbd', 'dist_water', 'elevation'] # the only features i want to demean
 
 cell_width = 150  # cell width in meters (convert from miles)
 size_potential = 6  # potential locations: num_width_potential x num_width_potential
@@ -148,12 +148,8 @@ def gdf_to_raster(gdf, features, label, cell_width, crs=None, nodata=-9999.0):
     print(f'rasterization complete, file saved: {outpath}')
 
     feature_array = out_array[:len(features), :, :]
-    label_array = out_array[len(features):, :, :]
-    # if label was one band, squeeze to 2D
-    if label_array.shape[0] == 1:
-        label_array = np.squeeze(label_array, axis=0)
 
-    return feature_array, label_array, trs
+    return feature_array, trs
 
 # map grid_id to (row, col) in raster
 def gridid_to_rc_map(gdf, cell_width):
@@ -166,12 +162,28 @@ def gridid_to_rc_map(gdf, cell_width):
     return {int(gid): (int(r), int(c)) for gid, r, c in zip(gdf['grid_id'].values, rows_idx, cols_idx)}
 
 # get window patch from feature and label arrays
-def extract_patch_from_arrays(feature_array, row, col, window, pad_value = 0.0):
+def extract_patch_from_arrays(feature_array, row, col, window, pad_value=0.0):
     C, H, W = feature_array.shape
     pad = window // 2
-    arr_p = np.pad(feature_array, ((0, 0), (pad, pad), (pad, pad)), mode = 'constant', constant_values = pad_value)
-    r0, c0 = row + pad, col + pad
-    patch = arr_p[:, r0-pad:r0+pad+size_potential, c0-pad:c0+pad+size_potential]
+
+    # Create an empty patch with padding value
+    patch = np.full((C, window, window), pad_value, dtype=feature_array.dtype)
+
+    # Compute the bounds of the patch
+    r_start = max(0, row - pad)
+    r_end = min(H, row + pad + 1)
+    c_start = max(0, col - pad)
+    c_end = min(W, col + pad + 1)
+
+    # Compute the corresponding indices in the patch
+    pr_start = max(0, pad - row)
+    pr_end = pr_start + (r_end - r_start)
+    pc_start = max(0, pad - col)
+    pc_end = pc_start + (c_end - c_start)
+
+    # Copy the valid region from the feature array to the patch
+    patch[:, pr_start:pr_end, pc_start:pc_end] = feature_array[:, r_start:r_end, c_start:c_end]
+
     return patch.astype('float32')
 
 def apply_augmentation_to_patch(patch, theta_deg=0.0, mirror_var=1, shift_x_pixels=0.0, shift_y_pixels=0.0, order=1, cval=0.0):
@@ -193,25 +205,13 @@ def apply_augmentation_to_patch(patch, theta_deg=0.0, mirror_var=1, shift_x_pixe
 
 grid = normalize_features_per_city(grid, normalize_features, nodata=NODATA)
 print(grid[features].describe())
-GRID_FEATURE_ARRAY, GRID_LABEL_ARRAY, rast_transform = gdf_to_raster(grid, features, 'hwy', cell_width = 150)
-GRID_LABEL_ARRAY = np.squeeze(GRID_LABEL_ARRAY)
+GRID_FEATURE_ARRAY, rast_transform = gdf_to_raster(grid, features, 'hwy', cell_width = 150)
 GRIDID_TO_RC = gridid_to_rc_map(grid, cell_width)
-
-# filter S_id lists to only include cells with valid label (not NODATA)
-def valid_ids_from_list(id_list):
-    out = []
-    for gid in id_list:
-        if int(gid) in GRIDID_TO_RC:
-            r,c = GRIDID_TO_RC[int(gid)]
-            if 0 <= r < GRID_LABEL_ARRAY.shape[0] and 0 <= c < GRID_LABEL_ARRAY.shape[1]:
-                if GRID_LABEL_ARRAY[r,c] != NODATA and not np.isnan(GRID_LABEL_ARRAY[r,c]):
-                    out.append(int(gid))
-    return out
 
 # create tensor of the proper size 
 batch_tensor = torch.zeros(BATCH_SIZE,nc,2*size_padding+size_potential, 2*size_padding+size_potential) #, dtype=torch.double)
 labels = torch.empty(BATCH_SIZE, dtype=torch.int64)
-S_id_real = valid_ids_from_list([int(g) for g in hwys])
+S_id_real = hwys
 
 if isinstance(candidate_list, dict):
     cand_flat = [int(x) for vals in candidate_list.values() for x in (vals or [])]
@@ -220,19 +220,10 @@ elif isinstance(candidate_list, pd.Series):
 else:
     cand_flat = [int(x) for x in candidate_list]
 
-# cand_flat = cand_flat  # keep existing construction above
-S_id_random = valid_ids_from_list([g for g in cand_flat if g not in S_id_real])
+S_id_random = candidate_list.keys().tolist() if isinstance(candidate_list, dict) else candidate_list['grid_id'].tolist()
 
 S_id_real = np.array(S_id_real, dtype=int)
 S_id_random = np.array(S_id_random, dtype=int)
-
-def extract_label_patch(label_array, row, col, window, pad_value = NODATA):
-    pad = window // 2
-    H, W = label_array.shape
-    lbl_p = np.full((H + 2*pad, W + 2*pad), pad_value, dtype=label_array.dtype)
-    lbl_p[pad:pad+H, pad:pad+W] = label_array
-    r0, c0 = row + pad, col + pad
-    return lbl_p[r0-pad:r0+pad+1, c0-pad:c0+pad+1]
 
 def create_batch(batch_tensor=batch_tensor, labels=labels, sample_ids_real=S_id_real, sample_ids_random=S_id_random, return_transf=False):
     batch_tensor = batch_tensor*0
@@ -241,7 +232,7 @@ def create_batch(batch_tensor=batch_tensor, labels=labels, sample_ids_real=S_id_
     if return_transf:
         transf = np.zeros(shape=(BATCH_SIZE,5))
 
-    window = 2*size_padding + size_potential
+    window = 2*size_padding + size_potential + 1
     pad = window // 2
 
     # guard: ensure sample sets not empty
@@ -298,17 +289,19 @@ def create_batch(batch_tensor=batch_tensor, labels=labels, sample_ids_real=S_id_
                                             shift_y_pixels=shift_y_pixels,
                                             order=1,
                                             cval=0.0)
-        
-         # extract label patch, apply same augmentation with nearest interpolation, and read center
-        lbl_patch = extract_label_patch(GRID_LABEL_ARRAY, row, col, window, pad_value=NODATA)
-        if (lbl_patch == 1).any():
-            # Find the first (or all) highway cells in the patch
-            hwy_indices = np.argwhere(lbl_patch == 1)
-            # Use the center-most or first one (for single-label classification)
-            rel_row, rel_col = hwy_indices[0]
-            labels[b] = rel_row * window + rel_col
+
+        # true location of 'missing' grocery store
+        if b >= BATCH_SIZE_real and b < BATCH_SIZE_real+BATCH_SIZE_fill:
+            treat_x = int(round(shift_x_pixels/cell_width) + size_padding)
+            treat_y = int(round(shift_y_pixels/cell_width) + size_padding)
+            grid[b,0,treat_y,treat_x] += 1
+
+        # label with location of 'missing' grocery store:
+        if b < BATCH_SIZE_real:
+            labels[b] = int(round(shift_y_pixels)*size_potential) + int(round(shift_x_pixels))
+        # random region without missing grocery store or grocery store is filled in:
         else:
-            labels[b] = window * window  # "none" class
+            labels[b] = pow(size_potential,2)  # index 1 larger than locations (start at 0)
 
         # if patch channels do not match nc, truncate or pad with zeros
         C = patch.shape[0]
@@ -353,7 +346,7 @@ class Net(nn.Module):
             nn.Conv2d(in_channels=4*nc, out_channels=1, kernel_size=21, padding=20, padding_mode='replicate', dilation=2, bias=True),
             nn.InstanceNorm2d(num_features=1, affine=True),
             nn.Flatten(),
-            nn.Linear(1*pow(2*size_padding+size_potential,2), pow(size_potential,2)+1),
+            nn.Linear(1*pow(2*size_padding+size_potential + 1,2), pow(size_potential,2)+1),
         )
         self.main = main
 
@@ -450,13 +443,8 @@ else:
         net.cuda()
     optimizer = intitialize_optimizer(net)
 
-# Compute class weights for binary classification
-unique, counts = np.unique(GRID_LABEL_ARRAY, return_counts=True)
-total = counts.sum()
-class_weights = torch.tensor([total / (2.0 * c) for c in counts], dtype=torch.float32).to('cuda' if use_cuda and torch.cuda.is_available() else 'cpu')
-
 # Define the weighted loss function
-criterion = nn.CrossEntropyLoss(weight=class_weights)
+criterion = nn.CrossEntropyLoss()
 if use_cuda and torch.cuda.is_available():
     net.cuda()
 
