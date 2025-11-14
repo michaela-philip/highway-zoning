@@ -267,6 +267,7 @@ def create_grid(zoning, centroids, geology, census, state59, state40, us59, us40
 
 def create_sample(df, sample):
     output = pd.DataFrame()
+    grid_0 = 1
     for city in sample['city'].unique():
         city_sample = sample[sample['city'] == city].iloc[0]
         city_df = df[df['city'] == city].copy()
