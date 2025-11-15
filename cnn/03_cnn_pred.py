@@ -12,13 +12,15 @@ import rasterio
 from rasterio import transform
 from pathlib import Path
 from scipy.ndimage import rotate, shift
+import os
+import glob
 
 
 dataroot = 'cnn/'
 outputroot = 'cnn/'
 
 use_saved_model = True
-saved_model_filename = 'cnn/base_pooled_model2.tar'  # path to saved model for prediction
+saved_model_filename = 'cnn/minimal_model.tar'  # path to saved model for prediction
 
 ####################################################################################################
 ### PARAMETERS ###
@@ -28,8 +30,8 @@ sample = pd.read_pickle('data/input/samplelist.pkl')
 candidate_list = pd.read_pickle('data/output/cnn_candidate_list.pkl')
 grid = pd.read_pickle('data/output/sample.pkl')
 hwys = grid[grid['hwy'] == 1]['grid_id'].unique().tolist()
-features = ['valueh', 'rent', 'distance_to_cbd', 'dist_water', 'dist_to_hwy', 'owner', 'elevation', 'city']
-normalize_features = ['valueh', 'rent', 'distance_to_cbd', 'dist_water', 'dist_to_hwy', 'owner', 'elevation'] # the only features i want to demean
+features = ['distance_to_cbd', 'dist_water', 'dist_to_hwy', 'elevation', 'city']
+normalize_features = ['distance_to_cbd', 'dist_water', 'dist_to_hwy', 'elevation'] # the only features i want to demean
 
 cell_width = 150  # cell width in meters (convert from miles)
 size_potential = 6  # potential locations: num_width_potential x num_width_potential
@@ -115,9 +117,10 @@ def gdf_to_raster(gdf, features, label, cell_width, crs=None, nodata=-9999.0):
     trs = rasterio.transform.from_origin(minx, maxy, cell_width, cell_width)
 
     if 'city' in gdf.columns and gdf['city'].dtype == object:
-        cities = pd.factorize(gdf['city'])[0]  # integers 0..N-1
+        cities, city_categories = pd.factorize(gdf['city'])  # integers 0..N-1 and unique city names
         gdf = gdf.copy()
         gdf['city'] = cities.astype(float)
+        city_mapping = dict(enumerate(city_categories))  # Map factorized numbers to city names
 
     # create raster bounds and output array
     bands = features + [label]
@@ -175,7 +178,7 @@ def gdf_to_raster(gdf, features, label, cell_width, crs=None, nodata=-9999.0):
         means.append(mu)
         stds.append(sd)
 
-    return feature_array, label_array, trs, means, stds
+    return feature_array, label_array, trs, means, stds, city_mapping
 
 # map grid_id to (row, col) in raster
 def gridid_to_rc_map(gdf, cell_width):
@@ -188,12 +191,28 @@ def gridid_to_rc_map(gdf, cell_width):
     return {int(gid): (int(r), int(c)) for gid, r, c in zip(gdf['grid_id'].values, rows_idx, cols_idx)}
 
 # get window patch from feature and label arrays
-def extract_patch_from_arrays(feature_array, row, col, window, pad_value = 0.0):
+def extract_patch_from_arrays(feature_array, row, col, window, pad_value=0.0):
     C, H, W = feature_array.shape
     pad = window // 2
-    arr_p = np.pad(feature_array, ((0, 0), (pad, pad), (pad, pad)), mode = 'constant', constant_values = pad_value)
-    r0, c0 = row + pad, col + pad
-    patch = arr_p[:, r0-pad:r0+pad, c0-pad:c0+pad]
+
+    # Create an empty patch with padding value
+    patch = np.full((C, window, window), pad_value, dtype=feature_array.dtype)
+
+    # Compute the bounds of the patch
+    r_start = max(0, row - pad)
+    r_end = min(H, row + pad + 1)
+    c_start = max(0, col - pad)
+    c_end = min(W, col + pad + 1)
+
+    # Compute the corresponding indices in the patch
+    pr_start = max(0, pad - row)
+    pr_end = pr_start + (r_end - r_start)
+    pc_start = max(0, pad - col)
+    pc_end = pc_start + (c_end - c_start)
+
+    # Copy the valid region from the feature array to the patch
+    patch[:, pr_start:pr_end, pc_start:pc_end] = feature_array[:, r_start:r_end, c_start:c_end]
+
     return patch.astype('float32')
 
 def apply_augmentation_to_patch(patch, theta_deg=0.0, mirror_var=1, shift_x_pixels=0.0, shift_y_pixels=0.0, order=1, cval=0.0):
@@ -215,7 +234,7 @@ def apply_augmentation_to_patch(patch, theta_deg=0.0, mirror_var=1, shift_x_pixe
 
 grid = normalize_features_per_city(grid, normalize_features, nodata=NODATA)
 print(grid[features].describe())
-GRID_FEATURE_ARRAY, GRID_LABEL_ARRAY, rast_transform, CHANNEL_MEANS, CHANNEL_STDS = gdf_to_raster(grid, features, 'hwy', cell_width = 150)
+GRID_FEATURE_ARRAY, GRID_LABEL_ARRAY, rast_transform, CHANNEL_MEANS, CHANNEL_STDS, city_mapping = gdf_to_raster(grid, features, 'hwy', cell_width = 150)
 GRID_LABEL_ARRAY = np.squeeze(GRID_LABEL_ARRAY)
 GRIDID_TO_RC = gridid_to_rc_map(grid, cell_width)
 
@@ -231,7 +250,7 @@ def valid_ids_from_list(id_list):
     return out
 
 # create tensor of the proper size 
-batch_tensor = torch.zeros(BATCH_SIZE,nc,2*size_padding+size_potential, 2*size_padding+size_potential) #, dtype=torch.double)
+batch_tensor = torch.zeros(BATCH_SIZE,nc,2*size_padding+size_potential +1, 2*size_padding+size_potential+1) #, dtype=torch.double)
 labels = torch.empty(BATCH_SIZE, dtype=torch.int64)
 S_id_real = valid_ids_from_list([int(g) for g in hwys])
 
@@ -256,14 +275,14 @@ def extract_label_patch(label_array, row, col, window, pad_value = NODATA):
     r0, c0 = row + pad, col + pad
     return lbl_p[r0-pad:r0+pad+1, c0-pad:c0+pad+1]
 
-def create_batch(batch_tensor=batch_tensor, labels=labels, sample_ids_real=S_id_real, sample_ids_random=S_id_random, return_transf=True):
-    batch_tensor = batch_tensor*0
-    labels = labels*0
+def create_batch(batch_tensor=batch_tensor, labels=labels, sample_ids_real=S_id_real, sample_ids_random=S_id_random, return_transf=False):
+    batch_tensor.zero_()
+    labels.zero_()
 
     if return_transf:
-        transf = [{} for _ in range(BATCH_SIZE)]
+        transf = np.zeros(shape=(BATCH_SIZE,5))
 
-    window = 2*size_padding + size_potential
+    window = 2*size_padding + size_potential + 1 # want the s_id grid to be dead center
     pad = window // 2
 
     # guard: ensure sample sets not empty
@@ -299,14 +318,12 @@ def create_batch(batch_tensor=batch_tensor, labels=labels, sample_ids_real=S_id_
         shift_y = np.random.rand()*cell_width*size_potential - cell_width/2
 
         if return_transf:
-            transf[b] = {
-                's_id': s_id,
-                'shift_x': shift_x,
-                'shift_y': shift_y,
-                'theta': theta,
-                'mirror_var': mirror_var,
-                'city': grid.loc[grid['grid_id'] == s_id, 'city'].iloc[0]
-            }
+            transf[b,0] = s_id
+            transf[b,1] = shift_x
+            transf[b,2] = shift_y
+            transf[b,3] = theta
+            transf[b,4] = mirror_var
+
         patch = extract_patch_from_arrays(GRID_FEATURE_ARRAY, row, col, window, pad_value=0.0)
 
         # convert shifts in meters to pixels for ndimage.shift
@@ -334,6 +351,7 @@ def create_batch(batch_tensor=batch_tensor, labels=labels, sample_ids_real=S_id_
                                              order=0,  # nearest for labels
                                              cval=NODATA)
         center_label = lbl_aug[0, pad, pad]
+        
         # handle nodata after augmentation (rare) — fallback to original center if available or set 0
         if center_label == NODATA or np.isnan(center_label):
             original_center = GRID_LABEL_ARRAY[row, col]
@@ -394,7 +412,7 @@ class Net(nn.Module):
             nn.InstanceNorm2d(num_features=1, affine=True),
             nn.Flatten(),
             # binary classification => 2 logits
-            nn.Linear(1 * pow(2*size_padding+size_potential, 2), 2),
+            nn.Linear(1 * pow(2*size_padding+size_potential + 1, 2), 2),
         )
         self.main = main
 
@@ -429,20 +447,20 @@ class FocalLoss(nn.Module):
 def intitialize_optimizer(net):
     return optim.SGD(net.parameters(), lr=0.001, momentum=0.9)
 
-# # functions to save and load model
-# def save_model(filename=None):
-#     if not filename:
-#         date = (datetime.utcnow() + timedelta(hours=-7)).strftime('%Y-%m-%d--%H-%M')
-#         filename = 'checkpoint-epoch-' + str(curr_epoch) + '-' + date + '.tar'
-#     path_save = outputroot + filename
-#     # save the model
-#     torch.save({
-#                 'net_state_dict': net.state_dict(),
-#                 'optimizer_state_dict': optimizer.state_dict(),
-#                 'curr_epoch': curr_epoch,
-#                 'epoch_set_seed': epoch_set_seed,
-#                 }, path_save)
-#     print('file: ' + path_save)
+# functions to save and load model
+def save_model(filename=None):
+    if not filename:
+        date = (datetime.now(timezone.utc) + timedelta(hours=-7)).strftime('%Y-%m-%d--%H-%M')
+        filename = 'checkpoint-epoch-' + str(curr_epoch) + '-' + date + '.tar'
+    path_save = outputroot + filename
+    # save the model
+    torch.save({
+                'net_state_dict': net.state_dict(),
+                'optimizer_state_dict': optimizer.state_dict(),
+                'curr_epoch': curr_epoch,
+                'epoch_set_seed': epoch_set_seed,
+                }, path_save)
+    print('file: ' + path_save)
 
 def load_model(filename, net=None, optimizer=None):
     global epoch_set_seed
@@ -472,78 +490,6 @@ def load_model(filename, net=None, optimizer=None):
         print('found list in keys')
     epoch_set_seed.append(curr_epoch)
     return net, optimizer
-
-# # fine-tuning function 
-# def fine_tune_on_city(sample_train_real_city, sample_train_random_city,
-#                       base_model_path='cnn/base_pooled_model.tar',
-#                       fine_epochs=5, fine_iters=2000, lr=1e-3, freeze_backbone=True):
-#     # load base pooled model
-#     net_ft, optimizer_ft = load_model(base_model_path)
-#     # freeze backbone if requested (unfreeze classifier = last Linear)
-#     if freeze_backbone:
-#         for p in net_ft.parameters():
-#             p.requires_grad = False
-#         # find last linear module (assumes net.main ends with Linear)
-#         if isinstance(net_ft.main[-1], nn.Linear):
-#             for p in net_ft.main[-1].parameters():
-#                 p.requires_grad = True
-#     # optimizer only for trainable params
-#     trainable = [p for p in net_ft.parameters() if p.requires_grad]
-#     if not trainable:
-#         raise RuntimeError("No trainable parameters found; check freeze_backbone setting")
-#     optimizer_city = optim.SGD(trainable, lr=lr, momentum=0.9)
-
-#     # compute class weights from available city labels (optional)
-#     def get_labels_for_ids(id_list):
-#         labs = []
-#         for gid in id_list:
-#             if int(gid) in GRIDID_TO_RC:
-#                 r,c = GRIDID_TO_RC[int(gid)]
-#                 labs.append(int(GRID_LABEL_ARRAY[r, c]))
-#         return np.array(labs, dtype=int)
-
-#     y_real = get_labels_for_ids(sample_train_real_city)
-#     y_rand = get_labels_for_ids(sample_train_random_city)
-#     y_all = np.concatenate([y_real, y_rand]) if len(y_real) + len(y_rand) > 0 else np.array([0,1])
-#     vals, counts = np.unique(y_all, return_counts=True)
-#     total = counts.sum()
-#     weights = np.ones(2, dtype=np.float32)
-#     for v, c in zip(vals, counts):
-#         weights[int(v)] = float(total) / (2.0 * float(c))
-#     criterion_city = nn.CrossEntropyLoss(weight=torch.from_numpy(weights).to(next(net_ft.parameters()).device))
-
-#     # small training loop using create_batch (pass city-specific sample lists)
-#     device = torch.device('cuda' if (use_cuda and torch.cuda.is_available()) else 'cpu')
-#     net_ft.to(device)
-#     net_ft.train()
-#     for epoch in range(fine_epochs):
-#         running_loss = 0.0
-#         for it in range(fine_iters):
-#             data = create_batch(sample_ids_real=sample_train_real_city, sample_ids_random=sample_train_random_city)
-#             inputs, labels = data
-#             inputs = inputs.to(device)
-#             labels = labels.to(device)
-
-#             optimizer_city.zero_grad()
-#             outputs = net_ft(inputs)
-#             loss = criterion_city(outputs, labels)
-#             loss.backward()
-#             optimizer_city.step()
-
-#             running_loss += float(loss.item())
-#             if (it+1) % max(1, fine_iters//5) == 0:
-#                 avg = running_loss / max(1, fine_iters//5)
-#                 print(f'Fine-tune epoch {epoch+1}/{fine_epochs} iter {it+1}/{fine_iters} loss={avg:.4f}')
-#                 running_loss = 0.0
-
-#     # return fine-tuned model and optimizer (caller can save)
-#     return net_ft, optimizer_city
-
-# # Set random seed for reproducibility
-# manualSeed = 24601
-# print('Random Seed: ', manualSeed)
-# np.random.seed(manualSeed)
-# torch.manual_seed(manualSeed)
 
 # locations for training and evaluation
 num_distinct_train_real = int(len(S_id_real) * frac_train_real)
@@ -602,8 +548,10 @@ total = counts.sum()
 class_weights = torch.tensor([total / (2.0 * c) for c in counts], dtype=torch.float32).to('cuda' if use_cuda and torch.cuda.is_available() else 'cpu')
 
 # Define the weighted loss function
+# criterion = nn.CrossEntropyLoss(weight=class_weights)
 criterion = FocalLoss(alpha = 0.25, gamma = 2.0)
 if use_cuda and torch.cuda.is_available():
+    print('using CUDA')
     net.cuda()
 
 # Set random seed for reproducibility: increment to ensure different training samples after load
@@ -634,19 +582,7 @@ def outputs_to_loc(outputs,transf):
     o = torch.softmax(outputs, dim=1).cpu().numpy()
     
     for b in range(BATCH_SIZE):
-        s_id = int(transf[b]['s_id'])
-        city = transf[b]['city']
-        # # set relative location
-        # xy[0:pow(size_potential, 2), 1] = np.tile(g, size_potential)
-        # xy[0:pow(size_potential, 2), 2] = np.repeat(g, size_potential)
-
-        # xy[0:pow(size_potential, 2), 1:3] = reverse_augmentation_to_coordinates(
-        #     xy[0:pow(size_potential, 2), 1:3],
-        #     theta_deg=transf[b]['theta'],
-        #     mirror_var=transf[b]['mirror_var'],
-        #     shift_x_pixels=transf[b]['shift_x'] / float(cell_width),
-        #     shift_y_pixels=transf[b]['shift_y'] / float(cell_width)
-        # )
+        s_id = int(transf[b, 0])
         add_to_list(s_id, o[b], b < BATCH_SIZE_real, city)
 
 # run prediction loop
@@ -683,11 +619,27 @@ date = (datetime.now(timezone.utc) + timedelta(hours=-7)).strftime('%Y-%m-%d %H:
 filename_out = 'predicted_activation-' + date + '.csv'
 
 with open(dataroot+filename_out,'w') as f:
-    f.write('s_id,real_missing,prob_1, prob_0,city\n')  
+    f.write('s_id,real_missing,prob_1,prob_0,city\n')  
     for e in list_out:
         s_id = str(e[0])  
         real_missing = str(e[2])  
         prob_1 = e[1][0]  
         prob_0 = e[1][1]  
-        city = e[3]  
-        f.write(f"{s_id},{real_missing},{prob_1},{prob_0},{city}\n")  
+        f.write(f"{s_id},{real_missing},{prob_1},{prob_0}\n")  
+
+# cleanup function - only keep the 3 most recent csvs
+csv_files = glob.glob(os.path.join(dataroot, '*.csv'))
+
+# Sort files by modification time (most recent first)
+csv_files.sort(key=os.path.getmtime, reverse=True)
+
+# Keep only the most recent 3 files
+files_to_keep = csv_files[:3]
+files_to_delete = csv_files[3:]
+
+# Delete older files
+for file in files_to_delete:
+    os.remove(file)
+    print(f"Deleted: {file}")
+
+print(f"Kept the most recent 3 files: {files_to_keep}")

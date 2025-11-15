@@ -17,11 +17,7 @@ probabilities = pd.read_csv(most_recent_csv)
 target_prob = probabilities.loc[probabilities['real_missing'] == True,'prob_1'].median()
 print(f'target probability is {target_prob}')
 
-counterfactuals = probabilities.loc[(probabilities['prob_1'] >= 0.99) & (probabilities['real_missing'] == False), ['s_id', 'city']]
-print(f'found {len(counterfactuals)} counterfactuals with prob >= {0.99}')
-
-counterfactual_dict = {row['city']: set() for _, row in counterfactuals.iterrows()}
-for _, row in counterfactuals.iterrows():
-    counterfactual_dict[row['city']].add(row['s_id'])
+counterfactuals = probabilities.loc[(probabilities['prob_1'] >= target_prob) & (probabilities['real_missing'] == False), 's_id']
+print(f'found {len(counterfactuals)} counterfactuals with prob >= {target_prob}')
 
 print(probabilities['prob_1'].describe(), probabilities['prob_0'].describe())

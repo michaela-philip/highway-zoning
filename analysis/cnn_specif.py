@@ -12,16 +12,11 @@ df = pd.read_pickle('data/output/sample.pkl')
 df['rent'] = df['rent'].replace(0, np.nan)
 df['valueh'] = df['valueh'].replace(0, np.nan)
 df = df.dropna(subset = ['rent', 'valueh']).copy()
-from cnn.pick_counterfactuals import counterfactual_dict
+from cnn.pick_counterfactuals import counterfactuals
 
-out_frames = []
-for city in df['city'].unique():
-    candidates = counterfactual_dict[city]
-    controls = df.loc[(df['city'] == city) & (df['grid_id'].isin(candidates))].copy()
-    treated = df.loc[(df['city'] == city) & (df['hwy']==1)].copy()
-    out_frames.append(controls)
-    out_frames.append(treated)
-sample = pd.concat(out_frames, ignore_index=True)
+controls = df.loc[df['grid_id'].isin(counterfactuals)].copy()
+treated = df.loc[df['hwy']==1].copy()
+sample = pd.concat([controls, treated], ignore_index=True)
 
 model_1945def = 'hwy ~ mblack_1945def + Residential + (mblack_1945def * Residential) + np.log(rent) + np.log(valueh) + C(city)'
 results_1945def = format_regression_results(smf.ols(model_1945def, data=sample).fit(cov_type='cluster', cov_kwds={'groups': sample['city']}))
