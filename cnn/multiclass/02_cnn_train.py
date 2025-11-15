@@ -50,8 +50,8 @@ use_cuda = True
 curr_epoch = 0
 epoch_set_seed = list()
 epoch_set_seed.append(curr_epoch)
-EPOCHS = 10
-ITERS = 1000
+EPOCHS = 20
+ITERS = 2000
 NODATA = -9999.0
 
 print('BATCH_SIZE: ' + str(BATCH_SIZE))
@@ -209,7 +209,7 @@ GRID_FEATURE_ARRAY, rast_transform = gdf_to_raster(grid, features, 'hwy', cell_w
 GRIDID_TO_RC = gridid_to_rc_map(grid, cell_width)
 
 # create tensor of the proper size 
-batch_tensor = torch.zeros(BATCH_SIZE,nc,2*size_padding+size_potential, 2*size_padding+size_potential) #, dtype=torch.double)
+batch_tensor = torch.zeros(BATCH_SIZE,nc,2*size_padding+size_potential + 1, 2*size_padding+size_potential + 1) #, dtype=torch.double)
 labels = torch.empty(BATCH_SIZE, dtype=torch.int64)
 S_id_real = hwys
 
@@ -295,7 +295,7 @@ def create_batch(batch_tensor=batch_tensor, labels=labels, sample_ids_real=S_id_
         if b >= BATCH_SIZE_real and b < BATCH_SIZE_real+BATCH_SIZE_fill:
             treat_x = int(round(shift_x_pixels/cell_width) + size_padding)
             treat_y = int(round(shift_y_pixels/cell_width) + size_padding)
-            grid[b,0,treat_y,treat_x] += 1
+            batch_tensor[b,0,treat_y,treat_x] += 1
 
         # label with location of 'missing' grocery store:
         if b < BATCH_SIZE_real:
@@ -424,16 +424,18 @@ sample_eval_random.sort()
 
 # initialize neural net
 def weights_init(m):
-    classname = m.__class__.__name__
-    if classname.find('Conv') != -1:
-        m.weight.data.normal_(0.0, 0.02)
-    elif classname.find('Linear') != -1:
-        m.weight.data.normal_(0.0, 0.02)
-        m.bias.data.fill_(0)
-    elif classname.find('BatchNorm') != -1:
-        m.weight.data.normal_(1.0, 0.02)
-        m.bias.data.fill_(0)
-
+    if isinstance(m, nn.Conv2d):
+        nn.init.kaiming_normal_(m.weight, a=0.2, mode='fan_in', nonlinearity='leaky_relu')
+        if m.bias is not None:
+            nn.init.constant_(m.bias, 0.0)
+    elif isinstance(m, nn.InstanceNorm2d):
+        if m.weight is not None:
+            nn.init.constant_(m.weight, 1.0)
+        if m.bias is not None:
+            nn.init.constant_(m.bias, 0.0)
+    elif isinstance(m, nn.Linear):
+        nn.init.xavier_uniform_(m.weight)
+        nn.init.constant_(m.bias, 0.0)
 if use_saved_model:
     print('Loading model')
     net, optimizer = load_model(saved_model_filename)
@@ -444,10 +446,12 @@ else:
         net.cuda()
     optimizer = intitialize_optimizer(net)
 
-# Define the weighted loss function
-criterion = nn.CrossEntropyLoss()
-if use_cuda and torch.cuda.is_available():
-    net.cuda()
+num_classes = pow(size_potential, 2) + 1  # Expected number of classes
+class_counts = np.bincount(grid['hwy'], minlength=num_classes)  # Ensure all classes are included
+class_weights = 1.0 / class_counts
+class_weights[class_counts == 0] = 0.0  # Avoid division by zero for missing classes
+class_weights = torch.tensor(class_weights, dtype=torch.float32)
+criterion = nn.CrossEntropyLoss(weight=class_weights)
 
 # Set random seed for reproducibility: increment to ensure different training samples after load
 manualSeed = 24601 + curr_epoch
