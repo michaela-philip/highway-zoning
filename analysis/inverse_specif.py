@@ -19,9 +19,19 @@ for city in df['city'].unique():
     candidates = candidate_dict[city]
     controls = df.loc[(df['city'] == city) & (~df['grid_id'].isin(candidates))].copy()
     out_frames.append(controls)
+inv_sample = pd.concat(out_frames, ignore_index=True)
+
+out_frames = []
+for city in df['city'].unique():
+    candidates = candidate_dict[city]
+    controls = df.loc[(df['city'] == city) & (df['grid_id'].isin(candidates))].copy()
+    out_frames.append(controls)
 sample = pd.concat(out_frames, ignore_index=True)
 
 model_1945def = 'hwy ~ (mblack_1945def * Residential) + np.log(rent) + np.log(valueh) + dist_water + owner + C(city)'
-results_1945def = format_regression_results(smf.ols(model_1945def, data=sample).fit(cov_type='cluster', cov_kwds={'groups': sample['city']}))
-
+results_1945def = format_regression_results(smf.ols(model_1945def, data=inv_sample).fit(cov_type='cluster', cov_kwds={'groups': inv_sample['city']}))
 export_single_regression(results_1945def, caption = 'Determinants of Highway Placement', label = 'tab:inverse_specif', widthmultiplier = 0.7, leaveout = ['dist_water', 'owner'])
+
+model_1945def = 'hwy ~ (mblack_1945def * Residential) + np.log(rent) + np.log(valueh) + dist_water + owner + C(city)'
+results_1945def = format_regression_results(smf.ols(model_1945def, data=sample).fit(cov_type='cluster', cov_kwds={'groups': sample['city']}))
+export_single_regression(results_1945def, caption = 'Determinants of Highway Placement', label = 'tab:effic_specif', widthmultiplier = 0.7, leaveout = ['dist_water', 'owner'])
