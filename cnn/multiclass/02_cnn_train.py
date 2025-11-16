@@ -19,8 +19,8 @@ from scipy.ndimage import rotate, shift
 dataroot = 'cnn/multiclass/'
 outputroot = 'cnn/multiclass/'
 
-use_saved_model = False
-saved_model_filename = ''
+use_saved_model = True
+saved_model_filename = 'cnn/multiclass/mc_model2.tar'
 
 ####################################################################################################
 ### PARAMETERS ###
@@ -30,13 +30,15 @@ sample = pd.read_pickle('data/input/samplelist.pkl')
 candidate_list = pd.read_pickle('data/output/cnn_candidate_list.pkl')
 grid = pd.read_pickle('data/output/sample.pkl')
 hwys = grid[grid['hwy'] == 1]['grid_id'].unique().tolist()
-features = ['distance_to_cbd', 'dist_water', 'hwy', 'elevation', 'city']
-normalize_features = ['distance_to_cbd', 'dist_water', 'elevation'] # the only features i want to demean
+features = ['distance_to_cbd', 'dist_water', 'dist_to_hwy', 'elevation', 'city']
+normalize_features = ['distance_to_cbd', 'dist_to_hwy', 'dist_water', 'elevation'] # the only features i want to demean
 
 cell_width = 150  # cell width in meters (convert from miles)
-size_potential = 6  # potential locations: num_width_potential x num_width_potential
-size_padding = 5  # number of padding cells on each side of potential grid
-nc = len(features)  # number of channels
+size_potential = 4  # potential locations: num_width_potential x num_width_potential
+none_class = pow(size_potential, 2)  # class index for "no new highway" option
+highway_classes = list(range(pow(size_potential, 2)))  # class indices for highway placement options
+size_padding = 2  # number of padding cells on each side of potential grid
+nc = len(features) + 2  # number of channels (add 2 for coordinates)
 BATCH_SIZE_real = 32  # regions with hwy (but removed)
 BATCH_SIZE_fill = 16  # regions with hwy (not removed)
 BATCH_SIZE_random = 16  # regions with no hwy (but candidates)
@@ -47,10 +49,10 @@ frac_train_random = 0.7  # fraction of random (unrealized) regions to use for tr
 
 use_cuda = True
 
-curr_epoch = 0
+curr_epoch = 21
 epoch_set_seed = list()
 epoch_set_seed.append(curr_epoch)
-EPOCHS = 20
+EPOCHS = 2
 ITERS = 2000
 NODATA = -9999.0
 
@@ -162,29 +164,64 @@ def gridid_to_rc_map(gdf, cell_width):
     return {int(gid): (int(r), int(c)) for gid, r, c in zip(gdf['grid_id'].values, rows_idx, cols_idx)}
 
 # get window patch from feature and label arrays
-def extract_patch_from_arrays(feature_array, row, col, window, pad_value=0.0):
+# def extract_patch_from_arrays(feature_array, row, col, window, pad_value=0.0):
+#     C, H, W = feature_array.shape
+#     pad = window // 2
+
+#     # Create an empty patch with padding value
+#     patch = np.full((C, window, window), pad_value, dtype=feature_array.dtype)
+
+#     # Compute the bounds of the patch
+#     r_start = max(0, row - pad)
+#     r_end = min(H, row + pad + 1)
+#     c_start = max(0, col - pad)
+#     c_end = min(W, col + pad + 1)
+
+#     # Compute the corresponding indices in the patch
+#     pr_start = max(0, pad - row)
+#     pr_end = pr_start + (r_end - r_start)
+#     pc_start = max(0, pad - col)
+#     pc_end = pc_start + (c_end - c_start)
+
+#     # Copy the valid region from the feature array to the patch
+#     patch[:, pr_start:pr_end, pc_start:pc_end] = feature_array[:, r_start:r_end, c_start:c_end]
+
+#     return patch.astype('float32')
+def extract_patch_from_arrays(feature_array, row, col, window, pad_value = 0.0):
     C, H, W = feature_array.shape
     pad = window // 2
 
-    # Create an empty patch with padding value
-    patch = np.full((C, window, window), pad_value, dtype=feature_array.dtype)
+    # Initialize patch with zeros
+    patch = np.zeros((C, window, window), dtype=np.float32)
 
-    # Compute the bounds of the patch
+    # Compute source indices
     r_start = max(0, row - pad)
     r_end = min(H, row + pad + 1)
     c_start = max(0, col - pad)
     c_end = min(W, col + pad + 1)
 
-    # Compute the corresponding indices in the patch
+    # Compute destination indices in patch
     pr_start = max(0, pad - row)
     pr_end = pr_start + (r_end - r_start)
     pc_start = max(0, pad - col)
     pc_end = pc_start + (c_end - c_start)
 
-    # Copy the valid region from the feature array to the patch
+    # Copy features into patch
     patch[:, pr_start:pr_end, pc_start:pc_end] = feature_array[:, r_start:r_end, c_start:c_end]
 
-    return patch.astype('float32')
+    # Add coordinate channels
+    x_coords = np.linspace(-1, 1, window, dtype=np.float32)
+    y_coords = np.linspace(-1, 1, window, dtype=np.float32)
+    x_channel = np.tile(x_coords, (window, 1))          # shape (window, window)
+    y_channel = np.tile(y_coords[:, np.newaxis], (1, window))
+
+    patch_with_coords = np.concatenate([
+        patch,
+        x_channel[np.newaxis, :, :],
+        y_channel[np.newaxis, :, :]
+    ], axis=0)
+
+    return patch_with_coords.astype('float32')
 
 def apply_augmentation_to_patch(patch, theta_deg=0.0, mirror_var=1, shift_x_pixels=0.0, shift_y_pixels=0.0, order=1, cval=0.0):
     C, H, W = patch.shape
@@ -446,12 +483,42 @@ else:
         net.cuda()
     optimizer = intitialize_optimizer(net)
 
-num_classes = pow(size_potential, 2) + 1  # Expected number of classes
-class_counts = np.bincount(grid['hwy'], minlength=num_classes)  # Ensure all classes are included
-class_weights = 1.0 / class_counts
-class_weights[class_counts == 0] = 0.0  # Avoid division by zero for missing classes
-class_weights = torch.tensor(class_weights, dtype=torch.float32)
-criterion = nn.CrossEntropyLoss(weight=class_weights)
+def focal_loss(outputs, labels, weights, gamma=2.0):
+    ce = F.cross_entropy(outputs, labels, reduction="none")
+
+    # p_t = probability of the true class
+    pt = torch.exp(-ce)
+
+    # Focal term
+    focal_term = (1 - pt) ** gamma
+
+    # Class weights applied per sample
+    class_w = weights[labels]
+
+    # Weighted focal loss
+    loss = (class_w * focal_term * ce).mean()
+
+    return loss
+
+def compute_batch_weights(labels, num_classes):
+    # count frequencies in the batch
+    unique, counts = torch.unique(labels, return_counts=True)
+    freq = torch.zeros(num_classes, device=labels.device)
+    freq[unique] = counts.float()
+
+    # avoid division by zero (classes not in batch)
+    freq = torch.where(freq > 0, freq, torch.tensor(1.0, device=labels.device))
+
+    # sqrt-inverse frequency
+    weights = 1.0 / torch.sqrt(freq)
+    weights[0] *= 2.0
+
+    # normalize mean weight = 1
+    weights = weights / weights.mean()
+
+    return weights
+
+# criterion = nn.CrossEntropyLoss()
 
 # Set random seed for reproducibility: increment to ensure different training samples after load
 manualSeed = 24601 + curr_epoch
@@ -468,6 +535,10 @@ print((datetime.now(timezone.utc) + timedelta(hours=-7)).strftime('%Y-%m-%d %H:%
 bound_epochs = curr_epoch + EPOCHS
 print_interval = min(10000, max(1, ITERS // 10))
 eval_interval = min(10000, max(1, ITERS // 5))
+
+# choose loss function
+crossentropy = True
+focalloss = False
 
 # loop over the dataset multiple times
 for epoch in range(curr_epoch, bound_epochs):
@@ -493,17 +564,28 @@ for epoch in range(curr_epoch, bound_epochs):
         if use_cuda and torch.cuda.is_available():
             inputs = inputs.cuda()
             labels = labels.cuda()
+        
+        # manually compute and apply weights
+        weights = compute_batch_weights(labels, num_classes = pow(size_potential,2)+1)
 
         # zero the parameter gradients
         optimizer.zero_grad()
 
         # forward + backward + optimize
         outputs = net(inputs)
-        loss = criterion(outputs, labels)
-        loss.backward()
-        # for name, param in net.named_parameters():
-        #     if param.grad is not None:
-        #         print(f"Gradient for {name}: max={param.grad.abs().max().item()}, min={param.grad.abs().min().item()}")
+
+        if crossentropy:
+            loss_per_sample = torch.nn.functional.cross_entropy(outputs, labels)
+            weighted_loss = loss_per_sample * weights[labels]
+            loss = weighted_loss.mean()
+            loss.backward()
+        if focalloss:
+            loss = focal_loss(outputs, labels, weights, gamma = 3.0)
+        if focalloss and crossentropy:
+            raise RuntimeError("Cannot use both cross_entropy and focal_loss simultaneously.")
+        if not focalloss and not crossentropy:
+            raise RuntimeError("Must use either cross_entropy or focal_loss.")
+
         torch.nn.utils.clip_grad_norm_(net.parameters(), max_norm=1.0)
         optimizer.step()
 
@@ -544,49 +626,98 @@ for epoch in range(curr_epoch, bound_epochs):
             
         # evaluation sample:
         if frac_train_real < 1 or frac_train_random < 1:
-            if i % eval_interval == eval_interval - 1:    # print every min(1000,ITERS/10) mini-batches
-                eval_correct = 0
-                eval_correct_real = 0
-                eval_non_zero_real = 0
-                eval_correct_fill = 0
-                eval_correct_random = 0
+            if i % eval_interval == eval_interval - 1:
+
+                # aggregated metrics
                 eval_total = 0
+                eval_correct = 0
+
                 eval_total_real = 0
+                eval_correct_real = 0
+                eval_non_zero_real = 0      # prediction != none
+                eval_TP_real = 0            # correct non-zero
+                eval_FN_real = 0            # predicted none but true non-none
+                eval_FP_real = 0            # predicted non-none but true none
+
                 eval_total_fill = 0
+                eval_correct_fill = 0
+
                 eval_total_random = 0
+                eval_correct_random = 0
+
+                # top-k
+                eval_top3_correct = 0
 
                 with torch.no_grad():
                     for j in range(100):
-                        inputs, labels = create_batch(sample_ids_real=sample_eval_real,
-                                                    sample_ids_random=sample_eval_random)
+                        inputs, labels = create_batch(
+                            sample_ids_real=sample_eval_real,
+                            sample_ids_random=sample_eval_random
+                        )
 
                         if use_cuda and torch.cuda.is_available():
                             inputs = inputs.cuda()
                             labels = labels.cuda()
 
                         outputs = net(inputs)
-                        _, predicted = torch.max(outputs.data, 1)
+                        _, predicted = torch.max(outputs, 1)
+
+                        # --- top-3 accuracy ---
+                        _, top3_preds = outputs.topk(3, dim=1)
+                        eval_top3_correct += (top3_preds == labels.unsqueeze(1)).any(dim=1).sum().item()
+
+                        # --- overall ---
                         eval_total += labels.size(0)
                         eval_correct += (predicted == labels).sum().item()
-                        eval_correct_real += (predicted[0:BATCH_SIZE_real] == labels[0:BATCH_SIZE_real]).sum().item()
-                        eval_non_zero_real += (predicted[0:BATCH_SIZE_real] < pow(size_potential,2)).sum().item()
-                        eval_correct_fill += (predicted[BATCH_SIZE_real:BATCH_SIZE_real+BATCH_SIZE_fill] == labels[BATCH_SIZE_real:BATCH_SIZE_real+BATCH_SIZE_fill]).sum().item()
-                        eval_correct_random += (predicted[BATCH_SIZE-BATCH_SIZE_random:BATCH_SIZE] == labels[BATCH_SIZE-BATCH_SIZE_random:BATCH_SIZE]).sum().item()
-                        eval_total_real += BATCH_SIZE_real
-                        eval_total_fill += BATCH_SIZE_fill
-                        eval_total_random += BATCH_SIZE_random
 
-                print('Accuracy on hold-out: %.1f%%, real: %.1f%%, real non-zero: %.1f%%, real filled: %.1f%%, unrealized: %.1f%%' %
-                    (100 * eval_correct / max(eval_total,1),
-                    100 * eval_correct_real / max(eval_total_real,1),
-                    100 * eval_non_zero_real / max(eval_total_real,1),
-                    100 * eval_correct_fill / max(eval_total_fill,1),
-                    100 * eval_correct_random / max(eval_total_random,1)))
+                        # --- REAL (first section of batch) ---
+                        real_pred = predicted[:BATCH_SIZE_real]
+                        real_true = labels[:BATCH_SIZE_real]
+                        eval_total_real += BATCH_SIZE_real
+
+                        # exact accuracy
+                        eval_correct_real += (real_pred == real_true).sum().item()
+
+                        # predicted non-zero
+                        eval_non_zero_real += (real_pred < (size_potential ** 2)).sum().item()
+
+                        # TP / FN / FP for real
+                        true_non_zero = real_true < (size_potential ** 2)
+                        pred_non_zero = real_pred < (size_potential ** 2)
+
+                        eval_TP_real += (pred_non_zero & true_non_zero).sum().item()
+                        eval_FN_real += ((~pred_non_zero) & true_non_zero).sum().item()
+                        eval_FP_real += (pred_non_zero & (~true_non_zero)).sum().item()
+
+                        # --- FILLED ---
+                        fill_pred = predicted[BATCH_SIZE_real:BATCH_SIZE_real + BATCH_SIZE_fill]
+                        fill_true = labels[BATCH_SIZE_real:BATCH_SIZE_real + BATCH_SIZE_fill]
+                        eval_total_fill += BATCH_SIZE_fill
+                        eval_correct_fill += (fill_pred == fill_true).sum().item()
+
+                        # --- RANDOM / UNREALIZED ---
+                        rand_pred = predicted[-BATCH_SIZE_random:]
+                        rand_true = labels[-BATCH_SIZE_random:]
+                        eval_total_random += BATCH_SIZE_random
+                        eval_correct_random += (rand_pred == rand_true).sum().item()
+
+                # print results
+                print("Accuracy on hold-out: %.1f%%" % (100 * eval_correct / max(eval_total, 1)))
+                print("  real: %.1f%%" % (100 * eval_correct_real / max(eval_total_real, 1)))
+                print("  real non-zero (pred != none): %.1f%%" %
+                    (100 * eval_non_zero_real / max(eval_total_real, 1)))
+                print("  real TP: %.1f%% | FN: %.1f%% | FP: %.1f%%" %
+                    (100 * eval_TP_real / max(eval_total_real, 1),
+                    100 * eval_FN_real / max(eval_total_real, 1),
+                    100 * eval_FP_real / max(eval_total_real, 1)))
+                print("  filled: %.1f%%" % (100 * eval_correct_fill / max(eval_total_fill, 1)))
+                print("  unrealized: %.1f%%" % (100 * eval_correct_random / max(eval_total_random, 1)))
+                print("  top-3 accuracy: %.1f%%" % (100 * eval_top3_correct / max(eval_total, 1)))
 
 
     print('Finished Epoch ' + str(epoch+1) + ' of ' + str(bound_epochs) + '. Saving model and optimizer checkpoint.')
     curr_epoch = curr_epoch + 1
-    save_model('mc_model1.tar')
+    save_model('mc_model2.tar')
     print((datetime.now(timezone.utc) + timedelta(hours=-7)).strftime('%Y-%m-%d %H:%M:%S'))
 
 print('Finished Training')

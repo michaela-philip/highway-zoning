@@ -12,13 +12,15 @@ import rasterio
 from rasterio import transform
 from pathlib import Path
 from scipy.ndimage import rotate, shift
+import glob 
+import os
 
 
 dataroot = 'cnn/multiclass/'
 outputroot = 'cnn/multiclass/'
 
 use_saved_model = True
-saved_model_filename = 'cnn/base_pooled_model2.tar'  # path to saved model for prediction
+saved_model_filename = 'cnn/multiclass/mc_model2.tar'  # path to saved model for prediction
 
 ####################################################################################################
 ### PARAMETERS ###
@@ -28,14 +30,14 @@ sample = pd.read_pickle('data/input/samplelist.pkl')
 candidate_list = pd.read_pickle('data/output/cnn_candidate_list.pkl')
 grid = pd.read_pickle('data/output/sample.pkl')
 hwys = grid[grid['hwy'] == 1]['grid_id'].unique().tolist()
-features = ['distance_to_cbd', 'dist_water', 'hwy', 'elevation', 'city']
-normalize_features = ['distance_to_cbd', 'dist_water', 'elevation'] # the only features i want to demean
+features = ['distance_to_cbd', 'dist_water', 'dist_to_hwy', 'elevation', 'city']
+normalize_features = ['distance_to_cbd', 'dist_water', 'dist_to_hwy', 'elevation'] # the only features i want to demean
 obs = grid.shape[0]
 
 cell_width = 150  # cell width in meters (convert from miles)
-size_potential = 6  # potential locations: num_width_potential x num_width_potential
-size_padding = 5  # number of padding cells on each side of potential grid
-nc = len(features)  # number of channels
+size_potential = 4  # potential locations: num_width_potential x num_width_potential
+size_padding = 2  # number of padding cells on each side of potential grid
+nc = len(features) + 2  # number of channels (2 additional for coordinates)
 BATCH_SIZE_real = 2  # regions with hwy (but removed)
 BATCH_SIZE_fill = 2  # regions with hwy (not removed)
 BATCH_SIZE_random = 28  # regions with no hwy (but candidates)
@@ -162,29 +164,64 @@ def gridid_to_rc_map(gdf, cell_width):
     return {int(gid): (int(r), int(c)) for gid, r, c in zip(gdf['grid_id'].values, rows_idx, cols_idx)}
 
 # get window patch from feature and label arrays
-def extract_patch_from_arrays(feature_array, row, col, window, pad_value=0.0):
+# def extract_patch_from_arrays(feature_array, row, col, window, pad_value=0.0):
+#     C, H, W = feature_array.shape
+#     pad = window // 2
+
+#     # Create an empty patch with padding value
+#     patch = np.full((C, window, window), pad_value, dtype=feature_array.dtype)
+
+#     # Compute the bounds of the patch
+#     r_start = max(0, row - pad)
+#     r_end = min(H, row + pad + 1)
+#     c_start = max(0, col - pad)
+#     c_end = min(W, col + pad + 1)
+
+#     # Compute the corresponding indices in the patch
+#     pr_start = max(0, pad - row)
+#     pr_end = pr_start + (r_end - r_start)
+#     pc_start = max(0, pad - col)
+#     pc_end = pc_start + (c_end - c_start)
+
+#     # Copy the valid region from the feature array to the patch
+#     patch[:, pr_start:pr_end, pc_start:pc_end] = feature_array[:, r_start:r_end, c_start:c_end]
+
+#     return patch.astype('float32')
+def extract_patch_from_arrays(feature_array, row, col, window, pad_value = 0.0):
     C, H, W = feature_array.shape
     pad = window // 2
 
-    # Create an empty patch with padding value
-    patch = np.full((C, window, window), pad_value, dtype=feature_array.dtype)
+    # Initialize patch with zeros
+    patch = np.zeros((C, window, window), dtype=np.float32)
 
-    # Compute the bounds of the patch
+    # Compute source indices
     r_start = max(0, row - pad)
     r_end = min(H, row + pad + 1)
     c_start = max(0, col - pad)
     c_end = min(W, col + pad + 1)
 
-    # Compute the corresponding indices in the patch
+    # Compute destination indices in patch
     pr_start = max(0, pad - row)
     pr_end = pr_start + (r_end - r_start)
     pc_start = max(0, pad - col)
     pc_end = pc_start + (c_end - c_start)
 
-    # Copy the valid region from the feature array to the patch
+    # Copy features into patch
     patch[:, pr_start:pr_end, pc_start:pc_end] = feature_array[:, r_start:r_end, c_start:c_end]
 
-    return patch.astype('float32')
+    # Add coordinate channels
+    x_coords = np.linspace(-1, 1, window, dtype=np.float32)
+    y_coords = np.linspace(-1, 1, window, dtype=np.float32)
+    x_channel = np.tile(x_coords, (window, 1))          # shape (window, window)
+    y_channel = np.tile(y_coords[:, np.newaxis], (1, window))
+
+    patch_with_coords = np.concatenate([
+        patch,
+        x_channel[np.newaxis, :, :],
+        y_channel[np.newaxis, :, :]
+    ], axis=0)
+
+    return patch_with_coords.astype('float32')
 
 def apply_augmentation_to_patch(patch, theta_deg=0.0, mirror_var=1, shift_x_pixels=0.0, shift_y_pixels=0.0, order=1, cval=0.0):
     C, H, W = patch.shape
@@ -209,18 +246,19 @@ GRID_FEATURE_ARRAY, rast_transform = gdf_to_raster(grid, features, 'hwy', cell_w
 GRIDID_TO_RC = gridid_to_rc_map(grid, cell_width)
 
 # create tensor of the proper size 
-batch_tensor = torch.zeros(BATCH_SIZE,nc,2*size_padding+size_potential, 2*size_padding+size_potential) #, dtype=torch.double)
+batch_tensor = torch.zeros(BATCH_SIZE,nc,2*size_padding+size_potential + 1, 2*size_padding+size_potential + 1) #, dtype=torch.double)
 labels = torch.empty(BATCH_SIZE, dtype=torch.int64)
 S_id_real = hwys
 
 if isinstance(candidate_list, dict):
     cand_flat = [int(x) for vals in candidate_list.values() for x in (vals or [])]
+    S_id_random = cand_flat  # Use the flattened list of grid IDs
 elif isinstance(candidate_list, pd.Series):
     cand_flat = [int(x) for vals in candidate_list.tolist() for x in (vals or [])]
+    S_id_random = candidate_list['grid_id'].tolist()
 else:
     cand_flat = [int(x) for x in candidate_list]
-
-S_id_random = candidate_list.keys().tolist() if isinstance(candidate_list, dict) else candidate_list['grid_id'].tolist()
+    S_id_random = candidate_list['grid_id'].tolist()
 
 S_id_real = np.array(S_id_real, dtype=int)
 S_id_random = np.array(S_id_random, dtype=int)
@@ -294,7 +332,7 @@ def create_batch(batch_tensor=batch_tensor, labels=labels, sample_ids_real=S_id_
         if b >= BATCH_SIZE_real and b < BATCH_SIZE_real+BATCH_SIZE_fill:
             treat_x = int(round(shift_x_pixels/cell_width) + size_padding)
             treat_y = int(round(shift_y_pixels/cell_width) + size_padding)
-            grid[b,0,treat_y,treat_x] += 1
+            batch_tensor[b,0,treat_y,treat_x] += 1
 
         # label with location of 'missing' grocery store:
         if b < BATCH_SIZE_real:
@@ -423,16 +461,18 @@ sample_eval_random.sort()
 
 # initialize neural net
 def weights_init(m):
-    classname = m.__class__.__name__
-    if classname.find('Conv') != -1:
-        m.weight.data.normal_(0.0, 0.02)
-    elif classname.find('Linear') != -1:
-        m.weight.data.normal_(0.0, 0.02)
-        m.bias.data.fill_(0)
-    elif classname.find('BatchNorm') != -1:
-        m.weight.data.normal_(1.0, 0.02)
-        m.bias.data.fill_(0)
-
+    if isinstance(m, nn.Conv2d):
+        nn.init.kaiming_normal_(m.weight, a=0.2, mode='fan_in', nonlinearity='leaky_relu')
+        if m.bias is not None:
+            nn.init.constant_(m.bias, 0.0)
+    elif isinstance(m, nn.InstanceNorm2d):
+        if m.weight is not None:
+            nn.init.constant_(m.weight, 1.0)
+        if m.bias is not None:
+            nn.init.constant_(m.bias, 0.0)
+    elif isinstance(m, nn.Linear):
+        nn.init.xavier_uniform_(m.weight)
+        nn.init.constant_(m.bias, 0.0)
 if use_saved_model:
     print('Loading model')
     net, optimizer = load_model(saved_model_filename)
@@ -443,10 +483,42 @@ else:
         net.cuda()
     optimizer = intitialize_optimizer(net)
 
-# Define the weighted loss function
-criterion = nn.CrossEntropyLoss()
-if use_cuda and torch.cuda.is_available():
-    net.cuda()
+def focal_loss(outputs, labels, weights, gamma=2.0):
+    ce = F.cross_entropy(outputs, labels, reduction="none")
+
+    # p_t = probability of the true class
+    pt = torch.exp(-ce)
+
+    # Focal term
+    focal_term = (1 - pt) ** gamma
+
+    # Class weights applied per sample
+    class_w = weights[labels]
+
+    # Weighted focal loss
+    loss = (class_w * focal_term * ce).mean()
+
+    return loss
+
+def compute_batch_weights(labels, num_classes):
+    # count frequencies in the batch
+    unique, counts = torch.unique(labels, return_counts=True)
+    freq = torch.zeros(num_classes, device=labels.device)
+    freq[unique] = counts.float()
+
+    # avoid division by zero (classes not in batch)
+    freq = torch.where(freq > 0, freq, torch.tensor(1.0, device=labels.device))
+
+    # sqrt-inverse frequency
+    weights = 1.0 / torch.sqrt(freq)
+    weights[0] *= 2.0
+
+    # normalize mean weight = 1
+    weights = weights / weights.mean()
+
+    return weights
+
+# criterion = nn.CrossEntropyLoss()
 
 # Set random seed for reproducibility: increment to ensure different training samples after load
 manualSeed = 24601 + curr_epoch
@@ -477,30 +549,34 @@ def add_to_list(xy, o, r):
         list_out.append(tup)
 
 
-def outputs_to_loc(outputs,transf):
-    o = outputs.cpu().numpy()
-    print(o.shape)
+def outputs_to_loc_multiclass(outputs, transf, size_potential, cell_width):
+    o = outputs.cpu().numpy()  # [B, N+1]
+    # BATCH_SIZE = o.shape[0]
+    N = size_potential ** 2
+
+    # Compute midpoints of each grid cell in patch
     g = np.linspace(start=cell_width/2,
                     stop=cell_width/2 + cell_width*size_potential,
                     num=size_potential, endpoint=False)
-    
-    for b in range(BATCH_SIZE):
-        print(o[b,:].shape)
-        # grid cell midpoints
-        xy = np.zeros(shape=(pow(size_potential,2)+1,3))
-        print(xy.shape, len(xy))
-        # set s_id
-        xy[:,0] = int(transf[b,0])
-        # set relative location
-        xy[0:pow(size_potential,2),1] = np.tile(g,size_potential)
-        xy[0:pow(size_potential,2),2] = np.repeat(g,size_potential)
 
-        xy[0:pow(size_potential,2),1:3] = reverse_augmentation_to_coordinates(xy[0:pow(size_potential, 2), 1:3],
-                                             theta_deg=transf[b,3],
-                                             mirror_var=transf[b, 4],
-                                             shift_x_pixels=transf[b, 1] / float(cell_width),
-                                             shift_y_pixels=transf[b, 2] / float(cell_width))
-        add_to_list(xy,o[b,:],b < BATCH_SIZE_real)
+    for b in range(BATCH_SIZE):
+        # Initialize xy array: [num_cells + 1, 3] -> s_id, x, y
+        xy = np.zeros((N + 1, 3))
+        xy[:,0] = int(transf[b,0])  # s_id
+        xy[:N,1] = np.tile(g, size_potential)
+        xy[:N,2] = np.repeat(g, size_potential)
+
+        # Reverse augmentation on grid coordinates
+        xy[:N,1:3] = reverse_augmentation_to_coordinates(
+            xy[:N,1:3],
+            theta_deg=transf[b,3],
+            mirror_var=transf[b,4],
+            shift_x_pixels=transf[b,1]/float(cell_width),
+            shift_y_pixels=transf[b,2]/float(cell_width)
+        )
+
+        # Append to list with activation values
+        add_to_list(xy, o[b,:], b < BATCH_SIZE_real)
 
 # run prediction loop
 list_out = list()
@@ -525,9 +601,8 @@ with torch.no_grad():
         # forward + backward + optimize
         outputs = net(inputs)
 
-        outputs_to_loc(outputs,transf)
+        outputs_to_loc_multiclass(outputs,transf, size_potential, cell_width)
 
-# print(list_out)
 
 print(len(list_out))
 
@@ -539,3 +614,20 @@ with open(dataroot+filename_out,'w') as f:
     f.write('s_id,real_missing,x,y,activation\n')
     for e in list_out:
         f.write(','.join(e) + '\n')
+
+# cleanup function - only keep the 3 most recent csvs
+csv_files = glob.glob(os.path.join(dataroot, '*.csv'))
+
+# Sort files by modification time (most recent first)
+csv_files.sort(key=os.path.getmtime, reverse=True)
+
+# Keep only the most recent 3 files
+files_to_keep = csv_files[:3]
+files_to_delete = csv_files[3:]
+
+# Delete older files
+for file in files_to_delete:
+    os.remove(file)
+    print(f"Deleted: {file}")
+
+print(f"Kept the most recent 3 files: {files_to_keep}")
