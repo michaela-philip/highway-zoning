@@ -52,20 +52,12 @@ def export_single_regression(df, caption, label, widthmultiplier = 1.0, leaveout
         f.write(text)
 
 # table with multiple regressions - definition of 'Black' as column title
-def export_multiple_regressions(df_list, caption, label, leaveout = None):
-    def column_names(df):
-        if 'mblack_1945def' in df.index:
-            return df.rename(columns = {'Coefficient':'60\\% Threshold'})
-        elif 'mblack_mean_pct' in df.index:
-            return df.rename(columns = {'Coefficient':'Avg. Percent'})
-        elif 'mblack_mean_share' in df.index:
-            return df.rename(columns = {'Coefficient':'Avg. Share'})
-        else:
-            return df
+def export_multiple_regressions(df_dict, caption, label, leaveout = None):
     def standardize_index(df):
         return df.rename(rename_dict, axis = 'index')
-    
-    renamed_list = [standardize_index(column_names(df)) for df in df_list]    
+    renamed_list = [
+        standardize_index(df.rename(columns = {'Coefficient': title}))
+                                    for title, df in df_dict.items()]    
     df = pd.concat(renamed_list, axis = 1)
     df = df.drop(index=leaveout, errors='ignore') if leaveout is not None else df
     df = df[~df.index.str.contains(r'^C\(city\)\[.*\]$', na=False, flags=re.IGNORECASE)]
