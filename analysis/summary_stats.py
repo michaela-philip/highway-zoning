@@ -51,6 +51,7 @@ rows = ['Residents', 'Households', 'Median Rent', 'Median Home Value',
 
 zoning_mean = sample.groupby('Residential')[rows].agg('mean')
 zoning_std = sample.groupby('Residential')[rows].agg('std')
+zoning_n = sample.groupby('mblack_1945def')['Households'].sum().T
 zoning_stats = pd.DataFrame({
     'Industrial': zoning_mean.T[0],
     'std_i':zoning_std.T[0],
@@ -59,10 +60,17 @@ zoning_stats = pd.DataFrame({
 })
 columns = ['Industrial', 'Residential']
 
+
 zoning_stats['Industrial'] = zoning_stats.apply(
-    lambda row: f"\\makecell[tr]{{{row['Industrial']:.2f} \\\\ ({row['std_i']:.2f})}}", axis=1)
+    lambda row: f"\\makecell[tr]{{{row['Industrial']:.2f}  ({row['std_i']:.2f})}}", axis=1)
 zoning_stats['Residential'] = zoning_stats.apply(
-    lambda row: f"\\makecell[tr]{{{row['Residential']:.2f} \\\\ ({row['std_r']:.2f})}}", axis=1)
+    lambda row: f"\\makecell[tr]{{{row['Residential']:.2f}  ({row['std_r']:.2f})}}", axis=1)
+zoning_stats.loc['Total Households'] = [
+    zoning_n[0],  
+    '',         
+    zoning_n[1],  
+    ''          
+]
 export_latex_table(zoning_stats, columns = columns, caption = 'Summary Statistics by Zoning Designation', label = 'tab:summary_stats_zone')
 
 # summary statistics by race designation
@@ -72,7 +80,6 @@ rows = ['Residents', 'Households', 'Median Rent', 'Median Home Value',
 zoning_mean = sample.groupby('mblack_1945def')[rows].agg('mean')
 zoning_std = sample.groupby('mblack_1945def')[rows].agg('std')
 zoning_n = sample.groupby('mblack_1945def')['Households'].sum().T
-print(zoning_n)
 zoning_stats = pd.DataFrame({
     'White': zoning_mean.T[0],
     'std_w':zoning_std.T[0],
@@ -81,14 +88,15 @@ zoning_stats = pd.DataFrame({
 })
 columns = ['White', 'Black']
 
-zoning_stats.loc['Total Households'] = [
-    zoning_n[0],  # Total for White
-    None,         # Placeholder for std_w
-    zoning_n[1],  # Total for Black
-    None          # Placeholder for std_b
-]
+
 zoning_stats['White'] = zoning_stats.apply(
-    lambda row: f"\\makecell[tr]{{{row['White']:.2f} \\\\ ({row['std_w']:.2f})}}", axis=1)
+    lambda row: f"\\makecell[tr]{{{row['White']:.2f}  ({row['std_w']:.2f})}}", axis=1)
 zoning_stats['Black'] = zoning_stats.apply(
-    lambda row: f"\\makecell[tr]{{{row['Black']:.2f} \\\\ ({row['std_b']:.2f})}}", axis=1)
+    lambda row: f"\\makecell[tr]{{{row['Black']:.2f}  ({row['std_b']:.2f})}}", axis=1)
+zoning_stats.loc['Total Households'] = [
+    zoning_n[0],  
+    '',         
+    zoning_n[1],  
+    ''          
+]
 export_latex_table(zoning_stats, columns = columns, caption = 'Summary Statistics by Racial Designation', label = 'tab:summary_stats_race')
