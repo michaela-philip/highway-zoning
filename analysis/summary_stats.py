@@ -51,7 +51,7 @@ rows = ['Residents', 'Households', 'Median Rent', 'Median Home Value',
 
 zoning_mean = sample.groupby('Residential')[rows].agg('mean')
 zoning_std = sample.groupby('Residential')[rows].agg('std')
-zoning_n = sample.groupby('mblack_1945def')['Households'].sum().T
+zoning_n = sample.groupby('Residential')['Households'].sum().T
 zoning_stats = pd.DataFrame({
     'Industrial': zoning_mean.T[0],
     'std_i':zoning_std.T[0],
