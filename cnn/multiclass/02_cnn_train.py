@@ -38,7 +38,7 @@ size_potential = 4  # potential locations: num_width_potential x num_width_poten
 none_class = pow(size_potential, 2)  # class index for "no new highway" option
 highway_classes = list(range(pow(size_potential, 2)))  # class indices for highway placement options
 size_padding = 2  # number of padding cells on each side of potential grid
-nc = len(features) + 2  # number of channels (add 2 for coordinates)
+nc = len(features)  # number of channels (add 2 for coordinates)
 BATCH_SIZE_real = 32  # regions with hwy (but removed)
 BATCH_SIZE_fill = 16  # regions with hwy (not removed)
 BATCH_SIZE_random = 16  # regions with no hwy (but candidates)
@@ -241,9 +241,9 @@ def extract_patch_from_arrays(feature_array, row, col, window, rot_k, mirror_var
     patch_left = col - rel_col
 
     # compute raster bounds
-    r_start = max(p, patch_top)
+    r_start = max(0, patch_top)
     r_end = min(H, patch_top + window)
-    c_start = max(p, patch_left)
+    c_start = max(0, patch_left)
     c_end = min(W, patch_left + window)
 
     # compute patch indices
@@ -258,10 +258,9 @@ def extract_patch_from_arrays(feature_array, row, col, window, rot_k, mirror_var
 
     # randomly mirror
     if mirror_var == -1:
-        patch = np.flip(patch, axis=2)
+        patch = np.flip(patch, axis=2).copy()
         rel_col = window - 1 - rel_col  # update relative col if mirrored
         class_idx = (rel_row - central_start) * size_potential + (rel_col - central_start)
-    print(class_idx)
     return patch, class_idx
 
 
@@ -334,7 +333,7 @@ GRID_FEATURE_ARRAY, rast_transform = gdf_to_raster(grid, features, 'hwy', cell_w
 GRIDID_TO_RC = gridid_to_rc_map(grid, cell_width)
 
 # create tensor of the proper size 
-batch_tensor = torch.zeros(BATCH_SIZE,nc,2*size_padding+size_potential + 1, 2*size_padding+size_potential + 1) #, dtype=torch.double)
+batch_tensor = torch.zeros(BATCH_SIZE,nc,2*size_padding+size_potential, 2*size_padding+size_potential) #, dtype=torch.double)
 labels = torch.empty(BATCH_SIZE, dtype=torch.int64)
 S_id_real = hwys
 
@@ -467,7 +466,7 @@ class Net(nn.Module):
             nn.Conv2d(in_channels=4*nc, out_channels=1, kernel_size=21, padding=20, padding_mode='replicate', dilation=2, bias=True),
             nn.InstanceNorm2d(num_features=1, affine=True),
             nn.Flatten(),
-            nn.Linear(1*pow(2*size_padding+size_potential + 1,2), pow(size_potential,2)+1),
+            nn.Linear(1*pow(2*size_padding+size_potential,2), pow(size_potential,2)+1),
         )
         self.main = main
 
