@@ -19,8 +19,8 @@ from scipy.ndimage import rotate, shift
 dataroot = 'cnn/multiclass/'
 outputroot = 'cnn/multiclass/'
 
-use_saved_model = True
-saved_model_filename = 'cnn/multiclass/mc_model2.tar'
+use_saved_model = False
+saved_model_filename = 'cnn/multiclass/mc_model3.tar'
 
 ####################################################################################################
 ### PARAMETERS ###
@@ -49,11 +49,11 @@ frac_train_random = 0.7  # fraction of random (unrealized) regions to use for tr
 
 use_cuda = True
 
-curr_epoch = 21
+curr_epoch = 0
 epoch_set_seed = list()
 epoch_set_seed.append(curr_epoch)
-EPOCHS = 2
-ITERS = 2000
+EPOCHS = 5
+ITERS = 1000
 NODATA = -9999.0
 
 print('BATCH_SIZE: ' + str(BATCH_SIZE))
@@ -187,58 +187,146 @@ def gridid_to_rc_map(gdf, cell_width):
 #     patch[:, pr_start:pr_end, pc_start:pc_end] = feature_array[:, r_start:r_end, c_start:c_end]
 
 #     return patch.astype('float32')
-def extract_patch_from_arrays(feature_array, row, col, window, pad_value = 0.0):
+# def extract_patch_from_arrays(feature_array, row, col, window, pad_value = 0.0):
+#     C, H, W = feature_array.shape
+#     pad = window // 2
+
+#     # Initialize patch with zeros
+#     patch = np.zeros((C, window, window), dtype=np.float32)
+
+#     # Compute source indices
+#     r_start = max(0, row - pad)
+#     r_end = min(H, row + pad + 1)
+#     c_start = max(0, col - pad)
+#     c_end = min(W, col + pad + 1)
+
+#     # Compute destination indices in patch
+#     pr_start = max(0, pad - row)
+#     pr_end = pr_start + (r_end - r_start)
+#     pc_start = max(0, pad - col)
+#     pc_end = pc_start + (c_end - c_start)
+
+#     # Copy features into patch
+#     patch[:, pr_start:pr_end, pc_start:pc_end] = feature_array[:, r_start:r_end, c_start:c_end]
+
+#     # Add coordinate channels
+#     x_coords = np.linspace(-1, 1, window, dtype=np.float32)
+#     y_coords = np.linspace(-1, 1, window, dtype=np.float32)
+#     x_channel = np.tile(x_coords, (window, 1))          # shape (window, window)
+#     y_channel = np.tile(y_coords[:, np.newaxis], (1, window))
+
+#     patch_with_coords = np.concatenate([
+#         patch,
+#         x_channel[np.newaxis, :, :],
+#         y_channel[np.newaxis, :, :]
+#     ], axis=0)
+
+#     return patch_with_coords.astype('float32')
+
+# augment initial square and extract patch
+def extract_patch_from_arrays(feature_array, row, col, window, rot_k, mirror_var=1, shift_x_cells=0.0, shift_y_cells=0.0):
     C, H, W = feature_array.shape
     pad = window // 2
 
-    # Initialize patch with zeros
-    patch = np.zeros((C, window, window), dtype=np.float32)
+    # define the relative location of the central part of the patch
+    central_start = (window - size_potential) // 2
+    central_end = central_start + size_potential
 
-    # Compute source indices
-    r_start = max(0, row - pad)
-    r_end = min(H, row + pad + 1)
-    c_start = max(0, col - pad)
-    c_end = min(W, col + pad + 1)
+    # randomly assign original cell to some location in central patch
+    rel_col = np.random.randint(central_start, central_end)
+    rel_row = np.random.randint(central_start, central_end)
+    class_idx = (rel_row - central_start) * size_potential + (rel_col - central_start)
 
-    # Compute destination indices in patch
-    pr_start = max(0, pad - row)
+    patch_top = row - rel_row
+    patch_left = col - rel_col
+
+    # compute raster bounds
+    r_start = max(p, patch_top)
+    r_end = min(H, patch_top + window)
+    c_start = max(p, patch_left)
+    c_end = min(W, patch_left + window)
+
+    # compute patch indices
+    pr_start = max(0, -patch_top)
     pr_end = pr_start + (r_end - r_start)
-    pc_start = max(0, pad - col)
+    pc_start = max(0, -patch_left)
     pc_end = pc_start + (c_end - c_start)
 
-    # Copy features into patch
+    # extract
+    patch = np.zeros((C, window, window), dtype = np.float32)
     patch[:, pr_start:pr_end, pc_start:pc_end] = feature_array[:, r_start:r_end, c_start:c_end]
 
-    # Add coordinate channels
-    x_coords = np.linspace(-1, 1, window, dtype=np.float32)
-    y_coords = np.linspace(-1, 1, window, dtype=np.float32)
-    x_channel = np.tile(x_coords, (window, 1))          # shape (window, window)
-    y_channel = np.tile(y_coords[:, np.newaxis], (1, window))
+    # randomly mirror
+    if mirror_var == -1:
+        patch = np.flip(patch, axis=2)
+        rel_col = window - 1 - rel_col  # update relative col if mirrored
+        class_idx = (rel_row - central_start) * size_potential + (rel_col - central_start)
+    print(class_idx)
+    return patch, class_idx
 
-    patch_with_coords = np.concatenate([
-        patch,
-        x_channel[np.newaxis, :, :],
-        y_channel[np.newaxis, :, :]
-    ], axis=0)
 
-    return patch_with_coords.astype('float32')
+    # # Initialize patch with zeros
+    
+    # col_aug = col + shift_x_cells
+    # row_aug = row + shift_y_cells
 
-def apply_augmentation_to_patch(patch, theta_deg=0.0, mirror_var=1, shift_x_pixels=0.0, shift_y_pixels=0.0, order=1, cval=0.0):
-    C, H, W = patch.shape
-    out = np.empty_like(patch)
-    for ch in range(C):
-        layer = patch[ch]
-        # mirror left-right if requested
-        if mirror_var == -1:
-            layer = np.fliplr(layer)
-        # rotate about center (reshape=False keeps same H,W)
-        if theta_deg != 0.0:
-            layer = rotate(layer, angle=theta_deg, reshape=False, order=order, mode='constant', cval=cval)
-        # shift (rows, cols)
-        if shift_y_pixels != 0.0 or shift_x_pixels != 0.0:
-            layer = shift(layer, shift=(shift_y_pixels, shift_x_pixels), order=order, mode='constant', cval=cval)
-        out[ch] = layer
-    return out
+    # rotated = np.rot90(feature_array, k = rot_k)
+
+    # # Compute source indices
+    # r_start = max(0, row_aug - pad)
+    # r_end = min(H, row_aug + pad + 1)
+    # c_start = max(0, col_aug - pad)
+    # c_end = min(W, col_aug + pad + 1)
+
+    # # Compute destination indices in patch
+    # pr_start = max(0, pad - row_aug)
+    # pr_end = pr_start + (r_end - r_start)
+    # pc_start = max(0, pad - col_aug)
+    # pc_end = pc_start + (c_end - c_start)
+
+    # # Copy features into patch
+    # patch[:, pr_start:pr_end, pc_start:pc_end] = rotated[:, r_start:r_end, c_start:c_end]
+
+    # if mirror_var == -1:
+    #     patch = np.flip(patch, axis = 1)
+
+    # # get original square's relative coordinate in the patch
+    # patch_undo = np.flip(patch, axis = 1) if mirror_var == -1 else patch
+    # patch_undo = np.rot90(patch_undo, k = (4 - rot_k))
+
+
+    # # Add coordinate channels
+    # x_coords = np.linspace(-1, 1, window, dtype=np.float32)
+    # y_coords = np.linspace(-1, 1, window, dtype=np.float32)
+    # x_channel = np.tile(x_coords, (window, 1))          # shape (window, window)
+    # y_channel = np.tile(y_coords[:, np.newaxis], (1, window))
+
+    # patch_with_coords = np.concatenate([
+    #     patch,
+    #     x_channel[np.newaxis, :, :],
+    #     y_channel[np.newaxis, :, :]
+    # ], axis=0)
+
+    # return patch_with_coords.astype('float32')
+    # return patch, rel_row, rel_col
+
+
+# def apply_augmentation_to_patch(patch, theta_deg=0.0, mirror_var=1, shift_x_pixels=0.0, shift_y_pixels=0.0, order=1, cval=0.0):
+#     C, H, W = patch.shape
+#     out = np.empty_like(patch)
+#     for ch in range(C):
+#         layer = patch[ch]
+#         # mirror left-right if requested
+#         if mirror_var == -1:
+#             layer = np.fliplr(layer)
+#         # rotate about center (reshape=False keeps same H,W)
+#         if theta_deg != 0.0:
+#             layer = rotate(layer, angle=theta_deg, reshape=False, order=order, mode='constant', cval=cval)
+#         # shift (rows, cols)
+#         if shift_y_pixels != 0.0 or shift_x_pixels != 0.0:
+#             layer = shift(layer, shift=(shift_y_pixels, shift_x_pixels), order=order, mode='constant', cval=cval)
+#         out[ch] = layer
+#     return out
 
 grid = normalize_features_per_city(grid, normalize_features, nodata=NODATA)
 print(grid[features].describe())
@@ -270,7 +358,7 @@ def create_batch(batch_tensor=batch_tensor, labels=labels, sample_ids_real=S_id_
     if return_transf:
         transf = np.zeros(shape=(BATCH_SIZE,5))
 
-    window = 2*size_padding + size_potential + 1
+    window = 2*size_padding + size_potential                                                                                                                                                                                                                                            
     pad = window // 2
 
     # guard: ensure sample sets not empty
@@ -300,43 +388,38 @@ def create_batch(batch_tensor=batch_tensor, labels=labels, sample_ids_real=S_id_
             row, col = GRIDID_TO_RC[int(s_id)]
 
         # random augmentations (keep same semantics as original)
-        theta = np.random.rand()*360
+        rot_k = np.random.randint(0, 4)
         mirror_var = (np.random.rand() > 0.5)*2 - 1
-        shift_x = np.random.rand()*cell_width*size_potential - cell_width/2
-        shift_y = np.random.rand()*cell_width*size_potential - cell_width/2
+        shift_x_cells = np.random.randint(-size_potential, size_potential)
+        shift_y_cells = np.random.randint(-size_potential, size_potential)
 
-        if return_transf:
-            transf[b,0] = s_id
-            transf[b,1] = shift_x
-            transf[b,2] = shift_y
-            transf[b,3] = theta
-            transf[b,4] = mirror_var
+        # if return_transf:
+        #     transf[b,0] = s_id
+        #     transf[b,1] = shift_x
+        #     transf[b,2] = shift_y
+        #     transf[b,3] = theta
+        #     transf[b,4] = mirror_var
 
-        patch = extract_patch_from_arrays(GRID_FEATURE_ARRAY, row, col, window, pad_value=0.0)
+        patch, class_idx = extract_patch_from_arrays(GRID_FEATURE_ARRAY, row, col, window, rot_k, mirror_var, shift_x_cells, shift_y_cells)
+        # patch = extract_patch_from_arrays(GRID_FEATURE_ARRAY, row, col, window, pad_value=0.0)
 
-        # convert shifts in meters to pixels for ndimage.shift
-        shift_x_pixels = shift_x / float(cell_width)   # positive -> move right
-        shift_y_pixels = shift_y / float(cell_width)   # positive -> move down
+        # # convert shifts in meters to pixels for ndimage.shift
+        # shift_x_pixels = shift_x / float(cell_width)   # positive -> move right
+        # shift_y_pixels = shift_y / float(cell_width)   # positive -> move down
 
         # apply geometric augmentation (mirror, rotate, shift) to all channels
         # use bilinear interpolation (order=1) for continuous channels
-        patch = apply_augmentation_to_patch(patch,
-                                            theta_deg=theta,
-                                            mirror_var=mirror_var,
-                                            shift_x_pixels=shift_x_pixels,
-                                            shift_y_pixels=shift_y_pixels,
-                                            order=1,
-                                            cval=0.0)
-
-        # true location of 'missing' grocery store
-        if b >= BATCH_SIZE_real and b < BATCH_SIZE_real+BATCH_SIZE_fill:
-            treat_x = int(round(shift_x_pixels/cell_width) + size_padding)
-            treat_y = int(round(shift_y_pixels/cell_width) + size_padding)
-            batch_tensor[b,0,treat_y,treat_x] += 1
+        # patch = apply_augmentation_to_patch(patch,
+        #                                     theta_deg=theta,
+        #                                     mirror_var=mirror_var,
+        #                                     shift_x_pixels=shift_x_pixels,
+        #                                     shift_y_pixels=shift_y_pixels,
+        #                                     order=1,
+        #                                     cval=0.0)
 
         # label with location of 'missing' grocery store:
         if b < BATCH_SIZE_real:
-            labels[b] = int(round(shift_y_pixels)*size_potential) + int(round(shift_x_pixels))
+            labels[b] = class_idx
         # random region without missing grocery store or grocery store is filled in:
         else:
             labels[b] = pow(size_potential,2)  # index 1 larger than locations (start at 0)
@@ -717,7 +800,7 @@ for epoch in range(curr_epoch, bound_epochs):
 
     print('Finished Epoch ' + str(epoch+1) + ' of ' + str(bound_epochs) + '. Saving model and optimizer checkpoint.')
     curr_epoch = curr_epoch + 1
-    save_model('mc_model2.tar')
+    save_model('mc_model3.tar')
     print((datetime.now(timezone.utc) + timedelta(hours=-7)).strftime('%Y-%m-%d %H:%M:%S'))
 
 print('Finished Training')
