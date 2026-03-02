@@ -471,7 +471,7 @@ def intitialize_optimizer(net):
 # functions to save and load model
 def save_model(filename=None):
     if not filename:
-        date = (datetime.utcnow() + timedelta(hours=-7)).strftime('%Y-%m-%d--%H-%M')
+        date = (datetime.now(timezone.utc) + timedelta(hours=-7)).strftime('%Y-%m-%d %H:%M:%S')
         filename = 'checkpoint-epoch-' + str(curr_epoch) + '-' + date + '.tar'
     path_save = outputroot + filename
     # save the model
@@ -757,37 +757,41 @@ for epoch in range(curr_epoch, bound_epochs):
         # determine accuracy of taking "prediction"
         with torch.no_grad():
             _, predicted = torch.max(outputs.data, 1)
+
+            TP = ((predicted == 1) & (labels == 1)).sum().item()
+            TN = ((predicted == 0) & (labels == 0)).sum().item()
+            FP = ((predicted == 1) & (labels == 0)).sum().item()
+            FN = ((predicted == 0) & (labels == 1)).sum().item()
+
             total += labels.size(0)
-            correct += (predicted == labels).sum().item()
-            correct_real += (predicted[0:BATCH_SIZE_real] == labels[0:BATCH_SIZE_real]).sum().item()
-            non_zero_real += (predicted[0:BATCH_SIZE_real] < pow(size_potential,2)).sum().item()
-            correct_fill += (predicted[BATCH_SIZE_real:BATCH_SIZE_real+BATCH_SIZE_fill] == labels[BATCH_SIZE_real:BATCH_SIZE_real+BATCH_SIZE_fill]).sum().item()
-            correct_random += (predicted[BATCH_SIZE-BATCH_SIZE_random:BATCH_SIZE] == labels[BATCH_SIZE-BATCH_SIZE_random:BATCH_SIZE]).sum().item()
-            total_real += BATCH_SIZE_real
-            total_fill += BATCH_SIZE_fill
-            total_random += BATCH_SIZE_random
+            # correct += (predicted == labels).sum().item()
+            # correct_real += (predicted[0:BATCH_SIZE_real] == labels[0:BATCH_SIZE_real]).sum().item()
+            # non_zero_real += (predicted[0:BATCH_SIZE_real] < pow(size_potential,2)).sum().item()
+            # correct_fill += (predicted[BATCH_SIZE_real:BATCH_SIZE_real+BATCH_SIZE_fill] == labels[BATCH_SIZE_real:BATCH_SIZE_real+BATCH_SIZE_fill]).sum().item()
+            # correct_random += (predicted[BATCH_SIZE-BATCH_SIZE_random:BATCH_SIZE] == labels[BATCH_SIZE-BATCH_SIZE_random:BATCH_SIZE]).sum().item()
+            # total_real += BATCH_SIZE_real
+            # total_fill += BATCH_SIZE_fill
+            # total_random += BATCH_SIZE_random
+        
+        accuracy = 100 * (TP + TN) / max(total, 1)
+        precision = 100 * TP / max(TP + FP, 1)
+        recall = 100 * TP / max(TP + FN, 1)
 
         # print statistics
         running_loss += loss.item()
         if i % print_interval == print_interval - 1:
-            print('[%d / %d, %5d / %5d] loss: %.3f, accuracy: %.1f%%, real: %.1f%%, real non-zero: %.1f%%, real filled: %.1f%%, unrealized: %.1f%%' %
+            print('[%d / %d, %5d / %5d] loss: %.3f, accuracy: %.1f%%, precision: %.1f%%, recall: %.1f%%, FP: %.1f%%' %
                   (epoch + 1, bound_epochs, i + 1, ITERS, running_loss / print_interval,
-                   100 * correct / total,
-                   100 * correct_real / max(total_real,1),
-                   100 * non_zero_real / max(total_real,1),
-                   100 * correct_fill / max(total_fill,1),
-                   100 * correct_random / max(total_random,1)))
+                   accuracy,
+                   precision,
+                   recall,
+                   FP))
             print((datetime.now(timezone.utc) + timedelta(hours=-7)).strftime('%Y-%m-%d %H:%M:%S'))
             running_loss = 0.0
-            correct = 0
-            correct_real = 0
-            non_zero_real = 0
-            correct_fill = 0
-            correct_random = 0
-            total = 0
-            total_real = 0
-            total_fill = 0
-            total_random = 0
+            accuracy = 0
+            precision = 0
+            recall = 0
+            FP = 0
             
         # # evaluation sample:
         # if frac_train_real < 1 or frac_train_random < 1:
@@ -834,24 +838,34 @@ for epoch in range(curr_epoch, bound_epochs):
             if i % eval_interval == eval_interval - 1:
 
                 # aggregated metrics
-                eval_total = 0
-                eval_correct = 0
+                TP = 0
+                TN = 0
+                FP = 0
+                FN = 0
+                total = 0
+                total_pos = 0
+                total_neg = 0
+                accuracy = 0 
+                precision = 0
+                recall = 0
+                # eval_total = 0
+                # eval_correct = 0
 
-                eval_total_real = 0
-                eval_correct_real = 0
-                eval_non_zero_real = 0      # prediction != none
-                eval_TP_real = 0            # correct non-zero
-                eval_FN_real = 0            # predicted none but true non-none
-                eval_FP_real = 0            # predicted non-none but true none
+                # eval_total_real = 0
+                # eval_correct_real = 0
+                # eval_non_zero_real = 0      # prediction != none
+                # eval_TP_real = 0            # correct non-zero
+                # eval_FN_real = 0            # predicted none but true non-none
+                # eval_FP_real = 0            # predicted non-none but true none
 
-                eval_total_fill = 0
-                eval_correct_fill = 0
+                # eval_total_fill = 0
+                # eval_correct_fill = 0
 
-                eval_total_random = 0
-                eval_correct_random = 0
+                # eval_total_random = 0
+                # eval_correct_random = 0
 
-                # top-k
-                eval_top3_correct = 0
+                # # top-k
+                # eval_top3_correct = 0
 
                 with torch.no_grad():
                     for j in range(100):
@@ -867,57 +881,79 @@ for epoch in range(curr_epoch, bound_epochs):
                         outputs = net(inputs)
                         _, predicted = torch.max(outputs, 1)
 
-                        # --- top-3 accuracy ---
-                        _, top3_preds = outputs.topk(3, dim=1)
-                        eval_top3_correct += (top3_preds == labels.unsqueeze(1)).any(dim=1).sum().item()
+                        # compute TP, TN, FP, FN
+                        TP = ((predicted == 1) & (labels == 1)).sum().item()
+                        TN = ((predicted == 0) & (labels == 0)).sum().item()
+                        FP = ((predicted == 1) & (labels == 0)).sum().item()
+                        FN = ((predicted == 0) & (labels == 1)).sum().item()
 
-                        # --- overall ---
-                        eval_total += labels.size(0)
-                        eval_correct += (predicted == labels).sum().item()
+                        total = labels.size(0)
+                        total_pos = (labels == 1).sum().item()  
+                        total_neg = (labels == 0).sum().item()
 
-                        # --- REAL (first section of batch) ---
-                        real_pred = predicted[:BATCH_SIZE_real]
-                        real_true = labels[:BATCH_SIZE_real]
-                        eval_total_real += BATCH_SIZE_real
+                        accuracy = 100 * (TP + TN) / max(total, 1)
+                        precision = 100 * TP / max(TP + FP, 1)
+                        recall = 100 * TP / max(TP + FN, 1)
 
-                        # exact accuracy
-                        eval_correct_real += (real_pred == real_true).sum().item()
+                        # per class
+                        acc_pos = 100 * TP / max(total_pos, 1)
+                        acc_neg = 100 * TN / max(total_neg, 1)
 
-                        # predicted non-zero
-                        eval_non_zero_real += (real_pred < (size_potential ** 2)).sum().item()
+                        # # --- top-3 accuracy ---
+                        # _, top3_preds = outputs.topk(3, dim=1)
+                        # eval_top3_correct += (top3_preds == labels.unsqueeze(1)).any(dim=1).sum().item()
 
-                        # TP / FN / FP for real
-                        true_non_zero = real_true < (size_potential ** 2)
-                        pred_non_zero = real_pred < (size_potential ** 2)
+                        # # --- overall ---
+                        # eval_total += labels.size(0)
+                        # eval_correct += (predicted == labels).sum().item()
 
-                        eval_TP_real += (pred_non_zero & true_non_zero).sum().item()
-                        eval_FN_real += ((~pred_non_zero) & true_non_zero).sum().item()
-                        eval_FP_real += (pred_non_zero & (~true_non_zero)).sum().item()
+                        # # --- REAL (first section of batch) ---
+                        # real_pred = predicted[:BATCH_SIZE_real]
+                        # real_true = labels[:BATCH_SIZE_real]
+                        # eval_total_real += BATCH_SIZE_real
 
-                        # --- FILLED ---
-                        fill_pred = predicted[BATCH_SIZE_real:BATCH_SIZE_real + BATCH_SIZE_fill]
-                        fill_true = labels[BATCH_SIZE_real:BATCH_SIZE_real + BATCH_SIZE_fill]
-                        eval_total_fill += BATCH_SIZE_fill
-                        eval_correct_fill += (fill_pred == fill_true).sum().item()
+                        # # exact accuracy
+                        # eval_correct_real += (real_pred == real_true).sum().item()
 
-                        # --- RANDOM / UNREALIZED ---
-                        rand_pred = predicted[-BATCH_SIZE_random:]
-                        rand_true = labels[-BATCH_SIZE_random:]
-                        eval_total_random += BATCH_SIZE_random
-                        eval_correct_random += (rand_pred == rand_true).sum().item()
+                        # # predicted non-zero
+                        # eval_non_zero_real += (real_pred < (size_potential ** 2)).sum().item()
+
+                        # # TP / FN / FP for real
+                        # true_non_zero = real_true < (size_potential ** 2)
+                        # pred_non_zero = real_pred < (size_potential ** 2)
+
+                        # eval_TP_real += (pred_non_zero & true_non_zero).sum().item()
+                        # eval_FN_real += ((~pred_non_zero) & true_non_zero).sum().item()
+                        # eval_FP_real += (pred_non_zero & (~true_non_zero)).sum().item()
+
+                        # # --- FILLED ---
+                        # fill_pred = predicted[BATCH_SIZE_real:BATCH_SIZE_real + BATCH_SIZE_fill]
+                        # fill_true = labels[BATCH_SIZE_real:BATCH_SIZE_real + BATCH_SIZE_fill]
+                        # eval_total_fill += BATCH_SIZE_fill
+                        # eval_correct_fill += (fill_pred == fill_true).sum().item()
+
+                        # # --- RANDOM / UNREALIZED ---
+                        # rand_pred = predicted[-BATCH_SIZE_random:]
+                        # rand_true = labels[-BATCH_SIZE_random:]
+                        # eval_total_random += BATCH_SIZE_random
+                        # eval_correct_random += (rand_pred == rand_true).sum().item()
 
                 # print results
-                print("Accuracy on hold-out: %.1f%%" % (100 * eval_correct / max(eval_total, 1)))
-                print("  real: %.1f%%" % (100 * eval_correct_real / max(eval_total_real, 1)))
-                print("  real non-zero (pred != none): %.1f%%" %
-                    (100 * eval_non_zero_real / max(eval_total_real, 1)))
-                print("  real TP: %.1f%% | FN: %.1f%% | FP: %.1f%%" %
-                    (100 * eval_TP_real / max(eval_total_real, 1),
-                    100 * eval_FN_real / max(eval_total_real, 1),
-                    100 * eval_FP_real / max(eval_total_real, 1)))
-                print("  filled: %.1f%%" % (100 * eval_correct_fill / max(eval_total_fill, 1)))
-                print("  unrealized: %.1f%%" % (100 * eval_correct_random / max(eval_total_random, 1)))
-                print("  top-3 accuracy: %.1f%%" % (100 * eval_top3_correct / max(eval_total, 1)))
+                print(f"Accuracy on hold-out: {accuracy:.1f}%")
+                print(f"Accuracy on real locations: {acc_pos:.1f}%")
+                print(f"Accuracy on non-real locations: {acc_neg:.1f}%")
+                print(f"Precision: {precision:.1f}%")
+                print(f"Recall: {recall:.1f}%")
+                # print("  real: %.1f%%" % (100 * eval_correct_real / max(eval_total_real, 1)))
+                # print("  real non-zero (pred != none): %.1f%%" %
+                #     (100 * eval_non_zero_real / max(eval_total_real, 1)))
+                # print("  real TP: %.1f%% | FN: %.1f%% | FP: %.1f%%" %
+                #     (100 * eval_TP_real / max(eval_total_real, 1),
+                #     100 * eval_FN_real / max(eval_total_real, 1),
+                #     100 * eval_FP_real / max(eval_total_real, 1)))
+                # print("  filled: %.1f%%" % (100 * eval_correct_fill / max(eval_total_fill, 1)))
+                # print("  unrealized: %.1f%%" % (100 * eval_correct_random / max(eval_total_random, 1)))
+                # print("  top-3 accuracy: %.1f%%" % (100 * eval_top3_correct / max(eval_total, 1)))
 
 
     print('Finished Epoch ' + str(epoch+1) + ' of ' + str(bound_epochs) + '. Saving model and optimizer checkpoint.')
