@@ -5,3 +5,4 @@ highway-zoning-gis/*
 spatialTreat-example
 *.tar
 *.csv
+.DS_Store
