@@ -34,8 +34,8 @@ features = ['valueh', 'rent', 'distance_to_cbd', 'dist_water', 'dist_to_hwy', 'o
 normalize_features = ['valueh', 'rent', 'distance_to_cbd', 'dist_water', 'dist_to_hwy', 'owner', 'elevation'] # the only features i want to demean
 
 cell_width = 150  # cell width in meters (convert from miles)
-size_potential = 6  # potential locations: num_width_potential x num_width_potential
-size_padding = 5  # number of padding cells on each side of potential grid
+size_potential = 4  # potential locations: num_width_potential x num_width_potential
+size_padding = 2  # number of padding cells on each side of potential grid
 nc = len(features)  # number of channels: 1) other grocery stores 2) other businesses
 BATCH_SIZE_real = 32  # regions with missing grocery store per batch
 BATCH_SIZE_fill = 16  # regions with real location filled in (-> no missing) per batch
@@ -148,10 +148,11 @@ def gdf_to_raster(gdf, features, label, cell_width, crs=None, nodata=-9999.0):
     print(f'rasterization complete, file saved: {outpath}')
 
     feature_array = out_array[:len(features), :, :]
-    label_array = out_array[len(features):, :, :]
-    # if label was one band, squeeze to 2D
-    if label_array.shape[0] == 1:
-        label_array = np.squeeze(label_array, axis=0)
+    label_array = out_array[-1, :, :]
+    # label_array = out_array[len(features):, :, :]
+    # # if label was one band, squeeze to 2D
+    # if label_array.shape[0] == 1:
+    #     label_array = np.squeeze(label_array, axis=0)
 
     # # compute numeric means/stds (fallback to 0.0/1.0)
     # means, stds = [], []
@@ -180,74 +181,117 @@ def gridid_to_rc_map(gdf, cell_width):
     rows_idx = np.floor((maxy - ys) / cell_width).astype(int)
     return {int(gid): (int(r), int(c)) for gid, r, c in zip(gdf['grid_id'].values, rows_idx, cols_idx)}
 
-# get window patch from feature and label arrays
-def extract_patch_from_arrays(feature_array, row, col, window, pad_value = 0.0):
+def extract_patch_from_arrays(feature_array, label_array, row, col, window, rot_k, mirror_var=1, shift_x_cells=0.0, shift_y_cells=0.0):
     C, H, W = feature_array.shape
     pad = window // 2
-    arr_p = np.pad(feature_array, ((0, 0), (pad, pad), (pad, pad)), mode = 'constant', constant_values = pad_value)
-    r0, c0 = row + pad, col + pad
-    patch = arr_p[:, r0-pad:r0+pad, c0-pad:c0+pad]
-    return patch.astype('float32')
 
-def apply_augmentation_to_patch(patch, theta_deg=0.0, mirror_var=1, shift_x_pixels=0.0, shift_y_pixels=0.0, order=1, cval=0.0):
-    C, H, W = patch.shape
-    out = np.empty_like(patch)
-    for ch in range(C):
-        layer = patch[ch]
-        # mirror left-right if requested
-        if mirror_var == -1:
-            layer = np.fliplr(layer)
-        # rotate about center (reshape=False keeps same H,W)
-        if theta_deg != 0.0:
-            layer = rotate(layer, angle=theta_deg, reshape=False, order=order, mode='constant', cval=cval)
-        # shift (rows, cols)
-        if shift_y_pixels != 0.0 or shift_x_pixels != 0.0:
-            layer = shift(layer, shift=(shift_y_pixels, shift_x_pixels), order=order, mode='constant', cval=cval)
-        out[ch] = layer
-    return out
+    # define the relative location of the central part of the patch
+    central_start = (window - size_potential) // 2
+    central_end = central_start + size_potential
+
+    # randomly assign original cell to some location in central patch
+    rel_col = np.random.randint(central_start, central_end)
+    rel_row = np.random.randint(central_start, central_end)
+    class_idx = (rel_row - central_start) * size_potential + (rel_col - central_start)
+
+    patch_top = row - rel_row
+    patch_left = col - rel_col
+
+    # compute raster bounds
+    r_start = max(0, patch_top)
+    r_end = min(H, patch_top + window)
+    c_start = max(0, patch_left)
+    c_end = min(W, patch_left + window)
+
+    # compute patch indices
+    pr_start = max(0, -patch_top)
+    pr_end = pr_start + (r_end - r_start)
+    pc_start = max(0, -patch_left)
+    pc_end = pc_start + (c_end - c_start)
+
+    # extract
+    patch = np.zeros((C, window, window), dtype = np.float32)
+    patch[:, pr_start:pr_end, pc_start:pc_end] = feature_array[:, r_start:r_end, c_start:c_end]
+    label_patch = label_array[r_start:r_end, c_start:c_end]
+
+    # randomly mirror
+    if mirror_var == -1:
+        patch = np.flip(patch, axis=2).copy()
+        rel_col = window - 1 - rel_col  # update relative col if mirrored
+        class_idx = (rel_row - central_start) * size_potential + (rel_col - central_start)
+    return patch, class_idx, label_patch
+
+# # get window patch from feature and label arrays
+# def extract_patch_from_arrays(feature_array, row, col, window, pad_value = 0.0):
+#     C, H, W = feature_array.shape
+#     pad = window // 2
+#     arr_p = np.pad(feature_array, ((0, 0), (pad, pad), (pad, pad)), mode = 'constant', constant_values = pad_value)
+#     r0, c0 = row + pad, col + pad
+#     patch = arr_p[:, r0-pad:r0+pad, c0-pad:c0+pad]
+#     return patch.astype('float32')
+
+# def apply_augmentation_to_patch(patch, theta_deg=0.0, mirror_var=1, shift_x_pixels=0.0, shift_y_pixels=0.0, order=1, cval=0.0):
+#     C, H, W = patch.shape
+#     out = np.empty_like(patch)
+#     for ch in range(C):
+#         layer = patch[ch]
+#         # mirror left-right if requested
+#         if mirror_var == -1:
+#             layer = np.fliplr(layer)
+#         # rotate about center (reshape=False keeps same H,W)
+#         if theta_deg != 0.0:
+#             layer = rotate(layer, angle=theta_deg, reshape=False, order=order, mode='constant', cval=cval)
+#         # shift (rows, cols)
+#         if shift_y_pixels != 0.0 or shift_x_pixels != 0.0:
+#             layer = shift(layer, shift=(shift_y_pixels, shift_x_pixels), order=order, mode='constant', cval=cval)
+#         out[ch] = layer
+#     return out
 
 grid = normalize_features_per_city(grid, normalize_features, nodata=NODATA)
 print(grid[features].describe())
 GRID_FEATURE_ARRAY, GRID_LABEL_ARRAY, rast_transform = gdf_to_raster(grid, features, 'hwy', cell_width = 150)
-GRID_LABEL_ARRAY = np.squeeze(GRID_LABEL_ARRAY)
+# GRID_LABEL_ARRAY = np.squeeze(GRID_LABEL_ARRAY)
 GRIDID_TO_RC = gridid_to_rc_map(grid, cell_width)
 
-# filter S_id lists to only include cells with valid label (not NODATA)
-def valid_ids_from_list(id_list):
-    out = []
-    for gid in id_list:
-        if int(gid) in GRIDID_TO_RC:
-            r,c = GRIDID_TO_RC[int(gid)]
-            if 0 <= r < GRID_LABEL_ARRAY.shape[0] and 0 <= c < GRID_LABEL_ARRAY.shape[1]:
-                if GRID_LABEL_ARRAY[r,c] != NODATA and not np.isnan(GRID_LABEL_ARRAY[r,c]):
-                    out.append(int(gid))
-    return out
-
 # create tensor of the proper size 
-batch_tensor = torch.zeros(BATCH_SIZE,nc,2*size_padding+size_potential, 2*size_padding+size_potential) #, dtype=torch.double)
+batch_tensor = torch.zeros(BATCH_SIZE,nc,2*size_padding+size_potential, 2*size_padding+size_potential)
 labels = torch.empty(BATCH_SIZE, dtype=torch.int64)
-S_id_real = valid_ids_from_list([int(g) for g in hwys])
+
+# # filter S_id lists to only include cells with valid label (not NODATA)
+# def valid_ids_from_list(id_list):
+#     out = []
+#     for gid in id_list:
+#         if int(gid) in GRIDID_TO_RC:
+#             r,c = GRIDID_TO_RC[int(gid)]
+#             if 0 <= r < GRID_LABEL_ARRAY.shape[0] and 0 <= c < GRID_LABEL_ARRAY.shape[1]:
+#                 if GRID_LABEL_ARRAY[r,c] != NODATA and not np.isnan(GRID_LABEL_ARRAY[r,c]):
+#                     out.append(int(gid))
+#     return out
 
 if isinstance(candidate_list, dict):
     cand_flat = [int(x) for vals in candidate_list.values() for x in (vals or [])]
+    S_id_random = cand_flat  # Use the flattened list of grid IDs
 elif isinstance(candidate_list, pd.Series):
     cand_flat = [int(x) for vals in candidate_list.tolist() for x in (vals or [])]
+    S_id_random = candidate_list['grid_id'].tolist()
 else:
     cand_flat = [int(x) for x in candidate_list]
+    S_id_random = candidate_list['grid_id'].tolist()
 
-# cand_flat = cand_flat  # keep existing construction above
-S_id_random = valid_ids_from_list([g for g in cand_flat if g not in S_id_real])
-
+S_id_real = hwys
 S_id_real = np.array(S_id_real, dtype=int)
 S_id_random = np.array(S_id_random, dtype=int)
 
-def extract_label_patch(label_array, row, col, window, pad_value = NODATA):
-    pad = window // 2
-    H, W = label_array.shape
-    lbl_p = np.full((H + 2*pad, W + 2*pad), pad_value, dtype=label_array.dtype)
-    lbl_p[pad:pad+H, pad:pad+W] = label_array
-    r0, c0 = row + pad, col + pad
-    return lbl_p[r0-pad:r0+pad+1, c0-pad:c0+pad+1]
+# S_id_real = valid_ids_from_list([int(g) for g in hwys])
+# S_id_random = valid_ids_from_list([g for g in cand_flat if g not in S_id_real])
+
+# def extract_label_patch(label_array, row, col, window, pad_value = NODATA):
+#     pad = window // 2
+#     H, W = label_array.shape
+#     lbl_p = np.full((H + 2*pad, W + 2*pad), pad_value, dtype=label_array.dtype)
+#     lbl_p[pad:pad+H, pad:pad+W] = label_array
+#     r0, c0 = row + pad, col + pad
+#     return lbl_p[r0-pad:r0+pad+1, c0-pad:c0+pad+1]
 
 def create_batch(batch_tensor=batch_tensor, labels=labels, sample_ids_real=S_id_real, sample_ids_random=S_id_random, return_transf=False):
     batch_tensor = batch_tensor*0
@@ -286,53 +330,54 @@ def create_batch(batch_tensor=batch_tensor, labels=labels, sample_ids_real=S_id_
             row, col = GRIDID_TO_RC[int(s_id)]
 
         # random augmentations (keep same semantics as original)
-        theta = np.random.rand()*360
+        rot_k = np.random.randint(0, 4)
         mirror_var = (np.random.rand() > 0.5)*2 - 1
-        shift_x = np.random.rand()*cell_width*size_potential - cell_width/2
-        shift_y = np.random.rand()*cell_width*size_potential - cell_width/2
+        shift_x_cells = np.random.randint(-size_potential, size_potential)
+        shift_y_cells = np.random.randint(-size_potential, size_potential)
 
-        if return_transf:
-            transf[b,0] = s_id
-            transf[b,1] = shift_x
-            transf[b,2] = shift_y
-            transf[b,3] = theta
-            transf[b,4] = mirror_var
+        # if return_transf:
+        #     transf[b,0] = s_id
+        #     transf[b,1] = shift_x
+        #     transf[b,2] = shift_y
+        #     transf[b,3] = theta
+        #     transf[b,4] = mirror_var
 
-        patch = extract_patch_from_arrays(GRID_FEATURE_ARRAY, row, col, window, pad_value=0.0)
+        # patch = extract_patch_from_arrays(GRID_FEATURE_ARRAY, row, col, window, pad_value=0.0)
+        patch, label_patch, class_idx = extract_patch_from_arrays(GRID_FEATURE_ARRAY, GRID_LABEL_ARRAY, row, col, window, rot_k, mirror_var, shift_x_cells, shift_y_cells)
 
         # convert shifts in meters to pixels for ndimage.shift
-        shift_x_pixels = shift_x / float(cell_width)   # positive -> move right
-        shift_y_pixels = shift_y / float(cell_width)   # positive -> move down
+        # shift_x_pixels = shift_x / float(cell_width)   # positive -> move right
+        # shift_y_pixels = shift_y / float(cell_width)   # positive -> move down
 
         # apply geometric augmentation (mirror, rotate, shift) to all channels
         # use bilinear interpolation (order=1) for continuous channels
-        patch = apply_augmentation_to_patch(patch,
-                                            theta_deg=theta,
-                                            mirror_var=mirror_var,
-                                            shift_x_pixels=shift_x_pixels,
-                                            shift_y_pixels=shift_y_pixels,
-                                            order=1,
-                                            cval=0.0)
+        # patch = apply_augmentation_to_patch(patch,
+        #                                     theta_deg=theta,
+        #                                     mirror_var=mirror_var,
+        #                                     shift_x_pixels=shift_x_pixels,
+        #                                     shift_y_pixels=shift_y_pixels,
+        #                                     order=1,
+        #                                     cval=0.0)
         
          # extract label patch, apply same augmentation with nearest interpolation, and read center
-        lbl_patch = extract_label_patch(GRID_LABEL_ARRAY, row, col, window, pad_value=NODATA)
-        lbl_patch_ch = lbl_patch[np.newaxis, :, :]  # shape (1,H,W)
-        lbl_aug = apply_augmentation_to_patch(lbl_patch_ch,
-                                             theta_deg=theta,
-                                             mirror_var=mirror_var,
-                                             shift_x_pixels=shift_x_pixels,
-                                             shift_y_pixels=shift_y_pixels,
-                                             order=0,  # nearest for labels
-                                             cval=NODATA)
-        center_label = lbl_aug[0, pad, pad]
-        # handle nodata after augmentation (rare) — fallback to original center if available or set 0
-        if center_label == NODATA or np.isnan(center_label):
-            original_center = GRID_LABEL_ARRAY[row, col]
-            if original_center == NODATA or np.isnan(original_center):
-                center_label = 0
-            else:
-                center_label = int(original_center)
-        labels[b] = int(center_label)
+        # lbl_patch = extract_label_patch(GRID_LABEL_ARRAY, row, col, window, pad_value=NODATA)
+        # lbl_patch_ch = lbl_patch[np.newaxis, :, :]  # shape (1,H,W)
+        # lbl_aug = apply_augmentation_to_patch(lbl_patch_ch,
+        #                                      theta_deg=theta,
+        #                                      mirror_var=mirror_var,
+        #                                      shift_x_pixels=shift_x_pixels,
+        #                                      shift_y_pixels=shift_y_pixels,
+        #                                      order=0,  # nearest for labels
+        #                                      cval=NODATA)
+        # center_label = lbl_aug[0, pad, pad]
+        # # handle nodata after augmentation (rare) — fallback to original center if available or set 0
+        # if center_label == NODATA or np.isnan(center_label):
+        #     original_center = GRID_LABEL_ARRAY[row, col]
+        #     if original_center == NODATA or np.isnan(original_center):
+        #         center_label = 0
+        #     else:
+        #         center_label = int(original_center)
+        # labels[b] = int(center_label)
 
     # if patch channels do not match nc, truncate or pad with zeros
     C = patch.shape[0]
@@ -351,6 +396,9 @@ def create_batch(batch_tensor=batch_tensor, labels=labels, sample_ids_real=S_id_
     # assign patch channels to grid tensor
     for ch in range(nc):
         batch_tensor[b, ch, :, :] = torch.from_numpy(patch[ch])
+
+    # assign label to label tensor
+    labels = torch.from_numpy(label_patch)
 
     # if you want to include the center cell as in original 'filled' case:
     # if b >= BATCH_SIZE_real and b < BATCH_SIZE_real + BATCH_SIZE_fill:
@@ -392,29 +440,29 @@ class Net(nn.Module):
     def forward(self, x):
         return self.main(x)
 
-class FocalLoss(nn.Module):
-    def __init__(self, alpha=1, gamma=2, reduction='mean'):
-        super(FocalLoss, self).__init__()
-        self.alpha = alpha
-        self.gamma = gamma
-        self.reduction = reduction
+# class FocalLoss(nn.Module):
+#     def __init__(self, alpha=1, gamma=2, reduction='mean'):
+#         super(FocalLoss, self).__init__()
+#         self.alpha = alpha
+#         self.gamma = gamma
+#         self.reduction = reduction
 
-    def forward(self, inputs, targets):
-        # Get per-sample cross entropy loss
-        ce_loss = F.cross_entropy(inputs, targets, reduction='none')  # shape (B,)
+#     def forward(self, inputs, targets):
+#         # Get per-sample cross entropy loss
+#         ce_loss = F.cross_entropy(inputs, targets, reduction='none')  # shape (B,)
         
-        # Compute pt (probability for true class)
-        pt = torch.exp(-ce_loss)  # shape (B,)
+#         # Compute pt (probability for true class)
+#         pt = torch.exp(-ce_loss)  # shape (B,)
 
-        # Apply focal loss formula
-        focal_loss = self.alpha * (1 - pt) ** self.gamma * ce_loss
+#         # Apply focal loss formula
+#         focal_loss = self.alpha * (1 - pt) ** self.gamma * ce_loss
 
-        if self.reduction == 'mean':
-            return focal_loss.mean()
-        elif self.reduction == 'sum':
-            return focal_loss.sum()
-        else:
-            return focal_loss
+#         if self.reduction == 'mean':
+#             return focal_loss.mean()
+#         elif self.reduction == 'sum':
+#             return focal_loss.sum()
+#         else:
+#             return focal_loss
 
 # initialize optimizer
 def intitialize_optimizer(net):
@@ -572,6 +620,40 @@ def weights_init(m):
         nn.init.xavier_uniform_(m.weight)
         nn.init.constant_(m.bias, 0.0)
 
+def focal_loss(outputs, labels, weights, gamma=2.0):
+    ce = F.cross_entropy(outputs, labels, reduction="none")
+
+    # p_t = probability of the true class
+    pt = torch.exp(-ce)
+
+    # Focal term
+    focal_term = (1 - pt) ** gamma
+
+    # Class weights applied per sample
+    class_w = weights[labels]
+
+    # Weighted focal loss
+    loss = (class_w * focal_term * ce).mean()
+
+    return loss
+
+def compute_batch_weights(labels, num_classes):
+    # count frequencies in the batch
+    unique, counts = torch.unique(labels, return_counts=True)
+    freq = torch.zeros(num_classes, device=labels.device)
+    freq[unique] = counts.float()
+
+    # avoid division by zero (classes not in batch)
+    freq = torch.where(freq > 0, freq, torch.tensor(1.0, device=labels.device))
+
+    # sqrt-inverse frequency
+    weights = 1.0 / torch.sqrt(freq)
+    weights[0] *= 2.0
+
+    # normalize mean weight = 1
+    weights = weights / weights.mean()
+
+    return weights
 
 if use_saved_model:
     print('Loading model')
@@ -583,20 +665,20 @@ else:
         net.cuda()
     optimizer = intitialize_optimizer(net)
 
-# Ensure GRID_LABEL_ARRAY contains only binary labels (0 and 1)
-GRID_LABEL_ARRAY = np.where((GRID_LABEL_ARRAY == 0) | (GRID_LABEL_ARRAY == 1), GRID_LABEL_ARRAY, 0)
+# # Ensure GRID_LABEL_ARRAY contains only binary labels (0 and 1)
+# GRID_LABEL_ARRAY = np.where((GRID_LABEL_ARRAY == 0) | (GRID_LABEL_ARRAY == 1), GRID_LABEL_ARRAY, 0)
 
-# Compute class weights for binary classification
-unique, counts = np.unique(GRID_LABEL_ARRAY, return_counts=True)
-if len(counts) != 2:
-    raise ValueError(f"Expected 2 classes, but found {len(counts)} unique labels: {unique}")
-total = counts.sum()
-class_weights = torch.tensor([total / (2.0 * c) for c in counts], dtype=torch.float32).to('cuda' if use_cuda and torch.cuda.is_available() else 'cpu')
+# # Compute class weights for binary classification
+# unique, counts = np.unique(GRID_LABEL_ARRAY, return_counts=True)
+# if len(counts) != 2:
+#     raise ValueError(f"Expected 2 classes, but found {len(counts)} unique labels: {unique}")
+# total = counts.sum()
+# class_weights = torch.tensor([total / (2.0 * c) for c in counts], dtype=torch.float32).to('cuda' if use_cuda and torch.cuda.is_available() else 'cpu')
 
-# Define the weighted loss function
-criterion = FocalLoss(alpha = 0.25, gamma = 2.0)
-if use_cuda and torch.cuda.is_available():
-    net.cuda()
+# # Define the weighted loss function
+# criterion = FocalLoss(alpha = 0.25, gamma = 2.0)
+# if use_cuda and torch.cuda.is_available():
+#     net.cuda()
 
 # Set random seed for reproducibility: increment to ensure different training samples after load
 manualSeed = 24601 + curr_epoch
@@ -613,6 +695,10 @@ print((datetime.now(timezone.utc) + timedelta(hours=-7)).strftime('%Y-%m-%d %H:%
 bound_epochs = curr_epoch + EPOCHS
 print_interval = min(10000, max(1, ITERS // 10))
 eval_interval = min(10000, max(1, ITERS // 5))
+
+# choose loss function
+crossentropy = True
+focalloss = False
 
 # loop over the dataset multiple times
 for epoch in range(curr_epoch, bound_epochs):
@@ -639,13 +725,29 @@ for epoch in range(curr_epoch, bound_epochs):
             inputs = inputs.cuda()
             labels = labels.cuda()
 
+        # manually compute and apply weights
+        weights = compute_batch_weights(labels, num_classes=2)
+
         # zero the parameter gradients
         optimizer.zero_grad()
 
         # forward + backward + optimize
         outputs = net(inputs)
-        loss = criterion(outputs, labels)
-        loss.backward()
+
+        if crossentropy:
+            loss_per_sample = torch.nn.functional.cross_entropy(outputs, labels)
+            weighted_loss = loss_per_sample * weights[labels]
+            loss = weighted_loss.mean()
+            loss.backward()
+        if focalloss:
+            loss = focal_loss(outputs, labels, weights, gamma = 3.0)
+        if focalloss and crossentropy:
+            raise RuntimeError("Cannot use both cross_entropy and focal_loss simultaneously.")
+        if not focalloss and not crossentropy:
+            raise RuntimeError("Must use either cross_entropy or focal_loss.")
+        
+        # loss = criterion(outputs, labels)
+        # loss.backward()
         # for name, param in net.named_parameters():
         #     if param.grad is not None:
         #         print(f"Gradient for {name}: max={param.grad.abs().max().item()}, min={param.grad.abs().min().item()}")
@@ -687,51 +789,140 @@ for epoch in range(curr_epoch, bound_epochs):
             total_fill = 0
             total_random = 0
             
+        # # evaluation sample:
+        # if frac_train_real < 1 or frac_train_random < 1:
+        #     if i % eval_interval == eval_interval - 1:    # print every min(1000,ITERS/10) mini-batches
+        #         eval_correct = 0
+        #         eval_correct_real = 0
+        #         eval_non_zero_real = 0
+        #         eval_correct_fill = 0
+        #         eval_correct_random = 0
+        #         eval_total = 0
+        #         eval_total_real = 0
+        #         eval_total_fill = 0
+        #         eval_total_random = 0
+
+        #         with torch.no_grad():
+        #             for j in range(100):
+        #                 inputs, labels = create_batch(sample_ids_real=sample_eval_real,
+        #                                             sample_ids_random=sample_eval_random)
+
+        #                 if use_cuda and torch.cuda.is_available():
+        #                     inputs = inputs.cuda()
+        #                     labels = labels.cuda()
+
+        #                 outputs = net(inputs)
+        #                 _, predicted = torch.max(outputs.data, 1)
+        #                 eval_total += labels.size(0)
+        #                 eval_correct += (predicted == labels).sum().item()
+        #                 eval_correct_real += (predicted[0:BATCH_SIZE_real] == labels[0:BATCH_SIZE_real]).sum().item()
+        #                 eval_non_zero_real += (predicted[0:BATCH_SIZE_real] < pow(size_potential,2)).sum().item()
+        #                 eval_correct_fill += (predicted[BATCH_SIZE_real:BATCH_SIZE_real+BATCH_SIZE_fill] == labels[BATCH_SIZE_real:BATCH_SIZE_real+BATCH_SIZE_fill]).sum().item()
+        #                 eval_correct_random += (predicted[BATCH_SIZE-BATCH_SIZE_random:BATCH_SIZE] == labels[BATCH_SIZE-BATCH_SIZE_random:BATCH_SIZE]).sum().item()
+        #                 eval_total_real += BATCH_SIZE_real
+        #                 eval_total_fill += BATCH_SIZE_fill
+        #                 eval_total_random += BATCH_SIZE_random
+
+        #         print('Accuracy on hold-out: %.1f%%, real: %.1f%%, real non-zero: %.1f%%, real filled: %.1f%%, unrealized: %.1f%%' %
+        #             (100 * eval_correct / max(eval_total,1),
+        #             100 * eval_correct_real / max(eval_total_real,1),
+        #             100 * eval_non_zero_real / max(eval_total_real,1),
+        #             100 * eval_correct_fill / max(eval_total_fill,1),
+        #             100 * eval_correct_random / max(eval_total_random,1)))
         # evaluation sample:
         if frac_train_real < 1 or frac_train_random < 1:
-            if i % eval_interval == eval_interval - 1:    # print every min(1000,ITERS/10) mini-batches
-                eval_correct = 0
-                eval_correct_real = 0
-                eval_non_zero_real = 0
-                eval_correct_fill = 0
-                eval_correct_random = 0
+            if i % eval_interval == eval_interval - 1:
+
+                # aggregated metrics
                 eval_total = 0
+                eval_correct = 0
+
                 eval_total_real = 0
+                eval_correct_real = 0
+                eval_non_zero_real = 0      # prediction != none
+                eval_TP_real = 0            # correct non-zero
+                eval_FN_real = 0            # predicted none but true non-none
+                eval_FP_real = 0            # predicted non-none but true none
+
                 eval_total_fill = 0
+                eval_correct_fill = 0
+
                 eval_total_random = 0
+                eval_correct_random = 0
+
+                # top-k
+                eval_top3_correct = 0
 
                 with torch.no_grad():
                     for j in range(100):
-                        inputs, labels = create_batch(sample_ids_real=sample_eval_real,
-                                                    sample_ids_random=sample_eval_random)
+                        inputs, labels = create_batch(
+                            sample_ids_real=sample_eval_real,
+                            sample_ids_random=sample_eval_random
+                        )
 
                         if use_cuda and torch.cuda.is_available():
                             inputs = inputs.cuda()
                             labels = labels.cuda()
 
                         outputs = net(inputs)
-                        _, predicted = torch.max(outputs.data, 1)
+                        _, predicted = torch.max(outputs, 1)
+
+                        # --- top-3 accuracy ---
+                        _, top3_preds = outputs.topk(3, dim=1)
+                        eval_top3_correct += (top3_preds == labels.unsqueeze(1)).any(dim=1).sum().item()
+
+                        # --- overall ---
                         eval_total += labels.size(0)
                         eval_correct += (predicted == labels).sum().item()
-                        eval_correct_real += (predicted[0:BATCH_SIZE_real] == labels[0:BATCH_SIZE_real]).sum().item()
-                        eval_non_zero_real += (predicted[0:BATCH_SIZE_real] < pow(size_potential,2)).sum().item()
-                        eval_correct_fill += (predicted[BATCH_SIZE_real:BATCH_SIZE_real+BATCH_SIZE_fill] == labels[BATCH_SIZE_real:BATCH_SIZE_real+BATCH_SIZE_fill]).sum().item()
-                        eval_correct_random += (predicted[BATCH_SIZE-BATCH_SIZE_random:BATCH_SIZE] == labels[BATCH_SIZE-BATCH_SIZE_random:BATCH_SIZE]).sum().item()
-                        eval_total_real += BATCH_SIZE_real
-                        eval_total_fill += BATCH_SIZE_fill
-                        eval_total_random += BATCH_SIZE_random
 
-                print('Accuracy on hold-out: %.1f%%, real: %.1f%%, real non-zero: %.1f%%, real filled: %.1f%%, unrealized: %.1f%%' %
-                    (100 * eval_correct / max(eval_total,1),
-                    100 * eval_correct_real / max(eval_total_real,1),
-                    100 * eval_non_zero_real / max(eval_total_real,1),
-                    100 * eval_correct_fill / max(eval_total_fill,1),
-                    100 * eval_correct_random / max(eval_total_random,1)))
+                        # --- REAL (first section of batch) ---
+                        real_pred = predicted[:BATCH_SIZE_real]
+                        real_true = labels[:BATCH_SIZE_real]
+                        eval_total_real += BATCH_SIZE_real
+
+                        # exact accuracy
+                        eval_correct_real += (real_pred == real_true).sum().item()
+
+                        # predicted non-zero
+                        eval_non_zero_real += (real_pred < (size_potential ** 2)).sum().item()
+
+                        # TP / FN / FP for real
+                        true_non_zero = real_true < (size_potential ** 2)
+                        pred_non_zero = real_pred < (size_potential ** 2)
+
+                        eval_TP_real += (pred_non_zero & true_non_zero).sum().item()
+                        eval_FN_real += ((~pred_non_zero) & true_non_zero).sum().item()
+                        eval_FP_real += (pred_non_zero & (~true_non_zero)).sum().item()
+
+                        # --- FILLED ---
+                        fill_pred = predicted[BATCH_SIZE_real:BATCH_SIZE_real + BATCH_SIZE_fill]
+                        fill_true = labels[BATCH_SIZE_real:BATCH_SIZE_real + BATCH_SIZE_fill]
+                        eval_total_fill += BATCH_SIZE_fill
+                        eval_correct_fill += (fill_pred == fill_true).sum().item()
+
+                        # --- RANDOM / UNREALIZED ---
+                        rand_pred = predicted[-BATCH_SIZE_random:]
+                        rand_true = labels[-BATCH_SIZE_random:]
+                        eval_total_random += BATCH_SIZE_random
+                        eval_correct_random += (rand_pred == rand_true).sum().item()
+
+                # print results
+                print("Accuracy on hold-out: %.1f%%" % (100 * eval_correct / max(eval_total, 1)))
+                print("  real: %.1f%%" % (100 * eval_correct_real / max(eval_total_real, 1)))
+                print("  real non-zero (pred != none): %.1f%%" %
+                    (100 * eval_non_zero_real / max(eval_total_real, 1)))
+                print("  real TP: %.1f%% | FN: %.1f%% | FP: %.1f%%" %
+                    (100 * eval_TP_real / max(eval_total_real, 1),
+                    100 * eval_FN_real / max(eval_total_real, 1),
+                    100 * eval_FP_real / max(eval_total_real, 1)))
+                print("  filled: %.1f%%" % (100 * eval_correct_fill / max(eval_total_fill, 1)))
+                print("  unrealized: %.1f%%" % (100 * eval_correct_random / max(eval_total_random, 1)))
+                print("  top-3 accuracy: %.1f%%" % (100 * eval_top3_correct / max(eval_total, 1)))
 
 
     print('Finished Epoch ' + str(epoch+1) + ' of ' + str(bound_epochs) + '. Saving model and optimizer checkpoint.')
     curr_epoch = curr_epoch + 1
-    save_model('base_pooled_model2.tar')
+    save_model('bc_model1.tar')
     print((datetime.now(timezone.utc) + timedelta(hours=-7)).strftime('%Y-%m-%d %H:%M:%S'))
 
 print('Finished Training')
