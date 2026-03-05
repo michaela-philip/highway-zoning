@@ -34,11 +34,11 @@ features = ['distance_to_cbd', 'dist_water', 'dist_to_hwy', 'elevation', 'city']
 normalize_features = ['distance_to_cbd', 'dist_to_hwy', 'dist_water', 'elevation'] # the only features i want to demean
 
 cell_width = 150  # cell width in meters (convert from miles)
-size_potential = 4  # potential locations: num_width_potential x num_width_potential
+size_potential = 2  # potential locations: num_width_potential x num_width_potential
 none_class = pow(size_potential, 2)  # class index for "no new highway" option
 highway_classes = list(range(pow(size_potential, 2)))  # class indices for highway placement options
 size_padding = 2  # number of padding cells on each side of potential grid
-nc = len(features)  # number of channels (add 2 for coordinates)
+nc = len(features) + 2  # number of channels (add 2 for coordinates)
 BATCH_SIZE_real = 32  # regions with hwy (but removed)
 BATCH_SIZE_fill = 16  # regions with hwy (not removed)
 BATCH_SIZE_random = 16  # regions with no hwy (but candidates)
@@ -52,8 +52,8 @@ use_cuda = True
 curr_epoch = 0
 epoch_set_seed = list()
 epoch_set_seed.append(curr_epoch)
-EPOCHS = 5
-ITERS = 1000
+EPOCHS = 20
+ITERS = 2000
 NODATA = -9999.0
 
 print('BATCH_SIZE: ' + str(BATCH_SIZE))
@@ -224,7 +224,7 @@ def gridid_to_rc_map(gdf, cell_width):
 #     return patch_with_coords.astype('float32')
 
 # augment initial square and extract patch
-def extract_patch_from_arrays(feature_array, row, col, window, rot_k, mirror_var=1, shift_x_cells=0.0, shift_y_cells=0.0):
+def extract_patch_from_arrays(feature_array, row, col, window, flip_var=1, mirror_var=1, shift_x_cells=0.0, shift_y_cells=0.0):
     C, H, W = feature_array.shape
     pad = window // 2
 
@@ -261,7 +261,26 @@ def extract_patch_from_arrays(feature_array, row, col, window, rot_k, mirror_var
         patch = np.flip(patch, axis=2).copy()
         rel_col = window - 1 - rel_col  # update relative col if mirrored
         class_idx = (rel_row - central_start) * size_potential + (rel_col - central_start)
-    return patch, class_idx
+
+    if flip_var == -1:
+        patch = np.flip(patch, axis=1).copy()
+        rel_row = window - 1 - rel_row  # update relative row if flipped
+        class_idx = (rel_row - central_start) * size_potential + (rel_col - central_start)
+
+    # Add coordinate channels
+    x_coords = np.linspace(-1, 1, window, dtype=np.float32)
+    y_coords = np.linspace(-1, 1, window, dtype=np.float32)
+    x_channel = np.tile(x_coords, (window, 1))          # shape (window, window)
+    y_channel = np.tile(y_coords[:, np.newaxis], (1, window))
+
+    patch_with_coords = np.concatenate([
+        patch,
+        x_channel[np.newaxis, :, :],
+        y_channel[np.newaxis, :, :]
+    ], axis=0)
+
+    # return patch_with_coords.astype('float32')
+    return patch_with_coords, class_idx
 
 
     # # Initialize patch with zeros
@@ -389,6 +408,7 @@ def create_batch(batch_tensor=batch_tensor, labels=labels, sample_ids_real=S_id_
         # random augmentations (keep same semantics as original)
         rot_k = np.random.randint(0, 4)
         mirror_var = (np.random.rand() > 0.5)*2 - 1
+        flip_var = (np.random.rand() > 0.5)*2 - 1
         shift_x_cells = np.random.randint(-size_potential, size_potential)
         shift_y_cells = np.random.randint(-size_potential, size_potential)
 
@@ -592,8 +612,10 @@ def compute_batch_weights(labels, num_classes):
     freq = torch.where(freq > 0, freq, torch.tensor(1.0, device=labels.device))
 
     # sqrt-inverse frequency
-    weights = 1.0 / torch.sqrt(freq)
-    weights[0] *= 2.0
+    weights = 1.0 / freq
+    weights[0] *= 8.0
+    weights[none_class] *= 0.3
+
 
     # normalize mean weight = 1
     weights = weights / weights.mean()
@@ -763,13 +785,12 @@ for epoch in range(curr_epoch, bound_epochs):
                         # predicted non-zero
                         eval_non_zero_real += (real_pred < (size_potential ** 2)).sum().item()
 
-                        # TP / FN / FP for real
+                        # TP / FN  for real
                         true_non_zero = real_true < (size_potential ** 2)
                         pred_non_zero = real_pred < (size_potential ** 2)
 
                         eval_TP_real += (pred_non_zero & true_non_zero).sum().item()
                         eval_FN_real += ((~pred_non_zero) & true_non_zero).sum().item()
-                        eval_FP_real += (pred_non_zero & (~true_non_zero)).sum().item()
 
                         # --- FILLED ---
                         fill_pred = predicted[BATCH_SIZE_real:BATCH_SIZE_real + BATCH_SIZE_fill]
@@ -783,6 +804,11 @@ for epoch in range(curr_epoch, bound_epochs):
                         eval_total_random += BATCH_SIZE_random
                         eval_correct_random += (rand_pred == rand_true).sum().item()
 
+                        # false positives
+                        rand_true_none = rand_true == none_class
+                        rand_pred_real = rand_pred < none_class
+                        eval_FP_random = (rand_pred_real & rand_true_none).sum().item()
+
                 # print results
                 print("Accuracy on hold-out: %.1f%%" % (100 * eval_correct / max(eval_total, 1)))
                 print("  real: %.1f%%" % (100 * eval_correct_real / max(eval_total_real, 1)))
@@ -791,7 +817,7 @@ for epoch in range(curr_epoch, bound_epochs):
                 print("  real TP: %.1f%% | FN: %.1f%% | FP: %.1f%%" %
                     (100 * eval_TP_real / max(eval_total_real, 1),
                     100 * eval_FN_real / max(eval_total_real, 1),
-                    100 * eval_FP_real / max(eval_total_real, 1)))
+                    100 * eval_FP_random / max(eval_total_random, 1)))
                 print("  filled: %.1f%%" % (100 * eval_correct_fill / max(eval_total_fill, 1)))
                 print("  unrealized: %.1f%%" % (100 * eval_correct_random / max(eval_total_random, 1)))
                 print("  top-3 accuracy: %.1f%%" % (100 * eval_top3_correct / max(eval_total, 1)))
