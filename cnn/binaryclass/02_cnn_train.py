@@ -30,8 +30,8 @@ sample = pd.read_pickle('data/input/samplelist.pkl')
 candidate_list = pd.read_pickle('data/output/cnn_candidate_list.pkl')
 grid = pd.read_pickle('data/output/sample.pkl')
 hwys = grid[grid['hwy'] == 1]['grid_id'].unique().tolist()
-features = ['valueh', 'rent', 'distance_to_cbd', 'dist_water', 'dist_to_hwy', 'owner', 'elevation', 'city']
-normalize_features = ['valueh', 'rent', 'distance_to_cbd', 'dist_water', 'dist_to_hwy', 'owner', 'elevation'] # the only features i want to demean
+features = ['valueh', 'rent', 'distance_to_cbd', 'dist_water', 'dist_to_hwy', 'elevation', 'city', 'hwy']
+normalize_features = ['valueh', 'rent', 'distance_to_cbd', 'dist_water', 'dist_to_hwy', 'elevation'] # the only features i want to demean
 
 cell_width = 150  # cell width in meters (convert from miles)
 size_potential = 4  # potential locations: num_width_potential x num_width_potential
@@ -212,14 +212,15 @@ def extract_patch_from_arrays(feature_array, label_array, row, col, window, rot_
     # extract
     patch = np.zeros((C, window, window), dtype = np.float32)
     patch[:, pr_start:pr_end, pc_start:pc_end] = feature_array[:, r_start:r_end, c_start:c_end]
-    label_patch = label_array[r_start:r_end, c_start:c_end]
+    label_patch = np.zeros((window, window), dtype=label_array.dtype)
+    label_patch[pr_start:pr_end, pc_start:pc_end] = label_array[r_start:r_end, c_start:c_end]
 
     # randomly mirror
     if mirror_var == -1:
         patch = np.flip(patch, axis=2).copy()
         rel_col = window - 1 - rel_col  # update relative col if mirrored
         class_idx = (rel_row - central_start) * size_potential + (rel_col - central_start)
-    return patch, class_idx, label_patch
+    return patch, label_patch, class_idx
 
 # # get window patch from feature and label arrays
 # def extract_patch_from_arrays(feature_array, row, col, window, pad_value = 0.0):
@@ -255,7 +256,7 @@ GRIDID_TO_RC = gridid_to_rc_map(grid, cell_width)
 
 # create tensor of the proper size 
 batch_tensor = torch.zeros(BATCH_SIZE,nc,2*size_padding+size_potential, 2*size_padding+size_potential)
-labels = torch.empty(BATCH_SIZE, dtype=torch.int64)
+labels = torch.empty(BATCH_SIZE, 2*size_padding+size_potential, 2*size_padding+size_potential, dtype=torch.int64)
 
 # # filter S_id lists to only include cells with valid label (not NODATA)
 # def valid_ids_from_list(id_list):
@@ -398,7 +399,15 @@ def create_batch(batch_tensor=batch_tensor, labels=labels, sample_ids_real=S_id_
         batch_tensor[b, ch, :, :] = torch.from_numpy(patch[ch])
 
     # assign label to label tensor
-    labels = torch.from_numpy(label_patch)
+    label_patch_tensor = torch.from_numpy(label_patch)
+    clean_label_patch = torch.where((label_patch_tensor == 0) | (label_patch_tensor == 1),
+                                    label_patch_tensor.float(),
+                                    torch.zeros_like(label_patch_tensor.float()))
+    labels[b] = clean_label_patch
+
+    # 'zero' out highways in the 'real' samples
+    if b < BATCH_SIZE_real:
+        batch_tensor[b, features.index('hwy'), :, :] = 0
 
     # if you want to include the center cell as in original 'filled' case:
     # if b >= BATCH_SIZE_real and b < BATCH_SIZE_real + BATCH_SIZE_fill:
@@ -419,21 +428,21 @@ class Net(nn.Module):
     def __init__(self):
         super(Net, self).__init__()
         main = nn.Sequential(
-            nn.InstanceNorm2d(num_features=nc, affine=True),
+            # nn.InstanceNorm2d(num_features=nc, affine=True),
             nn.Conv2d(in_channels=nc, out_channels=2*nc, kernel_size=5, padding=2, padding_mode='replicate', bias=True),
             nn.InstanceNorm2d(num_features=2*nc, affine=True),
             nn.LeakyReLU(),
-            nn.Conv2d(in_channels=2*nc, out_channels=4*nc, kernel_size=21, padding=20, padding_mode='replicate', dilation=2, bias=True),
+            nn.Conv2d(in_channels=2*nc, out_channels=4*nc, kernel_size=11, padding=10, padding_mode='replicate', dilation=2, bias=True),
             nn.InstanceNorm2d(num_features=4*nc, affine=True),
             nn.LeakyReLU(),
             nn.Conv2d(in_channels=4*nc, out_channels=4*nc, kernel_size=5, padding=2, padding_mode='replicate', bias=True),
             nn.InstanceNorm2d(num_features=4*nc, affine=True),
             nn.LeakyReLU(),
-            nn.Conv2d(in_channels=4*nc, out_channels=1, kernel_size=21, padding=20, padding_mode='replicate', dilation=2, bias=True),
-            nn.InstanceNorm2d(num_features=1, affine=True),
-            nn.Flatten(),
-            # binary classification => 2 logits
-            nn.Linear(1 * pow(2*size_padding+size_potential, 2), 2),
+            nn.Conv2d(in_channels=4*nc, out_channels=1, kernel_size=11, padding=10, padding_mode='replicate', dilation=2, bias=True),
+            # nn.InstanceNorm2d(num_features=1, affine=True),
+            # nn.Flatten(),
+            # # binary classification => 2 logits
+            # nn.Linear(1 * pow(2*size_padding+size_potential, 2), 2),
         )
         self.main = main
 
@@ -622,24 +631,22 @@ def weights_init(m):
 
 def focal_loss(outputs, labels, weights, gamma=2.0):
     ce = F.cross_entropy(outputs, labels, reduction="none")
-
     # p_t = probability of the true class
     pt = torch.exp(-ce)
-
     # Focal term
     focal_term = (1 - pt) ** gamma
-
     # Class weights applied per sample
     class_w = weights[labels]
-
     # Weighted focal loss
     loss = (class_w * focal_term * ce).mean()
-
     return loss
 
 def compute_batch_weights(labels, num_classes):
     # count frequencies in the batch
-    unique, counts = torch.unique(labels, return_counts=True)
+    valid_mask = (labels >= 0) & (labels < num_classes)
+    valid_labels = labels[valid_mask]
+    unique, counts = torch.unique(valid_labels, return_counts=True)
+    unique = unique.long()
     freq = torch.zeros(num_classes, device=labels.device)
     freq[unique] = counts.float()
 
@@ -735,9 +742,13 @@ for epoch in range(curr_epoch, bound_epochs):
         outputs = net(inputs)
 
         if crossentropy:
-            loss_per_sample = torch.nn.functional.cross_entropy(outputs, labels)
-            weighted_loss = loss_per_sample * weights[labels]
-            loss = weighted_loss.mean()
+            # loss_per_sample = torch.nn.functional.cross_entropy(outputs, labels)
+            # weighted_loss = loss_per_sample * weights[labels]
+            # loss = weighted_loss.mean()
+            # loss.backward()
+            outputs = outputs.squeeze(1)  # shape (B,H,W)
+            criterion = torch.nn.BCEWithLogitsLoss(pos_weight = torch.tensor([1000.0]))
+            loss = criterion(outputs, labels.float())
             loss.backward()
         if focalloss:
             loss = focal_loss(outputs, labels, weights, gamma = 3.0)
@@ -754,44 +765,44 @@ for epoch in range(curr_epoch, bound_epochs):
         torch.nn.utils.clip_grad_norm_(net.parameters(), max_norm=1.0)
         optimizer.step()
 
-        # determine accuracy of taking "prediction"
-        with torch.no_grad():
-            _, predicted = torch.max(outputs.data, 1)
+        # # determine accuracy of taking "prediction"
+        # with torch.no_grad():
+        #     _, predicted = torch.max(outputs.data, 1)
 
-            TP = ((predicted == 1) & (labels == 1)).sum().item()
-            TN = ((predicted == 0) & (labels == 0)).sum().item()
-            FP = ((predicted == 1) & (labels == 0)).sum().item()
-            FN = ((predicted == 0) & (labels == 1)).sum().item()
+        #     TP = ((predicted == 1) & (labels == 1)).sum().item()
+        #     TN = ((predicted == 0) & (labels == 0)).sum().item()
+        #     FP = ((predicted == 1) & (labels == 0)).sum().item()
+        #     FN = ((predicted == 0) & (labels == 1)).sum().item()
 
-            total += labels.size(0)
-            # correct += (predicted == labels).sum().item()
-            # correct_real += (predicted[0:BATCH_SIZE_real] == labels[0:BATCH_SIZE_real]).sum().item()
-            # non_zero_real += (predicted[0:BATCH_SIZE_real] < pow(size_potential,2)).sum().item()
-            # correct_fill += (predicted[BATCH_SIZE_real:BATCH_SIZE_real+BATCH_SIZE_fill] == labels[BATCH_SIZE_real:BATCH_SIZE_real+BATCH_SIZE_fill]).sum().item()
-            # correct_random += (predicted[BATCH_SIZE-BATCH_SIZE_random:BATCH_SIZE] == labels[BATCH_SIZE-BATCH_SIZE_random:BATCH_SIZE]).sum().item()
-            # total_real += BATCH_SIZE_real
-            # total_fill += BATCH_SIZE_fill
-            # total_random += BATCH_SIZE_random
+        #     total += labels.size(0)
+        #     # correct += (predicted == labels).sum().item()
+        #     # correct_real += (predicted[0:BATCH_SIZE_real] == labels[0:BATCH_SIZE_real]).sum().item()
+        #     # non_zero_real += (predicted[0:BATCH_SIZE_real] < pow(size_potential,2)).sum().item()
+        #     # correct_fill += (predicted[BATCH_SIZE_real:BATCH_SIZE_real+BATCH_SIZE_fill] == labels[BATCH_SIZE_real:BATCH_SIZE_real+BATCH_SIZE_fill]).sum().item()
+        #     # correct_random += (predicted[BATCH_SIZE-BATCH_SIZE_random:BATCH_SIZE] == labels[BATCH_SIZE-BATCH_SIZE_random:BATCH_SIZE]).sum().item()
+        #     # total_real += BATCH_SIZE_real
+        #     # total_fill += BATCH_SIZE_fill
+        #     # total_random += BATCH_SIZE_random
         
-        accuracy = 100 * (TP + TN) / max(total, 1)
-        precision = 100 * TP / max(TP + FP, 1)
-        recall = 100 * TP / max(TP + FN, 1)
+        # accuracy = 100 * (TP + TN) / max(total, 1)
+        # precision = 100 * TP / max(TP + FP, 1)
+        # recall = 100 * TP / max(TP + FN, 1)
 
-        # print statistics
-        running_loss += loss.item()
-        if i % print_interval == print_interval - 1:
-            print('[%d / %d, %5d / %5d] loss: %.3f, accuracy: %.1f%%, precision: %.1f%%, recall: %.1f%%, FP: %.1f%%' %
-                  (epoch + 1, bound_epochs, i + 1, ITERS, running_loss / print_interval,
-                   accuracy,
-                   precision,
-                   recall,
-                   FP))
-            print((datetime.now(timezone.utc) + timedelta(hours=-7)).strftime('%Y-%m-%d %H:%M:%S'))
-            running_loss = 0.0
-            accuracy = 0
-            precision = 0
-            recall = 0
-            FP = 0
+        # # print statistics
+        # running_loss += loss.item()
+        # if i % print_interval == print_interval - 1:
+        #     print('[%d / %d, %5d / %5d] loss: %.3f, accuracy: %.1f%%, precision: %.1f%%, recall: %.1f%%, FP: %.1f%%' %
+        #           (epoch + 1, bound_epochs, i + 1, ITERS, running_loss / print_interval,
+        #            accuracy,
+        #            precision,
+        #            recall,
+        #            FP))
+        #     print((datetime.now(timezone.utc) + timedelta(hours=-7)).strftime('%Y-%m-%d %H:%M:%S'))
+        #     running_loss = 0.0
+        #     accuracy = 0
+        #     precision = 0
+        #     recall = 0
+        #     FP = 0
             
         # # evaluation sample:
         # if frac_train_real < 1 or frac_train_random < 1:
@@ -833,117 +844,236 @@ for epoch in range(curr_epoch, bound_epochs):
         #             100 * eval_non_zero_real / max(eval_total_real,1),
         #             100 * eval_correct_fill / max(eval_total_fill,1),
         #             100 * eval_correct_random / max(eval_total_random,1)))
+        running_loss += loss.item()
+
+        if i % min(10000, ITERS/10) == min(10000, ITERS/10) - 1:
+            
+            with torch.no_grad():
+                probs = torch.sigmoid(outputs)  # (batch, 1, 50, 50)
+                labels_flat = labels.float()    # (batch, 1, 50, 50) binary masks
+                probs_flat = probs.view(-1)
+                labels_flat_vec = labels_flat.view(-1)
+                
+                # mean predicted probability for true highway vs true non-highway cells
+                if (labels_flat_vec == 1).sum() > 0:
+                    mean_prob_pos = probs_flat[labels_flat_vec == 1].mean().item()
+                else:
+                    mean_prob_pos = float('nan')
+                # mean_prob_pos = probs_flat[labels_flat_vec == 1].mean().item()
+                mean_prob_neg = probs_flat[labels_flat_vec == 0].mean().item()
+                
+                # fraction of cells predicted as highway vs true fraction
+                pred_positive_rate = (probs_flat > 0.5).float().mean().item()
+                true_positive_rate = labels_flat_vec.mean().item()
+                
+                # percentiles of predicted probabilities
+                p10 = torch.quantile(probs_flat, 0.10).item()
+                p50 = torch.quantile(probs_flat, 0.50).item()
+                p90 = torch.quantile(probs_flat, 0.90).item()
+                
+                # AUC-ROC on current batch (approximate, using held-out eval batches below)
+                # sort by predicted probability descending
+                sorted_indices = torch.argsort(probs_flat, descending=True)
+                sorted_labels = labels_flat_vec[sorted_indices]
+                n_pos = sorted_labels.sum().item()
+                n_neg = (1 - sorted_labels).sum().item()
+                if n_pos > 0 and n_neg > 0:
+                    tp_cumsum = torch.cumsum(sorted_labels, dim=0)
+                    fp_cumsum = torch.cumsum(1 - sorted_labels, dim=0)
+                    tpr = tp_cumsum / n_pos
+                    fpr = fp_cumsum / n_neg
+                    # trapezoidal integration
+                    auc = torch.trapz(tpr, fpr).item()
+                else:
+                    auc = float('nan')
+
+            print('[%d / %d, %5d / %5d] loss: %.4f | '
+                'mean prob (highway=1): %.3f, (highway=0): %.3f | '
+                'pred rate: %.3f, true rate: %.3f | '
+                'prob percentiles (p10/p50/p90): %.3f / %.3f / %.3f | '
+                'batch AUC: %.3f' %
+                (epoch + 1, bound_epochs, i + 1, ITERS,
+                running_loss / min(10000, ITERS/10),
+                mean_prob_pos, mean_prob_neg,
+                pred_positive_rate, true_positive_rate,
+                p10, p50, p90,
+                auc))
+            
+            print((datetime.now(timezone.utc) + timedelta(hours=-7)).strftime('%Y-%m-%d %H:%M:%S'))
+            running_loss = 0.0
+
         # evaluation sample:
         if frac_train_real < 1 or frac_train_random < 1:
             if i % eval_interval == eval_interval - 1:
-
-                # aggregated metrics
-                TP = 0
-                TN = 0
-                FP = 0
-                FN = 0
-                total = 0
-                total_pos = 0
-                total_neg = 0
-                accuracy = 0 
-                precision = 0
-                recall = 0
-                # eval_total = 0
-                # eval_correct = 0
-
-                # eval_total_real = 0
-                # eval_correct_real = 0
-                # eval_non_zero_real = 0      # prediction != none
-                # eval_TP_real = 0            # correct non-zero
-                # eval_FN_real = 0            # predicted none but true non-none
-                # eval_FP_real = 0            # predicted non-none but true none
-
-                # eval_total_fill = 0
-                # eval_correct_fill = 0
-
-                # eval_total_random = 0
-                # eval_correct_random = 0
-
-                # # top-k
-                # eval_top3_correct = 0
-
+                eval_running_loss = 0.0
+                eval_probs_all = []
+                eval_labels_all = []
+                
                 with torch.no_grad():
-                    for j in range(100):
-                        inputs, labels = create_batch(
-                            sample_ids_real=sample_eval_real,
-                            sample_ids_random=sample_eval_random
-                        )
-
+                    for eval_i in range(100):
+                        eval_inputs, eval_labels = create_batch(sample_ids_real=sample_eval_real,
+                                                                sample_ids_random=sample_eval_random)
                         if use_cuda and torch.cuda.is_available():
-                            inputs = inputs.cuda()
-                            labels = labels.cuda()
+                            eval_inputs = eval_inputs.cuda()
+                            eval_labels = eval_labels.cuda()
+                        
+                        eval_outputs = net(eval_inputs)
+                        eval_outputs = eval_outputs.squeeze(1)  # shape (B,H,W)
+                        eval_loss = criterion(eval_outputs, eval_labels.float())
+                        eval_running_loss += eval_loss.item()
+                        
+                        eval_probs_all.append(torch.sigmoid(eval_outputs).view(-1).cpu())
+                        eval_labels_all.append(eval_labels.float().view(-1).cpu())
+                    
+                    # concatenate across all eval batches
+                    eval_probs_flat = torch.cat(eval_probs_all)
+                    eval_labels_flat = torch.cat(eval_labels_all)
+                    
+                    # mean predicted probability for true highway vs true non-highway cells
+                    eval_mean_prob_pos = eval_probs_flat[eval_labels_flat == 1].mean().item()
+                    eval_mean_prob_neg = eval_probs_flat[eval_labels_flat == 0].mean().item()
+                    
+                    # fraction of cells predicted as highway vs true fraction
+                    eval_pred_positive_rate = (eval_probs_flat > 0.5).float().mean().item()
+                    eval_true_positive_rate = eval_labels_flat.mean().item()
+                    
+                    # percentiles of predicted probabilities
+                    eval_p10 = torch.quantile(eval_probs_flat, 0.10).item()
+                    eval_p50 = torch.quantile(eval_probs_flat, 0.50).item()
+                    eval_p90 = torch.quantile(eval_probs_flat, 0.90).item()
+                    
+                    # AUC-ROC across all eval batches
+                    sorted_indices = torch.argsort(eval_probs_flat, descending=True)
+                    sorted_labels = eval_labels_flat[sorted_indices]
+                    n_pos = sorted_labels.sum().item()
+                    n_neg = (1 - sorted_labels).sum().item()
+                    if n_pos > 0 and n_neg > 0:
+                        tp_cumsum = torch.cumsum(sorted_labels, dim=0)
+                        fp_cumsum = torch.cumsum(1 - sorted_labels, dim=0)
+                        tpr = tp_cumsum / n_pos
+                        fpr = fp_cumsum / n_neg
+                        eval_auc = torch.trapz(tpr, fpr).item()
+                    else:
+                        eval_auc = float('nan')
+                
+                print('Held-out eval | loss: %.4f | '
+                    'mean prob (highway=1): %.3f, (highway=0): %.3f | '
+                    'pred rate: %.3f, true rate: %.3f | '
+                    'prob percentiles (p10/p50/p90): %.3f / %.3f / %.3f | '
+                    'AUC: %.3f' %
+                    (eval_running_loss / 100,
+                    eval_mean_prob_pos, eval_mean_prob_neg,
+                    eval_pred_positive_rate, eval_true_positive_rate,
+                    eval_p10, eval_p50, eval_p90,
+                    eval_auc))
 
-                        outputs = net(inputs)
-                        _, predicted = torch.max(outputs, 1)
+                # # aggregated metrics
+                # TP = 0
+                # TN = 0
+                # FP = 0
+                # FN = 0
+                # total = 0
+                # total_pos = 0
+                # total_neg = 0
+                # accuracy = 0 
+                # precision = 0
+                # recall = 0
+                # # eval_total = 0
+                # # eval_correct = 0
 
-                        # compute TP, TN, FP, FN
-                        TP = ((predicted == 1) & (labels == 1)).sum().item()
-                        TN = ((predicted == 0) & (labels == 0)).sum().item()
-                        FP = ((predicted == 1) & (labels == 0)).sum().item()
-                        FN = ((predicted == 0) & (labels == 1)).sum().item()
+                # # eval_total_real = 0
+                # # eval_correct_real = 0
+                # # eval_non_zero_real = 0      # prediction != none
+                # # eval_TP_real = 0            # correct non-zero
+                # # eval_FN_real = 0            # predicted none but true non-none
+                # # eval_FP_real = 0            # predicted non-none but true none
 
-                        total = labels.size(0)
-                        total_pos = (labels == 1).sum().item()  
-                        total_neg = (labels == 0).sum().item()
+                # # eval_total_fill = 0
+                # # eval_correct_fill = 0
 
-                        accuracy = 100 * (TP + TN) / max(total, 1)
-                        precision = 100 * TP / max(TP + FP, 1)
-                        recall = 100 * TP / max(TP + FN, 1)
+                # # eval_total_random = 0
+                # # eval_correct_random = 0
 
-                        # per class
-                        acc_pos = 100 * TP / max(total_pos, 1)
-                        acc_neg = 100 * TN / max(total_neg, 1)
+                # # # top-k
+                # # eval_top3_correct = 0
 
-                        # # --- top-3 accuracy ---
-                        # _, top3_preds = outputs.topk(3, dim=1)
-                        # eval_top3_correct += (top3_preds == labels.unsqueeze(1)).any(dim=1).sum().item()
+                # with torch.no_grad():
+                #     for j in range(100):
+                #         inputs, labels = create_batch(
+                #             sample_ids_real=sample_eval_real,
+                #             sample_ids_random=sample_eval_random
+                #         )
 
-                        # # --- overall ---
-                        # eval_total += labels.size(0)
-                        # eval_correct += (predicted == labels).sum().item()
+                #         if use_cuda and torch.cuda.is_available():
+                #             inputs = inputs.cuda()
+                #             labels = labels.cuda()
 
-                        # # --- REAL (first section of batch) ---
-                        # real_pred = predicted[:BATCH_SIZE_real]
-                        # real_true = labels[:BATCH_SIZE_real]
-                        # eval_total_real += BATCH_SIZE_real
+                #         outputs = net(inputs)
+                #         _, predicted = torch.max(outputs, 1)
 
-                        # # exact accuracy
-                        # eval_correct_real += (real_pred == real_true).sum().item()
+                #         # compute TP, TN, FP, FN
+                #         TP = ((predicted == 1) & (labels == 1)).sum().item()
+                #         TN = ((predicted == 0) & (labels == 0)).sum().item()
+                #         FP = ((predicted == 1) & (labels == 0)).sum().item()
+                #         FN = ((predicted == 0) & (labels == 1)).sum().item()
 
-                        # # predicted non-zero
-                        # eval_non_zero_real += (real_pred < (size_potential ** 2)).sum().item()
+                #         total = labels.size(0)
+                #         total_pos = (labels == 1).sum().item()  
+                #         total_neg = (labels == 0).sum().item()
 
-                        # # TP / FN / FP for real
-                        # true_non_zero = real_true < (size_potential ** 2)
-                        # pred_non_zero = real_pred < (size_potential ** 2)
+                #         accuracy = 100 * (TP + TN) / max(total, 1)
+                #         precision = 100 * TP / max(TP + FP, 1)
+                #         recall = 100 * TP / max(TP + FN, 1)
 
-                        # eval_TP_real += (pred_non_zero & true_non_zero).sum().item()
-                        # eval_FN_real += ((~pred_non_zero) & true_non_zero).sum().item()
-                        # eval_FP_real += (pred_non_zero & (~true_non_zero)).sum().item()
+                #         # per class
+                #         acc_pos = 100 * TP / max(total_pos, 1)
+                #         acc_neg = 100 * TN / max(total_neg, 1)
 
-                        # # --- FILLED ---
-                        # fill_pred = predicted[BATCH_SIZE_real:BATCH_SIZE_real + BATCH_SIZE_fill]
-                        # fill_true = labels[BATCH_SIZE_real:BATCH_SIZE_real + BATCH_SIZE_fill]
-                        # eval_total_fill += BATCH_SIZE_fill
-                        # eval_correct_fill += (fill_pred == fill_true).sum().item()
+                #         # # --- top-3 accuracy ---
+                #         # _, top3_preds = outputs.topk(3, dim=1)
+                #         # eval_top3_correct += (top3_preds == labels.unsqueeze(1)).any(dim=1).sum().item()
 
-                        # # --- RANDOM / UNREALIZED ---
-                        # rand_pred = predicted[-BATCH_SIZE_random:]
-                        # rand_true = labels[-BATCH_SIZE_random:]
-                        # eval_total_random += BATCH_SIZE_random
-                        # eval_correct_random += (rand_pred == rand_true).sum().item()
+                #         # # --- overall ---
+                #         # eval_total += labels.size(0)
+                #         # eval_correct += (predicted == labels).sum().item()
 
-                # print results
-                print(f"Accuracy on hold-out: {accuracy:.1f}%")
-                print(f"Accuracy on real locations: {acc_pos:.1f}%")
-                print(f"Accuracy on non-real locations: {acc_neg:.1f}%")
-                print(f"Precision: {precision:.1f}%")
-                print(f"Recall: {recall:.1f}%")
+                #         # # --- REAL (first section of batch) ---
+                #         # real_pred = predicted[:BATCH_SIZE_real]
+                #         # real_true = labels[:BATCH_SIZE_real]
+                #         # eval_total_real += BATCH_SIZE_real
+
+                #         # # exact accuracy
+                #         # eval_correct_real += (real_pred == real_true).sum().item()
+
+                #         # # predicted non-zero
+                #         # eval_non_zero_real += (real_pred < (size_potential ** 2)).sum().item()
+
+                #         # # TP / FN / FP for real
+                #         # true_non_zero = real_true < (size_potential ** 2)
+                #         # pred_non_zero = real_pred < (size_potential ** 2)
+
+                #         # eval_TP_real += (pred_non_zero & true_non_zero).sum().item()
+                #         # eval_FN_real += ((~pred_non_zero) & true_non_zero).sum().item()
+                #         # eval_FP_real += (pred_non_zero & (~true_non_zero)).sum().item()
+
+                #         # # --- FILLED ---
+                #         # fill_pred = predicted[BATCH_SIZE_real:BATCH_SIZE_real + BATCH_SIZE_fill]
+                #         # fill_true = labels[BATCH_SIZE_real:BATCH_SIZE_real + BATCH_SIZE_fill]
+                #         # eval_total_fill += BATCH_SIZE_fill
+                #         # eval_correct_fill += (fill_pred == fill_true).sum().item()
+
+                #         # # --- RANDOM / UNREALIZED ---
+                #         # rand_pred = predicted[-BATCH_SIZE_random:]
+                #         # rand_true = labels[-BATCH_SIZE_random:]
+                #         # eval_total_random += BATCH_SIZE_random
+                #         # eval_correct_random += (rand_pred == rand_true).sum().item()
+
+                # # print results
+                # print(f"Accuracy on hold-out: {accuracy:.1f}%")
+                # print(f"Accuracy on real locations: {acc_pos:.1f}%")
+                # print(f"Accuracy on non-real locations: {acc_neg:.1f}%")
+                # print(f"Precision: {precision:.1f}%")
+                # print(f"Recall: {recall:.1f}%")
                 # print("  real: %.1f%%" % (100 * eval_correct_real / max(eval_total_real, 1)))
                 # print("  real non-zero (pred != none): %.1f%%" %
                 #     (100 * eval_non_zero_real / max(eval_total_real, 1)))
