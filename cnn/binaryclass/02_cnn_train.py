@@ -149,25 +149,6 @@ def gdf_to_raster(gdf, features, label, cell_width, crs=None, nodata=-9999.0):
 
     feature_array = out_array[:len(features), :, :]
     label_array = out_array[-1, :, :]
-    # label_array = out_array[len(features):, :, :]
-    # # if label was one band, squeeze to 2D
-    # if label_array.shape[0] == 1:
-    #     label_array = np.squeeze(label_array, axis=0)
-
-    # # compute numeric means/stds (fallback to 0.0/1.0)
-    # means, stds = [], []
-    # for i in range(len(features)):
-    #     band = out_array[i]
-    #     mask = band != nodata
-    #     if mask.any():
-    #         mu = float(np.mean(band[mask]))
-    #         sd = float(np.std(band[mask]))
-    #         if sd == 0 or np.isnan(sd):
-    #             sd = 1.0
-    #     else:
-    #         mu, sd = 0.0, 1.0
-    #     means.append(mu)
-    #     stds.append(sd)
 
     return feature_array, label_array, trs
 
@@ -222,52 +203,14 @@ def extract_patch_from_arrays(feature_array, label_array, row, col, window, rot_
         class_idx = (rel_row - central_start) * size_potential + (rel_col - central_start)
     return patch, label_patch, class_idx
 
-# # get window patch from feature and label arrays
-# def extract_patch_from_arrays(feature_array, row, col, window, pad_value = 0.0):
-#     C, H, W = feature_array.shape
-#     pad = window // 2
-#     arr_p = np.pad(feature_array, ((0, 0), (pad, pad), (pad, pad)), mode = 'constant', constant_values = pad_value)
-#     r0, c0 = row + pad, col + pad
-#     patch = arr_p[:, r0-pad:r0+pad, c0-pad:c0+pad]
-#     return patch.astype('float32')
-
-# def apply_augmentation_to_patch(patch, theta_deg=0.0, mirror_var=1, shift_x_pixels=0.0, shift_y_pixels=0.0, order=1, cval=0.0):
-#     C, H, W = patch.shape
-#     out = np.empty_like(patch)
-#     for ch in range(C):
-#         layer = patch[ch]
-#         # mirror left-right if requested
-#         if mirror_var == -1:
-#             layer = np.fliplr(layer)
-#         # rotate about center (reshape=False keeps same H,W)
-#         if theta_deg != 0.0:
-#             layer = rotate(layer, angle=theta_deg, reshape=False, order=order, mode='constant', cval=cval)
-#         # shift (rows, cols)
-#         if shift_y_pixels != 0.0 or shift_x_pixels != 0.0:
-#             layer = shift(layer, shift=(shift_y_pixels, shift_x_pixels), order=order, mode='constant', cval=cval)
-#         out[ch] = layer
-#     return out
-
 grid = normalize_features_per_city(grid, normalize_features, nodata=NODATA)
 print(grid[features].describe())
 GRID_FEATURE_ARRAY, GRID_LABEL_ARRAY, rast_transform = gdf_to_raster(grid, features, 'hwy', cell_width = 150)
-# GRID_LABEL_ARRAY = np.squeeze(GRID_LABEL_ARRAY)
 GRIDID_TO_RC = gridid_to_rc_map(grid, cell_width)
 
 # create tensor of the proper size 
 batch_tensor = torch.zeros(BATCH_SIZE,nc,2*size_padding+size_potential, 2*size_padding+size_potential)
 labels = torch.empty(BATCH_SIZE, 2*size_padding+size_potential, 2*size_padding+size_potential, dtype=torch.int64)
-
-# # filter S_id lists to only include cells with valid label (not NODATA)
-# def valid_ids_from_list(id_list):
-#     out = []
-#     for gid in id_list:
-#         if int(gid) in GRIDID_TO_RC:
-#             r,c = GRIDID_TO_RC[int(gid)]
-#             if 0 <= r < GRID_LABEL_ARRAY.shape[0] and 0 <= c < GRID_LABEL_ARRAY.shape[1]:
-#                 if GRID_LABEL_ARRAY[r,c] != NODATA and not np.isnan(GRID_LABEL_ARRAY[r,c]):
-#                     out.append(int(gid))
-#     return out
 
 if isinstance(candidate_list, dict):
     cand_flat = [int(x) for vals in candidate_list.values() for x in (vals or [])]
@@ -282,17 +225,6 @@ else:
 S_id_real = hwys
 S_id_real = np.array(S_id_real, dtype=int)
 S_id_random = np.array(S_id_random, dtype=int)
-
-# S_id_real = valid_ids_from_list([int(g) for g in hwys])
-# S_id_random = valid_ids_from_list([g for g in cand_flat if g not in S_id_real])
-
-# def extract_label_patch(label_array, row, col, window, pad_value = NODATA):
-#     pad = window // 2
-#     H, W = label_array.shape
-#     lbl_p = np.full((H + 2*pad, W + 2*pad), pad_value, dtype=label_array.dtype)
-#     lbl_p[pad:pad+H, pad:pad+W] = label_array
-#     r0, c0 = row + pad, col + pad
-#     return lbl_p[r0-pad:r0+pad+1, c0-pad:c0+pad+1]
 
 def create_batch(batch_tensor=batch_tensor, labels=labels, sample_ids_real=S_id_real, sample_ids_random=S_id_random, return_transf=False):
     batch_tensor = batch_tensor*0
@@ -336,49 +268,8 @@ def create_batch(batch_tensor=batch_tensor, labels=labels, sample_ids_real=S_id_
         shift_x_cells = np.random.randint(-size_potential, size_potential)
         shift_y_cells = np.random.randint(-size_potential, size_potential)
 
-        # if return_transf:
-        #     transf[b,0] = s_id
-        #     transf[b,1] = shift_x
-        #     transf[b,2] = shift_y
-        #     transf[b,3] = theta
-        #     transf[b,4] = mirror_var
-
         # patch = extract_patch_from_arrays(GRID_FEATURE_ARRAY, row, col, window, pad_value=0.0)
         patch, label_patch, class_idx = extract_patch_from_arrays(GRID_FEATURE_ARRAY, GRID_LABEL_ARRAY, row, col, window, rot_k, mirror_var, shift_x_cells, shift_y_cells)
-
-        # convert shifts in meters to pixels for ndimage.shift
-        # shift_x_pixels = shift_x / float(cell_width)   # positive -> move right
-        # shift_y_pixels = shift_y / float(cell_width)   # positive -> move down
-
-        # apply geometric augmentation (mirror, rotate, shift) to all channels
-        # use bilinear interpolation (order=1) for continuous channels
-        # patch = apply_augmentation_to_patch(patch,
-        #                                     theta_deg=theta,
-        #                                     mirror_var=mirror_var,
-        #                                     shift_x_pixels=shift_x_pixels,
-        #                                     shift_y_pixels=shift_y_pixels,
-        #                                     order=1,
-        #                                     cval=0.0)
-        
-         # extract label patch, apply same augmentation with nearest interpolation, and read center
-        # lbl_patch = extract_label_patch(GRID_LABEL_ARRAY, row, col, window, pad_value=NODATA)
-        # lbl_patch_ch = lbl_patch[np.newaxis, :, :]  # shape (1,H,W)
-        # lbl_aug = apply_augmentation_to_patch(lbl_patch_ch,
-        #                                      theta_deg=theta,
-        #                                      mirror_var=mirror_var,
-        #                                      shift_x_pixels=shift_x_pixels,
-        #                                      shift_y_pixels=shift_y_pixels,
-        #                                      order=0,  # nearest for labels
-        #                                      cval=NODATA)
-        # center_label = lbl_aug[0, pad, pad]
-        # # handle nodata after augmentation (rare) — fallback to original center if available or set 0
-        # if center_label == NODATA or np.isnan(center_label):
-        #     original_center = GRID_LABEL_ARRAY[row, col]
-        #     if original_center == NODATA or np.isnan(original_center):
-        #         center_label = 0
-        #     else:
-        #         center_label = int(original_center)
-        # labels[b] = int(center_label)
 
     # if patch channels do not match nc, truncate or pad with zeros
     C = patch.shape[0]
@@ -409,13 +300,6 @@ def create_batch(batch_tensor=batch_tensor, labels=labels, sample_ids_real=S_id_
     if b < BATCH_SIZE_real:
         batch_tensor[b, features.index('hwy'), :, :] = 0
 
-    # if you want to include the center cell as in original 'filled' case:
-    # if b >= BATCH_SIZE_real and b < BATCH_SIZE_real + BATCH_SIZE_fill:
-    #     treat_x = pad
-    #     treat_y = pad
-    #     batch_tensor[b, 0, treat_y, treat_x] += 1
-
-
     if not return_transf:
         return batch_tensor, labels
     else:
@@ -438,40 +322,12 @@ class Net(nn.Module):
             nn.Conv2d(in_channels=4*nc, out_channels=4*nc, kernel_size=5, padding=2, padding_mode='replicate', bias=True),
             nn.InstanceNorm2d(num_features=4*nc, affine=True),
             nn.LeakyReLU(),
-            nn.Conv2d(in_channels=4*nc, out_channels=1, kernel_size=11, padding=10, padding_mode='replicate', dilation=2, bias=True),
-            # nn.InstanceNorm2d(num_features=1, affine=True),
-            # nn.Flatten(),
-            # # binary classification => 2 logits
-            # nn.Linear(1 * pow(2*size_padding+size_potential, 2), 2),
+            nn.Conv2d(in_channels=4*nc, out_channels=1, kernel_size=11, padding=10, padding_mode='replicate', dilation=2, bias=True)
         )
         self.main = main
 
     def forward(self, x):
         return self.main(x)
-
-# class FocalLoss(nn.Module):
-#     def __init__(self, alpha=1, gamma=2, reduction='mean'):
-#         super(FocalLoss, self).__init__()
-#         self.alpha = alpha
-#         self.gamma = gamma
-#         self.reduction = reduction
-
-#     def forward(self, inputs, targets):
-#         # Get per-sample cross entropy loss
-#         ce_loss = F.cross_entropy(inputs, targets, reduction='none')  # shape (B,)
-        
-#         # Compute pt (probability for true class)
-#         pt = torch.exp(-ce_loss)  # shape (B,)
-
-#         # Apply focal loss formula
-#         focal_loss = self.alpha * (1 - pt) ** self.gamma * ce_loss
-
-#         if self.reduction == 'mean':
-#             return focal_loss.mean()
-#         elif self.reduction == 'sum':
-#             return focal_loss.sum()
-#         else:
-#             return focal_loss
 
 # initialize optimizer
 def intitialize_optimizer(net):
@@ -520,79 +376,6 @@ def load_model(filename, net=None, optimizer=None):
         print('found list in keys')
     epoch_set_seed.append(curr_epoch)
     return net, optimizer
-
-# # fine-tuning function 
-# def fine_tune_on_city(sample_train_real_city, sample_train_random_city,
-#                       base_model_path='cnn/base_pooled_model.tar',
-#                       fine_epochs=5, fine_iters=2000, lr=1e-3, freeze_backbone=True):
-#     # load base pooled model
-#     net_ft, optimizer_ft = load_model(base_model_path)
-#     # freeze backbone if requested (unfreeze classifier = last Linear)
-#     if freeze_backbone:
-#         for p in net_ft.parameters():
-#             p.requires_grad = False
-#         # find last linear module (assumes net.main ends with Linear)
-#         if isinstance(net_ft.main[-1], nn.Linear):
-#             for p in net_ft.main[-1].parameters():
-#                 p.requires_grad = True
-#     # optimizer only for trainable params
-#     trainable = [p for p in net_ft.parameters() if p.requires_grad]
-#     if not trainable:
-#         raise RuntimeError("No trainable parameters found; check freeze_backbone setting")
-#     optimizer_city = optim.SGD(trainable, lr=lr, momentum=0.9)
-
-#     # compute class weights from available city labels (optional)
-#     def get_labels_for_ids(id_list):
-#         labs = []
-#         for gid in id_list:
-#             if int(gid) in GRIDID_TO_RC:
-#                 r,c = GRIDID_TO_RC[int(gid)]
-#                 labs.append(int(GRID_LABEL_ARRAY[r, c]))
-#         return np.array(labs, dtype=int)
-
-#     y_real = get_labels_for_ids(sample_train_real_city)
-#     y_rand = get_labels_for_ids(sample_train_random_city)
-#     y_all = np.concatenate([y_real, y_rand]) if len(y_real) + len(y_rand) > 0 else np.array([0,1])
-#     vals, counts = np.unique(y_all, return_counts=True)
-#     total = counts.sum()
-#     weights = np.ones(2, dtype=np.float32)
-#     for v, c in zip(vals, counts):
-#         weights[int(v)] = float(total) / (2.0 * float(c))
-#     criterion_city = nn.CrossEntropyLoss(weight=torch.from_numpy(weights).to(next(net_ft.parameters()).device))
-
-#     # small training loop using create_batch (pass city-specific sample lists)
-#     device = torch.device('cuda' if (use_cuda and torch.cuda.is_available()) else 'cpu')
-#     net_ft.to(device)
-#     net_ft.train()
-#     for epoch in range(fine_epochs):
-#         running_loss = 0.0
-#         for it in range(fine_iters):
-#             data = create_batch(sample_ids_real=sample_train_real_city, sample_ids_random=sample_train_random_city)
-#             inputs, labels = data
-#             inputs = inputs.to(device)
-#             labels = labels.to(device)
-
-#             optimizer_city.zero_grad()
-#             outputs = net_ft(inputs)
-#             loss = criterion_city(outputs, labels)
-#             loss.backward()
-#             optimizer_city.step()
-
-#             running_loss += float(loss.item())
-#             if (it+1) % max(1, fine_iters//5) == 0:
-#                 avg = running_loss / max(1, fine_iters//5)
-#                 print(f'Fine-tune epoch {epoch+1}/{fine_epochs} iter {it+1}/{fine_iters} loss={avg:.4f}')
-#                 running_loss = 0.0
-
-#     # return fine-tuned model and optimizer (caller can save)
-#     return net_ft, optimizer_city
-
-
-# # Set random seed for reproducibility
-# manualSeed = 24601
-# print('Random Seed: ', manualSeed)
-# np.random.seed(manualSeed)
-# torch.manual_seed(manualSeed)
 
 # separate locations for training and evaluation
 num_distinct_train_real = int(len(S_id_real) * frac_train_real)
@@ -672,21 +455,6 @@ else:
         net.cuda()
     optimizer = intitialize_optimizer(net)
 
-# # Ensure GRID_LABEL_ARRAY contains only binary labels (0 and 1)
-# GRID_LABEL_ARRAY = np.where((GRID_LABEL_ARRAY == 0) | (GRID_LABEL_ARRAY == 1), GRID_LABEL_ARRAY, 0)
-
-# # Compute class weights for binary classification
-# unique, counts = np.unique(GRID_LABEL_ARRAY, return_counts=True)
-# if len(counts) != 2:
-#     raise ValueError(f"Expected 2 classes, but found {len(counts)} unique labels: {unique}")
-# total = counts.sum()
-# class_weights = torch.tensor([total / (2.0 * c) for c in counts], dtype=torch.float32).to('cuda' if use_cuda and torch.cuda.is_available() else 'cpu')
-
-# # Define the weighted loss function
-# criterion = FocalLoss(alpha = 0.25, gamma = 2.0)
-# if use_cuda and torch.cuda.is_available():
-#     net.cuda()
-
 # Set random seed for reproducibility: increment to ensure different training samples after load
 manualSeed = 24601 + curr_epoch
 #manualSeed = random.randint(1, 10000) # use if you want new results
@@ -742,10 +510,6 @@ for epoch in range(curr_epoch, bound_epochs):
         outputs = net(inputs)
 
         if crossentropy:
-            # loss_per_sample = torch.nn.functional.cross_entropy(outputs, labels)
-            # weighted_loss = loss_per_sample * weights[labels]
-            # loss = weighted_loss.mean()
-            # loss.backward()
             outputs = outputs.squeeze(1)  # shape (B,H,W)
             criterion = torch.nn.BCEWithLogitsLoss(pos_weight = torch.tensor([1000.0]))
             loss = criterion(outputs, labels.float())
@@ -757,93 +521,8 @@ for epoch in range(curr_epoch, bound_epochs):
         if not focalloss and not crossentropy:
             raise RuntimeError("Must use either cross_entropy or focal_loss.")
         
-        # loss = criterion(outputs, labels)
-        # loss.backward()
-        # for name, param in net.named_parameters():
-        #     if param.grad is not None:
-        #         print(f"Gradient for {name}: max={param.grad.abs().max().item()}, min={param.grad.abs().min().item()}")
         torch.nn.utils.clip_grad_norm_(net.parameters(), max_norm=1.0)
         optimizer.step()
-
-        # # determine accuracy of taking "prediction"
-        # with torch.no_grad():
-        #     _, predicted = torch.max(outputs.data, 1)
-
-        #     TP = ((predicted == 1) & (labels == 1)).sum().item()
-        #     TN = ((predicted == 0) & (labels == 0)).sum().item()
-        #     FP = ((predicted == 1) & (labels == 0)).sum().item()
-        #     FN = ((predicted == 0) & (labels == 1)).sum().item()
-
-        #     total += labels.size(0)
-        #     # correct += (predicted == labels).sum().item()
-        #     # correct_real += (predicted[0:BATCH_SIZE_real] == labels[0:BATCH_SIZE_real]).sum().item()
-        #     # non_zero_real += (predicted[0:BATCH_SIZE_real] < pow(size_potential,2)).sum().item()
-        #     # correct_fill += (predicted[BATCH_SIZE_real:BATCH_SIZE_real+BATCH_SIZE_fill] == labels[BATCH_SIZE_real:BATCH_SIZE_real+BATCH_SIZE_fill]).sum().item()
-        #     # correct_random += (predicted[BATCH_SIZE-BATCH_SIZE_random:BATCH_SIZE] == labels[BATCH_SIZE-BATCH_SIZE_random:BATCH_SIZE]).sum().item()
-        #     # total_real += BATCH_SIZE_real
-        #     # total_fill += BATCH_SIZE_fill
-        #     # total_random += BATCH_SIZE_random
-        
-        # accuracy = 100 * (TP + TN) / max(total, 1)
-        # precision = 100 * TP / max(TP + FP, 1)
-        # recall = 100 * TP / max(TP + FN, 1)
-
-        # # print statistics
-        # running_loss += loss.item()
-        # if i % print_interval == print_interval - 1:
-        #     print('[%d / %d, %5d / %5d] loss: %.3f, accuracy: %.1f%%, precision: %.1f%%, recall: %.1f%%, FP: %.1f%%' %
-        #           (epoch + 1, bound_epochs, i + 1, ITERS, running_loss / print_interval,
-        #            accuracy,
-        #            precision,
-        #            recall,
-        #            FP))
-        #     print((datetime.now(timezone.utc) + timedelta(hours=-7)).strftime('%Y-%m-%d %H:%M:%S'))
-        #     running_loss = 0.0
-        #     accuracy = 0
-        #     precision = 0
-        #     recall = 0
-        #     FP = 0
-            
-        # # evaluation sample:
-        # if frac_train_real < 1 or frac_train_random < 1:
-        #     if i % eval_interval == eval_interval - 1:    # print every min(1000,ITERS/10) mini-batches
-        #         eval_correct = 0
-        #         eval_correct_real = 0
-        #         eval_non_zero_real = 0
-        #         eval_correct_fill = 0
-        #         eval_correct_random = 0
-        #         eval_total = 0
-        #         eval_total_real = 0
-        #         eval_total_fill = 0
-        #         eval_total_random = 0
-
-        #         with torch.no_grad():
-        #             for j in range(100):
-        #                 inputs, labels = create_batch(sample_ids_real=sample_eval_real,
-        #                                             sample_ids_random=sample_eval_random)
-
-        #                 if use_cuda and torch.cuda.is_available():
-        #                     inputs = inputs.cuda()
-        #                     labels = labels.cuda()
-
-        #                 outputs = net(inputs)
-        #                 _, predicted = torch.max(outputs.data, 1)
-        #                 eval_total += labels.size(0)
-        #                 eval_correct += (predicted == labels).sum().item()
-        #                 eval_correct_real += (predicted[0:BATCH_SIZE_real] == labels[0:BATCH_SIZE_real]).sum().item()
-        #                 eval_non_zero_real += (predicted[0:BATCH_SIZE_real] < pow(size_potential,2)).sum().item()
-        #                 eval_correct_fill += (predicted[BATCH_SIZE_real:BATCH_SIZE_real+BATCH_SIZE_fill] == labels[BATCH_SIZE_real:BATCH_SIZE_real+BATCH_SIZE_fill]).sum().item()
-        #                 eval_correct_random += (predicted[BATCH_SIZE-BATCH_SIZE_random:BATCH_SIZE] == labels[BATCH_SIZE-BATCH_SIZE_random:BATCH_SIZE]).sum().item()
-        #                 eval_total_real += BATCH_SIZE_real
-        #                 eval_total_fill += BATCH_SIZE_fill
-        #                 eval_total_random += BATCH_SIZE_random
-
-        #         print('Accuracy on hold-out: %.1f%%, real: %.1f%%, real non-zero: %.1f%%, real filled: %.1f%%, unrealized: %.1f%%' %
-        #             (100 * eval_correct / max(eval_total,1),
-        #             100 * eval_correct_real / max(eval_total_real,1),
-        #             100 * eval_non_zero_real / max(eval_total_real,1),
-        #             100 * eval_correct_fill / max(eval_total_fill,1),
-        #             100 * eval_correct_random / max(eval_total_random,1)))
         running_loss += loss.item()
 
         if i % min(10000, ITERS/10) == min(10000, ITERS/10) - 1:
@@ -967,151 +646,9 @@ for epoch in range(curr_epoch, bound_epochs):
                     eval_p10, eval_p50, eval_p90,
                     eval_auc))
 
-                # # aggregated metrics
-                # TP = 0
-                # TN = 0
-                # FP = 0
-                # FN = 0
-                # total = 0
-                # total_pos = 0
-                # total_neg = 0
-                # accuracy = 0 
-                # precision = 0
-                # recall = 0
-                # # eval_total = 0
-                # # eval_correct = 0
-
-                # # eval_total_real = 0
-                # # eval_correct_real = 0
-                # # eval_non_zero_real = 0      # prediction != none
-                # # eval_TP_real = 0            # correct non-zero
-                # # eval_FN_real = 0            # predicted none but true non-none
-                # # eval_FP_real = 0            # predicted non-none but true none
-
-                # # eval_total_fill = 0
-                # # eval_correct_fill = 0
-
-                # # eval_total_random = 0
-                # # eval_correct_random = 0
-
-                # # # top-k
-                # # eval_top3_correct = 0
-
-                # with torch.no_grad():
-                #     for j in range(100):
-                #         inputs, labels = create_batch(
-                #             sample_ids_real=sample_eval_real,
-                #             sample_ids_random=sample_eval_random
-                #         )
-
-                #         if use_cuda and torch.cuda.is_available():
-                #             inputs = inputs.cuda()
-                #             labels = labels.cuda()
-
-                #         outputs = net(inputs)
-                #         _, predicted = torch.max(outputs, 1)
-
-                #         # compute TP, TN, FP, FN
-                #         TP = ((predicted == 1) & (labels == 1)).sum().item()
-                #         TN = ((predicted == 0) & (labels == 0)).sum().item()
-                #         FP = ((predicted == 1) & (labels == 0)).sum().item()
-                #         FN = ((predicted == 0) & (labels == 1)).sum().item()
-
-                #         total = labels.size(0)
-                #         total_pos = (labels == 1).sum().item()  
-                #         total_neg = (labels == 0).sum().item()
-
-                #         accuracy = 100 * (TP + TN) / max(total, 1)
-                #         precision = 100 * TP / max(TP + FP, 1)
-                #         recall = 100 * TP / max(TP + FN, 1)
-
-                #         # per class
-                #         acc_pos = 100 * TP / max(total_pos, 1)
-                #         acc_neg = 100 * TN / max(total_neg, 1)
-
-                #         # # --- top-3 accuracy ---
-                #         # _, top3_preds = outputs.topk(3, dim=1)
-                #         # eval_top3_correct += (top3_preds == labels.unsqueeze(1)).any(dim=1).sum().item()
-
-                #         # # --- overall ---
-                #         # eval_total += labels.size(0)
-                #         # eval_correct += (predicted == labels).sum().item()
-
-                #         # # --- REAL (first section of batch) ---
-                #         # real_pred = predicted[:BATCH_SIZE_real]
-                #         # real_true = labels[:BATCH_SIZE_real]
-                #         # eval_total_real += BATCH_SIZE_real
-
-                #         # # exact accuracy
-                #         # eval_correct_real += (real_pred == real_true).sum().item()
-
-                #         # # predicted non-zero
-                #         # eval_non_zero_real += (real_pred < (size_potential ** 2)).sum().item()
-
-                #         # # TP / FN / FP for real
-                #         # true_non_zero = real_true < (size_potential ** 2)
-                #         # pred_non_zero = real_pred < (size_potential ** 2)
-
-                #         # eval_TP_real += (pred_non_zero & true_non_zero).sum().item()
-                #         # eval_FN_real += ((~pred_non_zero) & true_non_zero).sum().item()
-                #         # eval_FP_real += (pred_non_zero & (~true_non_zero)).sum().item()
-
-                #         # # --- FILLED ---
-                #         # fill_pred = predicted[BATCH_SIZE_real:BATCH_SIZE_real + BATCH_SIZE_fill]
-                #         # fill_true = labels[BATCH_SIZE_real:BATCH_SIZE_real + BATCH_SIZE_fill]
-                #         # eval_total_fill += BATCH_SIZE_fill
-                #         # eval_correct_fill += (fill_pred == fill_true).sum().item()
-
-                #         # # --- RANDOM / UNREALIZED ---
-                #         # rand_pred = predicted[-BATCH_SIZE_random:]
-                #         # rand_true = labels[-BATCH_SIZE_random:]
-                #         # eval_total_random += BATCH_SIZE_random
-                #         # eval_correct_random += (rand_pred == rand_true).sum().item()
-
-                # # print results
-                # print(f"Accuracy on hold-out: {accuracy:.1f}%")
-                # print(f"Accuracy on real locations: {acc_pos:.1f}%")
-                # print(f"Accuracy on non-real locations: {acc_neg:.1f}%")
-                # print(f"Precision: {precision:.1f}%")
-                # print(f"Recall: {recall:.1f}%")
-                # print("  real: %.1f%%" % (100 * eval_correct_real / max(eval_total_real, 1)))
-                # print("  real non-zero (pred != none): %.1f%%" %
-                #     (100 * eval_non_zero_real / max(eval_total_real, 1)))
-                # print("  real TP: %.1f%% | FN: %.1f%% | FP: %.1f%%" %
-                #     (100 * eval_TP_real / max(eval_total_real, 1),
-                #     100 * eval_FN_real / max(eval_total_real, 1),
-                #     100 * eval_FP_real / max(eval_total_real, 1)))
-                # print("  filled: %.1f%%" % (100 * eval_correct_fill / max(eval_total_fill, 1)))
-                # print("  unrealized: %.1f%%" % (100 * eval_correct_random / max(eval_total_random, 1)))
-                # print("  top-3 accuracy: %.1f%%" % (100 * eval_top3_correct / max(eval_total, 1)))
-
-
     print('Finished Epoch ' + str(epoch+1) + ' of ' + str(bound_epochs) + '. Saving model and optimizer checkpoint.')
     curr_epoch = curr_epoch + 1
     save_model('bc_model1.tar')
     print((datetime.now(timezone.utc) + timedelta(hours=-7)).strftime('%Y-%m-%d %H:%M:%S'))
 
 print('Finished Training')
-
-####################################################################################################
-# for city in sample['city'].unique():
-#     print(f"Fine-tuning for city: {city}")
-#     sample_train_real_city = [g for g in S_id_real if grid.loc[grid['grid_id']==g,'city'].iloc[0]==city]
-#     sample_train_random_city = [g for g in S_id_random if grid.loc[grid['grid_id']==g,'city'].iloc[0]==city]
-
-#     if len(sample_train_real_city) + len(sample_train_random_city) == 0:
-#         print(f"Skipping {city}: no training ids after filtering.")
-#         continue
-
-#     # load base pooled model (saved earlier in your main training as 'base_pooled_model.tar')
-#     net_city, opt_city = fine_tune_on_city(sample_train_real_city, sample_train_random_city,
-#                                            base_model_path='cnn/base_pooled_model.tar',
-#                                            fine_epochs=5, fine_iters=1000, lr=1e-3, freeze_backbone=True)
-
-#     # save per-city fine-tuned model
-#     torch.save({
-#         'net_state_dict': net_city.state_dict(),
-#         'optimizer_state_dict': opt_city.state_dict(),
-#         'city': city,
-#         }, outputroot + f'fine_{city}.tar')
-#     print(f"Saved fine-tuned model for {city}")
