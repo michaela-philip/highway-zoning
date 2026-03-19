@@ -37,9 +37,6 @@ cell_width = 150  # cell width in meters (convert from miles)
 size_potential = 4  # potential locations: num_width_potential x num_width_potential
 size_padding = 4  # number of padding cells on each side of potential grid
 nc = len(features)  # number of channels: 1) other grocery stores 2) other businesses
-# candidates = 0
-# for city in candidate_list.keys():
-#     candidates += len(candidate_list[city])
 
 obs = grid.shape[0]
 BATCH_SIZE_real = 2  # regions with missing grocery store per batch
@@ -240,27 +237,9 @@ def gridid_to_rc_map_by_city(grid, cell_width):
 
 GRIDID_TO_RC = gridid_to_rc_map_by_city(grid, cell_width)
 
-# grid = normalize_features_per_city(grid, normalize_features, nodata=NODATA)
-# print(grid[features].describe())
-# GRID_FEATURE_ARRAY, GRID_LABEL_ARRAY, rast_transform, CHANNEL_MEANS, CHANNEL_STDS, city_mapping = gdf_to_raster(grid, features, 'hwy', cell_width = 150)
-# GRID_LABEL_ARRAY = np.squeeze(GRID_LABEL_ARRAY)
-# GRIDID_TO_RC = gridid_to_rc_map(grid, cell_width)
-
-# # filter S_id lists to only include cells with valid label (not NODATA)
-# def valid_ids_from_list(id_list):
-#     out = []
-#     for gid in id_list:
-#         if int(gid) in GRIDID_TO_RC:
-#             r,c = GRIDID_TO_RC[int(gid)]
-#             if 0 <= r < GRID_LABEL_ARRAY.shape[0] and 0 <= c < GRID_LABEL_ARRAY.shape[1]:
-#                 if GRID_LABEL_ARRAY[r,c] != NODATA and not np.isnan(GRID_LABEL_ARRAY[r,c]):
-#                     out.append(int(gid))
-#     return out
-
 # create tensor of the proper size 
 batch_tensor = torch.zeros(BATCH_SIZE,nc,2*size_padding+size_potential, 2*size_padding+size_potential) #, dtype=torch.double)
 labels = torch.empty(BATCH_SIZE, 2*size_padding+size_potential, 2*size_padding+size_potential, dtype=torch.int64)
-# S_id_real = valid_ids_from_list([int(g) for g in hwys])
 
 if isinstance(candidate_list, dict):
     cand_flat = [int(x) for vals in candidate_list.values() for x in (vals or [])]
@@ -275,14 +254,6 @@ else:
 S_id_real = hwys
 S_id_real = np.array(S_id_real, dtype=int)
 S_id_random = np.array(S_id_random, dtype=int)
-
-# def extract_label_patch(label_array, row, col, window, pad_value = NODATA):
-#     pad = window // 2
-#     H, W = label_array.shape
-#     lbl_p = np.full((H + 2*pad, W + 2*pad), pad_value, dtype=label_array.dtype)
-#     lbl_p[pad:pad+H, pad:pad+W] = label_array
-#     r0, c0 = row + pad, col + pad
-#     return lbl_p[r0-pad:r0+pad+1, c0-pad:c0+pad+1]
 
 def create_batch(batch_tensor=batch_tensor, labels=labels, sample_ids_real=S_id_real, sample_ids_random=S_id_random, return_transf=False):
     batch_tensor = batch_tensor*0
@@ -382,30 +353,6 @@ class Net(nn.Module):
 
     def forward(self, x):
         return self.main(x)
-
-# class FocalLoss(nn.Module):
-#     def __init__(self, alpha=1, gamma=2, reduction='mean'):
-#         super(FocalLoss, self).__init__()
-#         self.alpha = alpha
-#         self.gamma = gamma
-#         self.reduction = reduction
-
-#     def forward(self, inputs, targets):
-#         # Get per-sample cross entropy loss
-#         ce_loss = F.cross_entropy(inputs, targets, reduction='none')  # shape (B,)
-        
-#         # Compute pt (probability for true class)
-#         pt = torch.exp(-ce_loss)  # shape (B,)
-
-#         # Apply focal loss formula
-#         focal_loss = self.alpha * (1 - pt) ** self.gamma * ce_loss
-
-#         if self.reduction == 'mean':
-#             return focal_loss.mean()
-#         elif self.reduction == 'sum':
-#             return focal_loss.sum()
-#         else:
-#             return focal_loss
 
 # initialize optimizer
 def intitialize_optimizer(net):
@@ -533,23 +480,6 @@ else:
         net.cuda()
     optimizer = intitialize_optimizer(net)
 
-# # Ensure GRID_LABEL_ARRAY contains only binary labels (0 and 1)
-# GRID_LABEL_ARRAY = np.where((GRID_LABEL_ARRAY == 0) | (GRID_LABEL_ARRAY == 1), GRID_LABEL_ARRAY, 0)
-
-# # Compute class weights for binary classification
-# unique, counts = np.unique(GRID_LABEL_ARRAY, return_counts=True)
-# if len(counts) != 2:
-#     raise ValueError(f"Expected 2 classes, but found {len(counts)} unique labels: {unique}")
-# total = counts.sum()
-# class_weights = torch.tensor([total / (2.0 * c) for c in counts], dtype=torch.float32).to('cuda' if use_cuda and torch.cuda.is_available() else 'cpu')
-
-# # Define the weighted loss function
-# # criterion = nn.CrossEntropyLoss(weight=class_weights)
-# criterion = FocalLoss(alpha = 0.25, gamma = 2.0)
-# if use_cuda and torch.cuda.is_available():
-#     print('using CUDA')
-#     net.cuda()
-
 # Set random seed for reproducibility: increment to ensure different training samples after load
 manualSeed = 24601 + curr_epoch
 #manualSeed = random.randint(1, 10000) # use if you want new results
@@ -557,6 +487,8 @@ print('Random Seed: ', manualSeed)
 np.random.seed(manualSeed)
 torch.manual_seed(manualSeed)
 
+####################################################################################################
+### PREDICTION ###
 # transform output into list
 def reverse_augmentation_to_coordinates(coords, theta_deg=0.0, mirror_var=1, shift_x_pixels=0.0, shift_y_pixels=0.0):
     theta_rad = -theta_deg * np.pi / 180  # Reverse rotation
