@@ -7,20 +7,19 @@ import torch.optim as optim
 import torch.nn.functional as F
 import numpy as np
 from math import sin, cos, pi  # rotating regions
-from math import floor, ceil  # truncating naics codes
+from math import floor  # truncating naics codes
 import rasterio
 from rasterio import transform
 from pathlib import Path
 from scipy.ndimage import rotate, shift
-import os
-import glob
+import time
 
 
 dataroot = 'cnn/'
 outputroot = 'cnn/'
 
-use_saved_model = True
-saved_model_filename = 'cnn/minimal_model.tar'  # path to saved model for prediction
+use_saved_model = False
+saved_model_filename = 'minimal_model.tar'
 
 ####################################################################################################
 ### PARAMETERS ###
@@ -37,29 +36,20 @@ cell_width = 150  # cell width in meters (convert from miles)
 size_potential = 6  # potential locations: num_width_potential x num_width_potential
 size_padding = 5  # number of padding cells on each side of potential grid
 nc = len(features)  # number of channels: 1) other grocery stores 2) other businesses
-
-candidates = 0
-for city in candidate_list.keys():
-    candidates += len(candidate_list[city])
-
-obs = grid.shape[0]
-
-
-BATCH_SIZE_real = 2  # regions with missing grocery store per batch
-BATCH_SIZE_fill = 2  # regions with real location filled in (-> no missing) per batch
-BATCH_SIZE_random = 28  # random regions (-> no missing) per batch
+BATCH_SIZE_real = 32  # regions with missing grocery store per batch
+BATCH_SIZE_fill = 16  # regions with real location filled in (-> no missing) per batch
+BATCH_SIZE_random = 16  # random regions (-> no missing) per batch
 BATCH_SIZE = BATCH_SIZE_real + BATCH_SIZE_fill + BATCH_SIZE_random
-num_batches_predict = ceil(obs / BATCH_SIZE)
 
-frac_train_real = 1  # fraction of real regions to use for training
-frac_train_random = 1  # fraction of random (unrealized) regions to use for training
+frac_train_real = 0.7  # fraction of real regions to use for training
+frac_train_random = 0.7  # fraction of random (unrealized) regions to use for training
 
 use_cuda = True
 
 curr_epoch = 0
 epoch_set_seed = list()
 epoch_set_seed.append(curr_epoch)
-EPOCHS = 20
+EPOCHS = 10
 ITERS = 1000
 NODATA = -9999.0
 
@@ -117,10 +107,9 @@ def gdf_to_raster(gdf, features, label, cell_width, crs=None, nodata=-9999.0):
     trs = rasterio.transform.from_origin(minx, maxy, cell_width, cell_width)
 
     if 'city' in gdf.columns and gdf['city'].dtype == object:
-        cities, city_categories = pd.factorize(gdf['city'])  # integers 0..N-1 and unique city names
+        cities = pd.factorize(gdf['city'])[0]  # integers 0..N-1
         gdf = gdf.copy()
         gdf['city'] = cities.astype(float)
-        city_mapping = dict(enumerate(city_categories))  # Map factorized numbers to city names
 
     # create raster bounds and output array
     bands = features + [label]
@@ -178,7 +167,7 @@ def gdf_to_raster(gdf, features, label, cell_width, crs=None, nodata=-9999.0):
         means.append(mu)
         stds.append(sd)
 
-    return feature_array, label_array, trs, means, stds, city_mapping
+    return feature_array, label_array, trs, means, stds
 
 # map grid_id to (row, col) in raster
 def gridid_to_rc_map(gdf, cell_width):
@@ -234,7 +223,7 @@ def apply_augmentation_to_patch(patch, theta_deg=0.0, mirror_var=1, shift_x_pixe
 
 grid = normalize_features_per_city(grid, normalize_features, nodata=NODATA)
 print(grid[features].describe())
-GRID_FEATURE_ARRAY, GRID_LABEL_ARRAY, rast_transform, CHANNEL_MEANS, CHANNEL_STDS, city_mapping = gdf_to_raster(grid, features, 'hwy', cell_width = 150)
+GRID_FEATURE_ARRAY, GRID_LABEL_ARRAY, rast_transform, CHANNEL_MEANS, CHANNEL_STDS = gdf_to_raster(grid, features, 'hwy', cell_width = 150)
 GRID_LABEL_ARRAY = np.squeeze(GRID_LABEL_ARRAY)
 GRIDID_TO_RC = gridid_to_rc_map(grid, cell_width)
 
@@ -561,42 +550,35 @@ print('Random Seed: ', manualSeed)
 np.random.seed(manualSeed)
 torch.manual_seed(manualSeed)
 
-# transform output into list
-def reverse_augmentation_to_coordinates(coords, theta_deg=0.0, mirror_var=1, shift_x_pixels=0.0, shift_y_pixels=0.0):
-    theta_rad = -theta_deg * np.pi / 180  # Reverse rotation
-    if mirror_var == -1:
-        coords[:, 0] = -coords[:, 0]  # Reverse mirroring
-    if theta_deg != 0.0:
-        rot_matrix = np.array([[np.cos(theta_rad), -np.sin(theta_rad)],
-                               [np.sin(theta_rad), np.cos(theta_rad)]])
-        coords = coords @ rot_matrix.T
-    coords[:, 0] -= shift_x_pixels  # Reverse X shift
-    coords[:, 1] -= shift_y_pixels  # Reverse Y shift
-    return coords
+####################################################################################################
+### TRAINING ###
+print('starting pooled training')
+print((datetime.now(timezone.utc) + timedelta(hours=-7)).strftime('%Y-%m-%d %H:%M:%S'))
 
-def add_to_list(s_id, o, r, city):
-    list_out.append((s_id, o.tolist(), r, city))
+bound_epochs = curr_epoch + EPOCHS
+print_interval = min(10000, max(1, ITERS // 10))
+eval_interval = min(10000, max(1, ITERS // 5))
 
+# loop over the dataset multiple times
+for epoch in range(curr_epoch, bound_epochs):
 
-def outputs_to_loc(outputs,transf):
-    o = torch.softmax(outputs, dim=1).cpu().numpy()
-    
-    for b in range(BATCH_SIZE):
-        s_id = int(transf[b, 0])
-        add_to_list(s_id, o[b], b < BATCH_SIZE_real, city)
+    # initialize fit statistics
+    running_loss = 0.0
+    correct = 0
+    correct_real = 0
+    non_zero_real = 0
+    correct_fill = 0
+    correct_random = 0
+    total = 0
+    total_real = 0
+    total_fill = 0
+    total_random = 0
 
-# run prediction loop
-list_out = list()
-
-with torch.no_grad():
-    for i in range(num_batches_predict):
-        # show progress
-        if i % 100 == 0:
-            print(str(i+1) + "/" + str(num_batches_predict) + " - time: " + (datetime.now(timezone.utc) + timedelta(hours=-7)).strftime('%Y-%m-%d %H:%M:%S'))
-
+    for i in range(ITERS):
         # get the inputs; data is a list of [inputs, labels]
-        data = create_batch(return_transf=True)
-        inputs, labels, transf = data
+        data = create_batch(sample_ids_real=sample_train_real,
+                            sample_ids_random=sample_train_random)
+        inputs, labels = data
 
         if use_cuda and torch.cuda.is_available():
             inputs = inputs.cuda()
@@ -607,39 +589,95 @@ with torch.no_grad():
 
         # forward + backward + optimize
         outputs = net(inputs)
+        loss = criterion(outputs, labels)
+        loss.backward()
+        # for name, param in net.named_parameters():
+        #     if param.grad is not None:
+        #         print(f"Gradient for {name}: max={param.grad.abs().max().item()}, min={param.grad.abs().min().item()}")
+        torch.nn.utils.clip_grad_norm_(net.parameters(), max_norm=1.0)
+        optimizer.step()
 
-        outputs_to_loc(outputs,transf)
+        # determine accuracy of taking "prediction"
+        with torch.no_grad():
+            _, predicted = torch.max(outputs.data, 1)
+            total += labels.size(0)
+            correct += (predicted == labels).sum().item()
+            correct_real += (predicted[0:BATCH_SIZE_real] == labels[0:BATCH_SIZE_real]).sum().item()
+            non_zero_real += (predicted[0:BATCH_SIZE_real] < pow(size_potential,2)).sum().item()
+            correct_fill += (predicted[BATCH_SIZE_real:BATCH_SIZE_real+BATCH_SIZE_fill] == labels[BATCH_SIZE_real:BATCH_SIZE_real+BATCH_SIZE_fill]).sum().item()
+            correct_random += (predicted[BATCH_SIZE-BATCH_SIZE_random:BATCH_SIZE] == labels[BATCH_SIZE-BATCH_SIZE_random:BATCH_SIZE]).sum().item()
+            total_real += BATCH_SIZE_real
+            total_fill += BATCH_SIZE_fill
+            total_random += BATCH_SIZE_random
 
-# print(list_out)
+        # print statistics
+        running_loss += loss.item()
+        if i % print_interval == print_interval - 1:
+            print('[%d / %d, %5d / %5d] loss: %.3f, accuracy: %.1f%%, real: %.1f%%, real non-zero: %.1f%%, real filled: %.1f%%, unrealized: %.1f%%' %
+                  (epoch + 1, bound_epochs, i + 1, ITERS, running_loss / print_interval,
+                   100 * correct / total,
+                   100 * correct_real / max(total_real,1),
+                   100 * non_zero_real / max(total_real,1),
+                   100 * correct_fill / max(total_fill,1),
+                   100 * correct_random / max(total_random,1)))
+            print((datetime.now(timezone.utc) + timedelta(hours=-7)).strftime('%Y-%m-%d %H:%M:%S'))
+            running_loss = 0.0
+            correct = 0
+            correct_real = 0
+            non_zero_real = 0
+            correct_fill = 0
+            correct_random = 0
+            total = 0
+            total_real = 0
+            total_fill = 0
+            total_random = 0
+            
+        # evaluation sample:
+        if frac_train_real < 1 or frac_train_random < 1:
+            if i % eval_interval == eval_interval - 1:    # print every min(1000,ITERS/10) mini-batches
+                eval_correct = 0
+                eval_correct_real = 0
+                eval_non_zero_real = 0
+                eval_correct_fill = 0
+                eval_correct_random = 0
+                eval_total = 0
+                eval_total_real = 0
+                eval_total_fill = 0
+                eval_total_random = 0
 
-print(len(list_out))
+                with torch.no_grad():
+                    for j in range(100):
+                        inputs, labels = create_batch(sample_ids_real=sample_eval_real,
+                                                    sample_ids_random=sample_eval_random)
 
-# save resulting file
-date = (datetime.now(timezone.utc) + timedelta(hours=-7)).strftime('%Y-%m-%d %H:%M:%S')
-filename_out = 'predicted_activation-' + date + '.csv'
+                        if use_cuda and torch.cuda.is_available():
+                            inputs = inputs.cuda()
+                            labels = labels.cuda()
 
-with open(dataroot+filename_out,'w') as f:
-    f.write('s_id,real_missing,prob_1,prob_0,city\n')  
-    for e in list_out:
-        s_id = str(e[0])  
-        real_missing = str(e[2])  
-        prob_1 = e[1][0]  
-        prob_0 = e[1][1]  
-        f.write(f"{s_id},{real_missing},{prob_1},{prob_0}\n")  
+                        outputs = net(inputs)
+                        _, predicted = torch.max(outputs.data, 1)
+                        eval_total += labels.size(0)
+                        eval_correct += (predicted == labels).sum().item()
+                        eval_correct_real += (predicted[0:BATCH_SIZE_real] == labels[0:BATCH_SIZE_real]).sum().item()
+                        eval_non_zero_real += (predicted[0:BATCH_SIZE_real] < pow(size_potential,2)).sum().item()
+                        eval_correct_fill += (predicted[BATCH_SIZE_real:BATCH_SIZE_real+BATCH_SIZE_fill] == labels[BATCH_SIZE_real:BATCH_SIZE_real+BATCH_SIZE_fill]).sum().item()
+                        eval_correct_random += (predicted[BATCH_SIZE-BATCH_SIZE_random:BATCH_SIZE] == labels[BATCH_SIZE-BATCH_SIZE_random:BATCH_SIZE]).sum().item()
+                        eval_total_real += BATCH_SIZE_real
+                        eval_total_fill += BATCH_SIZE_fill
+                        eval_total_random += BATCH_SIZE_random
 
-# cleanup function - only keep the 3 most recent csvs
-csv_files = glob.glob(os.path.join(dataroot, '*.csv'))
+                print('Accuracy on hold-out: %.1f%%, real: %.1f%%, real non-zero: %.1f%%, real filled: %.1f%%, unrealized: %.1f%%' %
+                    (100 * eval_correct / max(eval_total,1),
+                    100 * eval_correct_real / max(eval_total_real,1),
+                    100 * eval_non_zero_real / max(eval_total_real,1),
+                    100 * eval_correct_fill / max(eval_total_fill,1),
+                    100 * eval_correct_random / max(eval_total_random,1)))
 
-# Sort files by modification time (most recent first)
-csv_files.sort(key=os.path.getmtime, reverse=True)
 
-# Keep only the most recent 3 files
-files_to_keep = csv_files[:3]
-files_to_delete = csv_files[3:]
+    print('Finished Epoch ' + str(epoch+1) + ' of ' + str(bound_epochs) + '. Saving model and optimizer checkpoint.')
+    torch.cuda.empty_cache()
+    curr_epoch = curr_epoch + 1
+    save_model('minimal_model.tar')
+    print((datetime.now(timezone.utc) + timedelta(hours=-7)).strftime('%Y-%m-%d %H:%M:%S'))
 
-# Delete older files
-for file in files_to_delete:
-    os.remove(file)
-    print(f"Deleted: {file}")
-
-print(f"Kept the most recent 3 files: {files_to_keep}")
+print('Finished Training')

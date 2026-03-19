@@ -86,9 +86,8 @@ def create_candidate_list(data, cbd):
     elev_z = stats.zscore(candidates['dm_elevation'])
     candidates = candidates.loc[(elev_z > -1) & (elev_z < 1)].copy()
     
-    # drop candidates that already have highways and those that will have highways
+    # drop candidates that already have highways
     candidates = candidates.loc[candidates['hwy_40'] == 0].copy()
-    candidates = candidates.loc[candidates['hwy'] == 0].copy()
     return candidates['grid_id'].unique().tolist()
 
 def get_candidates(data, centroids, sample):
@@ -113,3 +112,9 @@ centroids = gpd.GeoDataFrame(centroids, geometry = gpd.points_from_xy(centroids.
                              crs = 'EPSG:4267') # best guess at CRS based off of projfinder.com
 ml_candidate_dict = get_mlcandidates(data, centroids, sample)
 candidate_dict = get_candidates(data, centroids, sample)
+
+# print the stats for my sake
+candidate_list = [item for sublist in candidate_dict.values() for item in sublist]
+candidates = data.loc[data['grid_id'].isin(candidate_list)].copy()
+hwys = data['hwy'].sum()
+print(f'{candidates['hwy'].sum()} out of {hwys} highways are in candidate list ({100 * candidates['hwy'].sum() / hwys:.2f}%)')
