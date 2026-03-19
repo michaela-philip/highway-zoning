@@ -3,13 +3,10 @@
 This repository contains code for my paper on zoning and highway placement. 
 
 ## Data Sources
-Full-count census data are provided by IPUMS/NBER
-
-Highway shapefiles are graciously provided by Professors Taylor Jaworski and Carl Kitchens
-
-Zoning data come from a variety of sources, but shapefiles are created in ArcGIS Pro
-
-Information on street names comes from Steve Morse
+Full-count census data are provided by IPUMS/NBER  
+Highway shapefiles are graciously provided by Professors Taylor Jaworski and Carl Kitchens  
+Zoning data come from a variety of sources, but shapefiles are created in ArcGIS Pro  
+Information on street names comes from Steve Morse  
 
 ## Code Structure
 Code should be run in the following order:
