@@ -33,7 +33,7 @@ hwys = grid[grid['hwy'] == 1]['grid_id'].unique().tolist()
 features = ['valueh', 'rent', 'distance_to_cbd', 'dist_water', 'dist_to_hwy', 'elevation', 'hwy']
 normalize_features = ['valueh', 'rent', 'distance_to_cbd', 'dist_water', 'dist_to_hwy', 'elevation'] # the only features i want to demean
 
-cell_width = 150  # cell width in meters (convert from miles)
+cell_width = 150  # cell width in meters
 size_potential = 4  # potential locations: num_width_potential x num_width_potential
 size_padding = 4  # number of padding cells on each side of potential grid
 nc = len(features)  # number of channels: 1) other grocery stores 2) other businesses
@@ -162,7 +162,7 @@ def gridid_to_rc_map(gdf, cell_width):
     rows_idx = np.floor((maxy - ys) / cell_width).astype(int)
     return {int(gid): (int(r), int(c)) for gid, r, c in zip(gdf['grid_id'].values, rows_idx, cols_idx)}
 
-def extract_patch_from_arrays(feature_array, label_array, row, col, window, rot_k, mirror_var=1, shift_x_cells=0.0, shift_y_cells=0.0):
+def extract_patch_from_arrays(feature_array, label_array, row, col, window, mirror_var=1):
     C, H, W = feature_array.shape
     pad = window // 2
 
@@ -205,7 +205,6 @@ def extract_patch_from_arrays(feature_array, label_array, row, col, window, rot_
 
 grid = normalize_features_per_city(grid, normalize_features, nodata=NODATA)
 print(grid[features].describe())
-# GRID_FEATURE_ARRAY, GRID_LABEL_ARRAY, rast_transform = gdf_to_raster(grid, features, 'hwy', cell_width = 150)
 
 city_rasters = {}  # city -> (feature_array, label_array, transform, minx, maxy)
 
@@ -233,8 +232,6 @@ def gridid_to_rc_map_by_city(grid, cell_width):
     return mapping
 
 GRIDID_TO_RC = gridid_to_rc_map_by_city(grid, cell_width)
-
-# GRIDID_TO_RC = gridid_to_rc_map(grid, cell_width)
 
 # create tensor of the proper size 
 batch_tensor = torch.zeros(BATCH_SIZE,nc,2*size_padding+size_potential, 2*size_padding+size_potential)
@@ -284,10 +281,6 @@ def create_batch(batch_tensor=batch_tensor, labels=labels, sample_ids_real=S_id_
         # find raster row/col for this grid_id
         if int(s_id) not in GRIDID_TO_RC:
             continue
-            # # if grid_id not found, pick arbitrary valid center
-            # H = GRID_FEATURE_ARRAY.shape[1]; W = GRID_FEATURE_ARRAY.shape[2]
-            # row = np.random.randint(pad, H-pad)
-            # col = np.random.randint(pad, W-pad)
         city, row, col = GRIDID_TO_RC[int(s_id)]
         feat_arr, label_arr, trs = city_rasters[city]
 
@@ -297,7 +290,6 @@ def create_batch(batch_tensor=batch_tensor, labels=labels, sample_ids_real=S_id_
         shift_x_cells = np.random.randint(-size_potential, size_potential)
         shift_y_cells = np.random.randint(-size_potential, size_potential)
 
-        # patch = extract_patch_from_arrays(GRID_FEATURE_ARRAY, row, col, window, pad_value=0.0)
         patch, label_patch, class_idx = extract_patch_from_arrays(feat_arr, label_arr, row, col, window, rot_k, mirror_var, shift_x_cells, shift_y_cells)
 
         # if patch channels do not match nc, truncate or pad with zeros
@@ -540,7 +532,6 @@ for epoch in range(curr_epoch, bound_epochs):
 
         if crossentropy:
             outputs = outputs.squeeze(1)  # shape (B,H,W)
-            # criterion = torch.nn.BCEWithLogitsLoss(pos_weight = torch.tensor([100.0]))
             criterion = torch.nn.BCEWithLogitsLoss()
             loss = criterion(outputs, labels.float())
             loss.backward()
@@ -683,6 +674,8 @@ for epoch in range(curr_epoch, bound_epochs):
 
 print('Finished Training')
 
+####################################################################################################
+### OPTIONAL VISUALIZATION (TROUBLESHOOTING) ###
 # import matplotlib.pyplot as plt
 # import matplotlib.colors as mcolors
 
