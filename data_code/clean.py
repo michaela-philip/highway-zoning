@@ -27,17 +27,21 @@ sample.to_pickle('data/input/samplelist.pkl')
 
 # pull in existing street lists for each city
 city_streets = {}
+url = 'https://stevemorse.org/census/index.html?ed2street=1'
+from scrape_streets import scrape_streets_citywise
+city_streets = scrape_streets_citywise(url, sample)
+
 for city in sample['city'].unique():
     csv_path = f'data/intermed/{city}_streets.csv'
-    if not os.path.exists(csv_path):
-        from scrape_streets import scrape_streets_citywise
-        url = 'https://stevemorse.org/census/index.html?ed2street=1'
-        city_streets = scrape_streets_citywise(url, sample)
-        atlanta_streets = city_streets.get('atlanta')
-        louisville_streets = city_streets.get('louisville')
-        littlerock_streets = city_streets.get('littlerock')
-    else:
+    
+    if os.path.exists(csv_path):
         city_streets[city] = pd.read_csv(csv_path)
+        continue
+    
+    # scrape if missing
+    streets = scrape_streets_citywise(url, sample)[city]  # extract this city only
+    city_streets[city] = streets
+    streets.to_csv(csv_path, index=False) 
 
 # pull in street changes for each city
 city_street_changes = {}
