@@ -6,6 +6,10 @@ from rasterio.merge import merge
 import glob
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
+# data come from the following url
+# https://apps.nationalmap.gov/downloader/ 1/3 arc second elevation data for each city
+# downloaded and links aggregated into 'input/{city}/geology/data.txt'
+
 # function to fetch and download each file from the list of urls in data.txt
 def download_file(url, out_dir):
     filename = os.path.join(out_dir, os.path.basename(url))
