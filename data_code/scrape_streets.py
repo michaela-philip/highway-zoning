@@ -150,6 +150,10 @@ def scrape_louisville_changes(url):
     street_changes = street_changes.explode('old_name').reset_index(drop=True)
     return street_changes
 
+def scrape_littlerock_changes(csv):
+    street_changes = pd.read_csv(csv)
+    return street_changes
+
 ####################################################################################################
 ### FORMAT STREET NAMES FOR CONSISTENCY ###
 def format_street_changes(df):
