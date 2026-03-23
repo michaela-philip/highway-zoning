@@ -18,7 +18,8 @@ import geopy, geopy.distance
 # list cities in sample
 values = [
     ('atlanta', 'AT', 'georgia', 'GA', 44, [1210, 890], 350),
-    ('louisville', 'LO', 'kentucky', 'KY', 51, [1110], 3750)]
+    ('louisville', 'LO', 'kentucky', 'KY', 51, [1110], 3750),
+    ('littlerock', 'LR', 'arkansas', 'AR', 5, [1190], 3650)]
 keys=['city', 'cityabbr', 'state', 'stateabbr', 'stateicp', 'countyicp', 'cityicp']
 rows = [dict(zip(keys, v)) for v in values]
 sample = pd.DataFrame(rows)
@@ -34,23 +35,37 @@ for city in sample['city'].unique():
         city_streets = scrape_streets_citywise(url, sample)
         atlanta_streets = city_streets.get('atlanta')
         louisville_streets = city_streets.get('louisville')
+        littlerock_streets = city_streets.get('littlerock')
     else:
         city_streets[city] = pd.read_csv(csv_path)
 
 # pull in street changes for each city
 city_street_changes = {}
+from scrape_streets import scrape_atl_changes, scrape_louisville_changes, scrape_littlerock_changes, format_changes
+url_atl = 'http://jolomo.net/atlanta/streets.html'
+url_lo = 'https://en.wikipedia.org/wiki/List_of_roads_in_Louisville,_Kentucky'
+csv_lr = 'data/input/littlerock/street_changes.csv'
+
 for city in sample['city'].unique():
     csv_path = f'data/intermed/{city}_changes.csv'
-    if not os.path.exists(csv_path):
-        from scrape_streets import scrape_atl_changes, scrape_louisville_changes, format_changes
-        url_atl = 'http://jolomo.net/atlanta/streets.html'
-        url_lo = 'https://en.wikipedia.org/wiki/List_of_roads_in_Louisville,_Kentucky'
-        atlanta_changes = scrape_atl_changes(url_atl)
-        atlanta_changes = format_changes(atlanta_changes, name = 'atlanta_changes')
-        louisville_changes = scrape_louisville_changes(url_lo)
-        louisville_changes = format_changes(louisville_changes, name = 'lousiville_changes')
-    else:
+
+    if os.path.exists(csv_path):
         city_street_changes[city] = pd.read_csv(csv_path)
+        continue
+
+    # scrape only the current city
+    if city == 'atlanta':
+        changes = scrape_atl_changes(url_atl)
+    elif city == 'louisville':
+        changes = scrape_louisville_changes(url_lo)
+    elif city == 'littlerock':
+        changes = scrape_littlerock_changes(csv_lr)
+    else:
+        raise ValueError(f"No street-change scraper configured for city: {city}")
+
+    changes = format_changes(changes, name=f'{city}_changes')
+    city_street_changes[city] = changes
+    changes.to_csv(csv_path, index=False)  
 
 ####################################################################################################
 ### FUNCTION TO CLEAN AND INTERPOLATE ADDRESSES ###
@@ -265,7 +280,7 @@ def match_addresses(df, streets):
     df.drop(columns = ['rawhninfo', 'hotelinfo', 'streetinfo'], inplace=True)
 
     # match new street names to street names that have been changed since 1940 to assist with geocoding
-    street_changes = pd.read_csv('data/output/atl_street_changes.csv')
+    street_changes = city_street_changes[city].copy()
     street_changes['old_name'] = street_changes['old_name'].str.replace(r'\([^()]*\)', '', regex=True).str.strip()
     def new_names(street_match):
         match = process.extractOne(street_match, street_changes['old_name'],
@@ -281,13 +296,13 @@ def match_addresses(df, streets):
     return df
 
 ### FUNCTION TO CALL MATCHING FUNCTION CITY BY CITY ###
-def match_addresses_citywide(df, sample, city_streets):
+def match_addresses_citywide(df, sample, city_streets, city_street_changes):
     results = []
     for city in sample['city'].unique():
         city_sample = sample[sample['city'] == city].iloc[0]
         city_df = df[df['city'] == city_sample['cityicp']].copy()
         streets = city_streets[city]
-        matched = match_addresses(city_df, streets)
+        matched = match_addresses(city_df, streets, city, city_street_changes)
         results.append(matched) 
     # concat and return
     return pd.concat(results, ignore_index = True)
@@ -455,7 +470,7 @@ def clean_data(census, sample, city_streets):
     df = standardize_addresses(df)
     print('addresses standarized')
 
-    df = match_addresses_citywide(df, sample, city_streets)
+    df = match_addresses_citywide(df, sample, city_streets, city_street_changes)
     print('address matching done')
 
     df = interpolate_house_numbers(df)
