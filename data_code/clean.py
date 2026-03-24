@@ -487,6 +487,7 @@ def geocode_addresses_citywide(df, sample):
 def clean_data(census, sample, city_streets):
     cols = ['valueh', 'race', 'street', 'city', 'urban', 'countyicp', 'stateicp', 'rent', 
         'enumdist', 'respond', 'numperhh', 'numprec', 'serial', 'rawhn', 'ownershp', 'pageno', 'dwelling']
+    census = census.rename(columns = {'us1940b_0028': 'rawhn'})
 
     all_countyicps = [c for sublist in sample['countyicp'] for c in (sublist if isinstance(sublist, list) else [sublist])]
     mask = census['countyicp'].isin(all_countyicps) | census['city'].isin(sample['cityicp'])
