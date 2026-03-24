@@ -6,6 +6,7 @@ import re
 import censusbatchgeocoder
 import requests
 import geopy, geopy.distance
+import time
 
 ## this is a beast of a file - overview below
 # section 1: ONLY section to be edited upon addition of new cities - add to 'sample' dataframe and run
@@ -29,7 +30,7 @@ sample.to_pickle('data/input/samplelist.pkl')
 city_streets = {}
 url = 'https://stevemorse.org/census/index.html?ed2street=1'
 from scrape_streets import scrape_streets_citywise
-city_streets = scrape_streets_citywise(url, sample)
+# city_streets = scrape_streets_citywise(url, sample)
 
 for city in sample['city'].unique():
     csv_path = f'data/intermed/{city}_streets.csv'
@@ -192,7 +193,7 @@ def standardize_addresses(df):
     return df
 
 ### FUNCTION TO MATCH ADDRESSES TO KNOWN STREETS FROM STEVE MORSE IN 3 ROUNDS ###
-def match_addresses(df, streets):
+def match_addresses(df, streets, city, city_street_changes):
     known_streets = streets['street'].str.lower().unique()
     df['street_match'] = pd.Series(np.nan, index=df.index, dtype='object')
     df['prev_street'] = df['street'].shift(1)
@@ -351,6 +352,26 @@ def interpolate_house_numbers(df):
     print('interpolated missing house numbers for owners', df['rawhn'].notna().sum())
     return df
 
+def geocode_with_retry(records, max_retries = 3, delay = 2):
+    for attempt in range(max_retries):
+        try:
+            result = censusbatchgeocoder.geocode(records, zipcode=None)
+            return pd.DataFrame(result)
+        except KeyError as e:
+            print(f"KeyError on attempt {attempt + 1}/{max_retries}: {e}")
+            if attempt < max_retries - 1:
+                print(f"Retrying in {delay}s...")
+                time.sleep(delay)
+            else:
+                print("Max retries reached for this chunk. Moving on.")
+                return pd.DataFrame()
+        except Exception as e:
+            print(f"Unexpected error on attempt {attempt + 1}: {e}")
+            if attempt < max_retries - 1:
+                time.sleep(delay)
+            else:
+                return pd.DataFrame()
+
 ### FUNCTION TO GEOCODE ADDRESSES ###
 def geocode_addresses(df_orig, city_sample):
     # minor restructuring per geocoder requirements
@@ -368,24 +389,37 @@ def geocode_addresses(df_orig, city_sample):
     df['state'] = city_sample['state'] 
     df['zipcode'] = ''
     df['id'] = df['serial'].astype(str)
+    print(df.shape)
+    df = df.dropna(subset=['id'])
+    print(df.shape)
     df = df[['id', 'address', 'city', 'state', 'zipcode']]
 
     # geocode using censusbatchgeocoder
     print('starting geocoding')
-    fourth1, fourth2, fourth3= int(len(df)/3), (2 * int(len(df)/3)), (3 * int(len(df)/3))
-    d1 = df.iloc[:fourth1]
-    d2 = df.iloc[(fourth1+1):(fourth2)]
-    d3 = df.iloc[(fourth2 + 1):(fourth3)]
-    d4 = df.iloc[(fourth3 + 1):]
-    result1 = pd.DataFrame(censusbatchgeocoder.geocode(d1.to_dict(orient = 'records'), zipcode = None))
-    print('first done')
-    result2 = pd.DataFrame(censusbatchgeocoder.geocode(d2.to_dict(orient = 'records'), zipcode = None))
-    print('second done')
-    result3 = pd.DataFrame(censusbatchgeocoder.geocode(d3.to_dict(orient = 'records'), zipcode = None))
-    print('third done')
-    result4 = pd.DataFrame(censusbatchgeocoder.geocode(d4.to_dict(orient = 'records'), zipcode = None))
-    print('fourth done')
-    geocoded_df = pd.concat([result1, result2, result3, result4])
+    chunks = np.array_split(df, 5)
+
+    results = []
+    for i, chunk in enumerate(chunks):
+        print(f"Geocoding chunk {i + 1}/5 ({len(chunk)} rows)...")
+        result = geocode_with_retry(chunk.to_dict(orient='records'))
+        results.append(result)
+        time.sleep(1)
+
+    geocoded_df = pd.concat(results, ignore_index=True)
+    # fourth1, fourth2, fourth3= int(len(df)/3), (2 * int(len(df)/3)), (3 * int(len(df)/3))
+    # d1 = df.iloc[:fourth1]
+    # d2 = df.iloc[(fourth1+1):(fourth2)]
+    # d3 = df.iloc[(fourth2 + 1):(fourth3)]
+    # d4 = df.iloc[(fourth3 + 1):]
+    # result1 = pd.DataFrame(censusbatchgeocoder.geocode(d1.to_dict(orient = 'records'), zipcode = None))
+    # print('first done')
+    # result2 = pd.DataFrame(censusbatchgeocoder.geocode(d2.to_dict(orient = 'records'), zipcode = None))
+    # print('second done')
+    # result3 = pd.DataFrame(censusbatchgeocoder.geocode(d3.to_dict(orient = 'records'), zipcode = None))
+    # print('third done')
+    # result4 = pd.DataFrame(censusbatchgeocoder.geocode(d4.to_dict(orient = 'records'), zipcode = None))
+    # print('fourth done')
+    # geocoded_df = pd.concat([result1, result2, result3, result4])
     print(f"{geocoded_df['is_exact'].notna().sum()} records geocoded")
     print(f"{(geocoded_df['is_match'] == 'Tie').sum()} ties")
     print(f"{(geocoded_df['is_match'] == 'No_Match').sum()} unmatched")
