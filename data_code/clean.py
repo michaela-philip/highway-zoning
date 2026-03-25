@@ -260,8 +260,7 @@ def match_addresses(df, streets, city, city_street_changes):
             best_candidate = match[0]
             match_known = process.extractOne(
                 best_candidate, known_streets,
-                scorer = distance.DamerauLevenshtein.normalized_similarity,
-                score_cutoff=0.3
+                scorer = distance.DamerauLevenshtein.normalized_similarity
             )
             return match_known[0] if match_known is not None else np.nan
     df.loc[mask_unmatched, 'street_match'] = df.loc[mask_unmatched].apply(round_3, axis=1)
@@ -273,7 +272,7 @@ def match_addresses(df, streets, city, city_street_changes):
             match = process.extractOne(
                 row['street'], known_streets,
                 scorer = distance.DamerauLevenshtein.normalized_similarity,
-                score_cutoff=0.3
+                score_cutoff=0.6
             )
             return match[0] if match is not None else np.nan
     df.loc[mask_unmatched, 'street_match'] = df.loc[mask_unmatched].apply(round_4, axis=1)
