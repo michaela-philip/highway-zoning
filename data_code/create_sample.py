@@ -8,16 +8,20 @@ import shapely.geometry
 atlanta_zoning = gpd.read_file('data/input/zoning_shapefiles/atlanta/zoning.shp')
 louisville_zoning1 = gpd.read_file('data/input/zoning_shapefiles/louisville/zoning-1947.shp')
 louisville_zoning2 = gpd.read_file('data/input/zoning_shapefiles/louisville/zoning-1931.shp')
+littlerock = gpd.read_file('data/input/zoning_shapefiles/littlerock/zoning-1937.shp')
 zoning = {
     'atlanta': atlanta_zoning,
     'louisville_1947': louisville_zoning1,
-    'louisville_1931': louisville_zoning2
+    'louisville_1931': louisville_zoning2,
+    'littlerock': littlerock
 }
 atlanta_geology = gpd.read_file('data/input/atlanta/water_topog.shp')
 louisville_geology = gpd.read_file('data/input/louisville/water_topog.shp')
+littlerock_geology = gpd.read_file('data/input/littlerock/water_topog/water_topog.shp')
 geology = {
     'atlanta': atlanta_geology,
-    'louisville': louisville_geology
+    'louisville': louisville_geology,
+    'littlerock': littlerock_geology
 }
 
 ####################################################################################################
@@ -69,7 +73,10 @@ def classify_grid(zoning1, grid, centroids, city_sample, zoning2 = None):
 
     city = city_sample['city']
     # calculate distance between grid centroid and CBD 
-    city_cbd = centroids[centroids['place'].str.lower() == f'{city}'].to_crs(grid.crs).geometry.iloc[0]
+    city_mask = centroids['place'].str.lower().str.replace(' ', '') == city.lower().replace(' ', '')
+    if not city_mask.any():
+        raise ValueError(f"No CBD centroid found for city '{city}' in centroids['place']")
+    city_cbd = centroids[city_mask].to_crs(grid.crs).geometry.iloc[0]
     output['distance_to_cbd'] = output.geometry.centroid.distance(city_cbd)
     return output
 
