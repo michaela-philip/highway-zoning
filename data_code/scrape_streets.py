@@ -160,6 +160,7 @@ def format_street_changes(df):
     df = (df
         .str.lower()
         .str.replace(r'\([^()]*\)', '', regex=True)
+        .str.replace(r'\[\d+\]', '', regex=True)
         .str.replace(r'\bavenue\b', 'ave', regex=True)
         .str.replace(r'\bstreet\b', 'st', regex=True)
         .str.replace(r'\broad\b', ' rd', regex=True)
@@ -168,6 +169,7 @@ def format_street_changes(df):
         .str.replace(r'\bcourt\b', ' ct', regex=True)
         .str.replace(r'\bboulevard\b', ' blvd', regex=True)
         .str.replace(r'-\s*', '', regex=True)
+        .str.replace(r"'", '', regex=True)
         .str.strip()
     )
     return df
@@ -185,6 +187,8 @@ def format_changes(df, name = None):
     df = df[~df['new_name'].isin(street_to_drop)]
     df['old_name'] = format_street_changes(df['old_name'])
     df['new_name'] = minimal_format(df['new_name'])
+    df = df.dropna(subset=['old_name', 'new_name'])
+    df = df[(df['old_name'].str.strip() != '') & (df['new_name'].str.strip() != '')]
     if name is not None:
         df.to_csv(f'data/intermed/{name}.csv', index=False)
     return df
