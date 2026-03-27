@@ -414,7 +414,7 @@ def geocode_addresses(df_orig, city_sample):
     print(f"{(geocoded_df['is_match'] == 'No_Match').sum()} unmatched")
 
     # want to deal with ties by choosing the coordinate closest to the adjacent entry 
-    def resolve_ties(row):
+    def resolve_ties(row, max_retries = 3, delay=5):
         url = 'https://geocoding.geo.census.gov/geocoder/locations/address'
         params = {
             'street':row['address'],
@@ -424,23 +424,35 @@ def geocode_addresses(df_orig, city_sample):
             'benchmark':'4',
             'format':'json'
         }
-        response = requests.get(url, params=params)
         prev_coordinate = row['prev_coordinate']
-        if response.status_code == 200 and response.text.strip():
+        for attempt in range(max_retries):
             try:
-                matches = response.json().get('result', {}).get('addressMatches', [])
+                response = requests.get(url, params=params, timeout=10)
+                if response.status_code == 200 and response.text.strip():
+                    try:
+                        matches = response.json().get('result', {}).get('addressMatches', [])
+                    except Exception as e:
+                        print(f"JSON decode error: {e}")
+                        return None
+                    if len(matches) > 0:
+                        c1 = (matches[0]['coordinates']['x'], matches[0]['coordinates']['y'])
+                        c2 = (matches[1]['coordinates']['x'], matches[1]['coordinates']['y'])
+                        d1 = geopy.distance.distance((c1[1], c1[0]), (prev_coordinate[1], prev_coordinate[0])).meters
+                        d2 = geopy.distance.distance((c2[1], c2[0]), (prev_coordinate[1], prev_coordinate[0])).meters
+                        return c1 if d1 < d2 else c2
+                else:
+                    return None
+            except requests.exceptions.ConnectionError as e:
+                print(f"Connection error on attempt {attempt+1}/{max_retries}: {e}")
+                if attempt < max_retries - 1:
+                    print(f"Retrying in {delay} seconds...")
+                    time.sleep(delay)
+                else:
+                    print("Max retries reached. Skipping this row.")
+                    return None
             except Exception as e:
-                print(f"JSON decode error: {e}")
+                print(f"Unexpected error: {e}")
                 return None
-            if len(matches) > 0:
-                c1 = (matches[0]['coordinates']['x'], matches[0]['coordinates']['y'])
-                c2 = (matches[1]['coordinates']['x'], matches[1]['coordinates']['y'])
-                # calculate distances between each set of points
-                d1 = geopy.distance.distance((c1[1], c1[0]), (prev_coordinate[1], prev_coordinate[0])).meters
-                d2 = geopy.distance.distance((c2[1], c2[0]), (prev_coordinate[1], prev_coordinate[0])).meters
-                return c1 if d1 < d2 else c2    
-        else:
-            return None
 
     iter_count = 0
     max_iter = 10
@@ -469,6 +481,17 @@ def geocode_addresses_citywide(df, sample, use_cache = True):
     cache_path = 'data/intermed/geocoded_data.pkl'
     if use_cache and os.path.exists(cache_path):
         cache = pd.read_pickle(cache_path)
+        if 'coordinates' not in cache.columns:
+            if 'coordinates_x' in cache.columns and 'coordinates_y' in cache.columns:
+                # Use the most complete set of coordinates
+                cache['coordinates'] = cache['coordinates_x'].combine_first(cache['coordinates_y'])
+            elif 'coordinates_x' in cache.columns:
+                cache['coordinates'] = cache['coordinates_x']
+            elif 'coordinates_y' in cache.columns:
+                cache['coordinates'] = cache['coordinates_y']
+            else:
+                print("Cache columns:", cache.columns)
+                raise KeyError("'coordinates' column not found in cache. Please check your cache file.")
         cache = cache[['serial', 'coordinates']]
         cache['serial'] = cache['serial'].astype(str)
         df['serial'] = df['serial'].astype(str)
@@ -481,7 +504,9 @@ def geocode_addresses_citywide(df, sample, use_cache = True):
     results = []
     for city in sample['city'].unique():
         city_sample = sample[sample['city'] == city].iloc[0]
-        city_df = df[df['city'] == city_sample['cityicp']].copy()
+        city_df = df[(df['city'] == city_sample['cityicp']) & (df['coordinates'].isna())].copy()
+        if city_df.empty:
+            continue  # Skip if all coordinates are present
         geocoded = geocode_addresses(city_df, city_sample)
         results.append(geocoded) 
         partial_df = pd.concat(results, ignore_index=True)
@@ -489,10 +514,11 @@ def geocode_addresses_citywide(df, sample, use_cache = True):
         print(f"Cached geocoding results after processing {city}")
     if results:
         newly_geocoded = pd.concat(results, ignore_index=True)
-        # Update df with new coordinates
+        # Ensure 'serial' is unique before updating
+        newly_geocoded = newly_geocoded.drop_duplicates(subset='serial', keep='first')
         df.update(newly_geocoded.set_index('serial'))
     # concat and return
-    return pd.concat(results, ignore_index = True)
+    return df
 
 ####################################################################################################
 ### MASTER FUNCTION ###
