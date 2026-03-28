@@ -20,7 +20,7 @@ dataroot = 'cnn/'
 outputroot = 'cnn/'
 
 use_saved_model = True
-saved_model_filename = 'cnn/bc_model1.tar'  # path to saved model for prediction
+saved_model_filename = 'binaryclass/bc_model1.tar'  # path to saved model for prediction
 
 ####################################################################################################
 ### PARAMETERS ###

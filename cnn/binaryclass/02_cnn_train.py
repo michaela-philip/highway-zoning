@@ -16,8 +16,8 @@ from pathlib import Path
 from scipy.ndimage import rotate, shift
 
 
-dataroot = 'cnn/binaryclass'
-outputroot = 'cnn/binaryclass'
+dataroot = 'cnn/binaryclass/'
+outputroot = 'cnn/binaryclass/'
 
 use_saved_model = False
 saved_model_filename = ''
