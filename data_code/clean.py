@@ -477,52 +477,18 @@ def geocode_addresses(df_orig, city_sample):
     return merged
 
 ### FUNCTION TO GEOCODE ADDRESSES CITY BY CITY ###
-def geocode_addresses_citywide(df, sample, use_cache = True):
-    cache_path = 'data/intermed/geocoded_data.pkl'
-    if use_cache and os.path.exists(cache_path):
-        cache = pd.read_pickle(cache_path)
-        if 'coordinates' not in cache.columns:
-            if 'coordinates_x' in cache.columns and 'coordinates_y' in cache.columns:
-                # Use the most complete set of coordinates
-                cache['coordinates'] = cache['coordinates_x'].combine_first(cache['coordinates_y'])
-            elif 'coordinates_x' in cache.columns:
-                cache['coordinates'] = cache['coordinates_x']
-            elif 'coordinates_y' in cache.columns:
-                cache['coordinates'] = cache['coordinates_y']
-            else:
-                print("Cache columns:", cache.columns)
-                raise KeyError("'coordinates' column not found in cache. Please check your cache file.")
-        cache = cache[['serial', 'coordinates']]
-        cache['serial'] = cache['serial'].astype(str)
-        df['serial'] = df['serial'].astype(str)
-        # Merge cached coordinates into current df
-        df = df.merge(cache, on='serial', how='left', suffixes=('', '_cached'))
-        if 'coordinates_cached' in df.columns:
-            df['coordinates'] = df['coordinates'].combine_first(df['coordinates_cached'])
-            df = df.drop(columns=['coordinates_cached'])
-
+def geocode_addresses_citywide(df, sample):
     results = []
     for city in sample['city'].unique():
         city_sample = sample[sample['city'] == city].iloc[0]
-        city_df = df[(df['city'] == city_sample['cityicp']) & (df['coordinates'].isna())].copy()
-        if city_df.empty:
-            continue  # Skip if all coordinates are present
+        city_df = df[df['city'] == city_sample['cityicp']].copy()
         geocoded = geocode_addresses(city_df, city_sample)
         results.append(geocoded) 
-        partial_df = pd.concat(results, ignore_index=True)
-        partial_df.to_pickle(cache_path)
-        print(f"Cached geocoding results after processing {city}")
-    if results:
-        newly_geocoded = pd.concat(results, ignore_index=True)
-        # Ensure 'serial' is unique before updating
-        newly_geocoded = newly_geocoded.drop_duplicates(subset='serial', keep='first')
-        df.update(newly_geocoded.set_index('serial'))
-    # concat and return
-    return df
+    return pd.concat(results, ignore_index = True)
 
 ####################################################################################################
 ### MASTER FUNCTION ###
-def clean_data(census, sample, city_streets, use_cache=True):
+def clean_data(census, sample, city_streets):
     cols = ['valueh', 'race', 'street', 'city', 'urban', 'countyicp', 'stateicp', 'rent', 
         'enumdist', 'respond', 'numperhh', 'numprec', 'serial', 'rawhn', 'ownershp', 'pageno', 'dwelling']
     census = census.rename(columns = {'us1940b_0028': 'rawhn'})
@@ -557,13 +523,12 @@ def clean_data(census, sample, city_streets, use_cache=True):
     df.to_pickle('data/intermed/cleaned_data.pkl')    
     print('pickle created')
     df = pd.read_pickle('data/intermed/cleaned_data.pkl')
-    df = geocode_addresses_citywide(df, sample, use_cache=use_cache)
+    df = geocode_addresses_citywide(df, sample)
     df = df.rename(columns= {'city_x': 'cityicp', 'city_y': 'city'})
     return df
 
 ####################################################################################################
-use_cache = True
 census = pd.read_pickle('data/input/census_1940.pkl')
-df = clean_data(census, sample, city_streets, use_cache=use_cache)
+df = clean_data(census, sample, city_streets)
 df.to_pickle('data/intermed/geocoded_data.pkl')
 print('geocoded data pickled')
