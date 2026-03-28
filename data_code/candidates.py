@@ -44,7 +44,10 @@ def get_mlcandidates(data, centroids, sample):
     candidate_list = {}
     for city in sample['city'].unique():
         city_data = data[data['city'] == city].copy()
-        city_cbd = centroids[centroids['place'].str.lower() == f'{city}'].to_crs(city_data.crs)
+        city_mask = centroids['place'].str.lower().str.replace(' ', '') == city.lower().replace(' ', '')
+        if not city_mask.any():
+            raise ValueError(f"No CBD centroid found for city '{city}' in centroids['place']")
+        city_cbd = centroids[city_mask]
         candidate_list[city] = create_mlcandidate_list(city_data, city_cbd)
     out_path = Path('data/output/cnn_candidate_list.pkl')
     out_path.parent.mkdir(parents=True, exist_ok=True)
@@ -94,7 +97,10 @@ def get_candidates(data, centroids, sample):
     candidate_list = {}
     for city in sample['city'].unique():
         city_data = data[data['city'] == city].copy()
-        city_cbd = centroids[centroids['place'].str.lower() == f'{city}'].to_crs(city_data.crs)
+        city_mask = centroids['place'].str.lower().str.replace(' ', '') == city.lower().replace(' ', '')
+        if not city_mask.any():
+            raise ValueError(f"No CBD centroid found for city '{city}' in centroids['place']")
+        city_cbd = centroids[city_mask]
         candidate_list[city] = create_candidate_list(city_data, city_cbd)
     out_path = Path('data/output/candidate_list.pkl')
     out_path.parent.mkdir(parents=True, exist_ok=True)
