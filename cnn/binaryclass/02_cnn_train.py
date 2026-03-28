@@ -285,12 +285,13 @@ def create_batch(batch_tensor=batch_tensor, labels=labels, sample_ids_real=S_id_
         feat_arr, label_arr, trs = city_rasters[city]
 
         # random augmentations (keep same semantics as original)
-        rot_k = np.random.randint(0, 4)
-        mirror_var = (np.random.rand() > 0.5)*2 - 1
-        shift_x_cells = np.random.randint(-size_potential, size_potential)
-        shift_y_cells = np.random.randint(-size_potential, size_potential)
+        # rot_k = np.random.randint(0, 4)
+        # mirror_var = (np.random.rand() > 0.5)*2 - 1
+        # shift_x_cells = np.random.randint(-size_potential, size_potential)
+        # shift_y_cells = np.random.randint(-size_potential, size_potential)
 
-        patch, label_patch, class_idx = extract_patch_from_arrays(feat_arr, label_arr, row, col, window, rot_k, mirror_var, shift_x_cells, shift_y_cells)
+        patch, label_patch, class_idx = extract_patch_from_arrays(feat_arr, label_arr, row, col, window)
+        # , rot_k, mirror_var, shift_x_cells, shift_y_cells)
 
         # if patch channels do not match nc, truncate or pad with zeros
         C = patch.shape[0]
