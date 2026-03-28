@@ -14,7 +14,7 @@ from pathlib import Path
 from scipy.ndimage import rotate, shift
 import os
 import glob
-
+from collections import defaultdict
 
 dataroot = 'cnn/'
 outputroot = 'cnn/'
@@ -236,6 +236,7 @@ def gridid_to_rc_map_by_city(grid, cell_width):
     return mapping
 
 GRIDID_TO_RC = gridid_to_rc_map_by_city(grid, cell_width)
+RC_TO_GRIDID = {v: k for k, v in GRIDID_TO_RC.items()}
 
 # create tensor of the proper size 
 batch_tensor = torch.zeros(BATCH_SIZE,nc,2*size_padding+size_potential, 2*size_padding+size_potential) #, dtype=torch.double)
@@ -255,80 +256,49 @@ S_id_real = hwys
 S_id_real = np.array(S_id_real, dtype=int)
 S_id_random = np.array(S_id_random, dtype=int)
 
-def create_batch(batch_tensor=batch_tensor, labels=labels, sample_ids_real=S_id_real, sample_ids_random=S_id_random, return_transf=False):
-    batch_tensor = batch_tensor*0
-    labels = labels*0
+def create_batch_predict(batch_tensor, sample_ids):
+    batch_tensor = batch_tensor * 0
+    window = 2 * size_padding + size_potential
+    patch_origins = []
 
-    if return_transf:
-        transf = np.zeros(shape=(BATCH_SIZE,5))
-
-    window = 2*size_padding + size_potential
-    pad = window // 2
-
-    # guard: ensure sample sets not empty
-    if len(sample_ids_real) == 0 and len(sample_ids_random) == 0:
-        raise RuntimeError("sample_ids_real or sample_ids_random is empty after filtering for valid labels")
-
-    for b in range(BATCH_SIZE):
-
-        if b < BATCH_SIZE_real + BATCH_SIZE_fill:
-            if len(sample_ids_real) == 0:
-                s_id = int(np.random.choice(sample_ids_random))
-            else:
-                s_id = int(np.random.choice(sample_ids_real))
-        else:
-            if len(sample_ids_random) == 0:
-                s_id = int(np.random.choice(sample_ids_real))
-            else:
-                s_id = int(np.random.choice(sample_ids_random))
-
-        # find raster row/col for this grid_id
-        if int(s_id) not in GRIDID_TO_RC:
+    for b in range(len(sample_ids)):
+        s_id = int(sample_ids[b])
+        if s_id not in GRIDID_TO_RC:
+            patch_origins.append(None)
             continue
-        city, row, col = GRIDID_TO_RC[int(s_id)]
+
+        city, row, col = GRIDID_TO_RC[s_id]
         feat_arr, label_arr, trs = city_rasters[city]
+        C, H, W = feat_arr.shape
 
-        # random augmentations (keep same semantics as original)
-        rot_k = np.random.randint(0, 4)
-        mirror_var = (np.random.rand() > 0.5)*2 - 1
-        shift_x_cells = np.random.randint(-size_potential, size_potential)
-        shift_y_cells = np.random.randint(-size_potential, size_potential)
+        # fix seed at center of patch (no random placement)
+        rel_row = window // 2
+        rel_col = window // 2
+        patch_top = row - rel_row
+        patch_left = col - rel_col
 
-        patch, label_patch, class_idx = extract_patch_from_arrays(feat_arr, label_arr, row, col, window, rot_k, mirror_var, shift_x_cells, shift_y_cells)
+        r_start = max(0, patch_top)
+        r_end = min(H, patch_top + window)
+        c_start = max(0, patch_left)
+        c_end = min(W, patch_left + window)
 
-        # if patch channels do not match nc, truncate or pad with zeros
-        C = patch.shape[0]
-        if C != nc:
-            print(f"Warning: Patch channels ({C}) do not match expected channels ({nc}). Adjusting...")
-        if C >= nc:
-            patch = patch[:nc, :, :]
-        else:
-            pad_ch = np.zeros((nc - C, window, window), dtype='float32')
-            patch = np.vstack([patch, pad_ch])
+        pr_start = max(0, -patch_top)
+        pr_end = pr_start + (r_end - r_start)
+        pc_start = max(0, -patch_left)
+        pc_end = pc_start + (c_end - c_start)
 
-        # verify patch dimensions
-        if patch.shape[1:] != (window, window):
-            raise ValueError(f"Patch dimensions {patch.shape[1:]} do not match expected size ({window}, {window})")
+        patch = np.zeros((C, window, window), dtype=np.float32)
+        patch[:, pr_start:pr_end, pc_start:pc_end] = feat_arr[:, r_start:r_end, c_start:c_end]
 
-        # assign patch channels to grid tensor
         for ch in range(nc):
             batch_tensor[b, ch, :, :] = torch.from_numpy(patch[ch])
 
-        # assign label to label tensor
-        label_patch_tensor = torch.from_numpy(label_patch)
-        clean_label_patch = torch.where((label_patch_tensor == 0) | (label_patch_tensor == 1),
-                                        label_patch_tensor.float(),
-                                        torch.zeros_like(label_patch_tensor.float()))
-        labels[b] = clean_label_patch
+        # don't want hwy to be used as an input for prediction (no longer an adversarial task)
+        batch_tensor[b, features.index('hwy'), :, :] = 0            
 
-        # 'zero' out highways in the 'real' samples
-        if b < BATCH_SIZE_real:
-            batch_tensor[b, features.index('hwy'), :, :] = 0
+        patch_origins.append((city, patch_top, patch_left))
 
-    if not return_transf:
-        return batch_tensor, labels
-    else:
-        return batch_tensor, labels, transf
+    return batch_tensor, patch_origins
 
 ####################################################################################################
 ### NEURAL NET FUNCTIONS AND INITIALIZATION###
@@ -358,20 +328,20 @@ class Net(nn.Module):
 def intitialize_optimizer(net):
     return optim.SGD(net.parameters(), lr=0.001, momentum=0.9)
 
-# functions to save and load model
-def save_model(filename=None):
-    if not filename:
-        date = (datetime.now(timezone.utc) + timedelta(hours=-7)).strftime('%Y-%m-%d--%H-%M')
-        filename = 'checkpoint-epoch-' + str(curr_epoch) + '-' + date + '.tar'
-    path_save = outputroot + filename
-    # save the model
-    torch.save({
-                'net_state_dict': net.state_dict(),
-                'optimizer_state_dict': optimizer.state_dict(),
-                'curr_epoch': curr_epoch,
-                'epoch_set_seed': epoch_set_seed,
-                }, path_save)
-    print('file: ' + path_save)
+# # functions to save and load model
+# def save_model(filename=None):
+#     if not filename:
+#         date = (datetime.now(timezone.utc) + timedelta(hours=-7)).strftime('%Y-%m-%d--%H-%M')
+#         filename = 'checkpoint-epoch-' + str(curr_epoch) + '-' + date + '.tar'
+#     path_save = outputroot + filename
+#     # save the model
+#     torch.save({
+#                 'net_state_dict': net.state_dict(),
+#                 'optimizer_state_dict': optimizer.state_dict(),
+#                 'curr_epoch': curr_epoch,
+#                 'epoch_set_seed': epoch_set_seed,
+#                 }, path_save)
+#     print('file: ' + path_save)
 
 def load_model(filename, net=None, optimizer=None):
     global epoch_set_seed
@@ -402,158 +372,174 @@ def load_model(filename, net=None, optimizer=None):
     epoch_set_seed.append(curr_epoch)
     return net, optimizer
 
-# locations for training and evaluation
-num_distinct_train_real = int(len(S_id_real) * frac_train_real)
-num_distinct_train_random = int(len(S_id_random) * frac_train_random)
+# # locations for training and evaluation
+# num_distinct_train_real = int(len(S_id_real) * frac_train_real)
+# num_distinct_train_random = int(len(S_id_random) * frac_train_random)
 
-sample_train_real = list(np.random.choice(a=S_id_real,size=num_distinct_train_real,replace=False))
-sample_train_real.sort()
-sample_train_random = list(np.random.choice(a=S_id_random,size=num_distinct_train_random,replace=False))
-sample_train_random.sort()
+# sample_train_real = list(np.random.choice(a=S_id_real,size=num_distinct_train_real,replace=False))
+# sample_train_real.sort()
+# sample_train_random = list(np.random.choice(a=S_id_random,size=num_distinct_train_random,replace=False))
+# sample_train_random.sort()
 
-if num_distinct_train_real < len(S_id_real):
-    sample_eval_real = list(set(S_id_real) - set(sample_train_real))
-else:
-    sample_eval_real = S_id_real
-sample_eval_real.sort()
-if num_distinct_train_random < len(S_id_random):
-    sample_eval_random = list(set(S_id_random) - set(sample_train_random))
-else:
-    sample_eval_random = S_id_random
-sample_eval_random.sort()
+# if num_distinct_train_real < len(S_id_real):
+#     sample_eval_real = list(set(S_id_real) - set(sample_train_real))
+# else:
+#     sample_eval_real = S_id_real
+# sample_eval_real.sort()
+# if num_distinct_train_random < len(S_id_random):
+#     sample_eval_random = list(set(S_id_random) - set(sample_train_random))
+# else:
+#     sample_eval_random = S_id_random
+# sample_eval_random.sort()
 
-# initialize neural net
-def weights_init(m):
-    if isinstance(m, nn.Conv2d):
-        nn.init.kaiming_normal_(m.weight, a=0.2, mode='fan_in', nonlinearity='leaky_relu')
-        if m.bias is not None:
-            nn.init.constant_(m.bias, 0.0)
-    elif isinstance(m, nn.InstanceNorm2d):
-        if m.weight is not None:
-            nn.init.constant_(m.weight, 1.0)
-        if m.bias is not None:
-            nn.init.constant_(m.bias, 0.0)
-    elif isinstance(m, nn.Linear):
-        nn.init.xavier_uniform_(m.weight)
-        nn.init.constant_(m.bias, 0.0)
+# # initialize neural net
+# def weights_init(m):
+#     if isinstance(m, nn.Conv2d):
+#         nn.init.kaiming_normal_(m.weight, a=0.2, mode='fan_in', nonlinearity='leaky_relu')
+#         if m.bias is not None:
+#             nn.init.constant_(m.bias, 0.0)
+#     elif isinstance(m, nn.InstanceNorm2d):
+#         if m.weight is not None:
+#             nn.init.constant_(m.weight, 1.0)
+#         if m.bias is not None:
+#             nn.init.constant_(m.bias, 0.0)
+#     elif isinstance(m, nn.Linear):
+#         nn.init.xavier_uniform_(m.weight)
+#         nn.init.constant_(m.bias, 0.0)
 
-def focal_loss(outputs, labels, weights, gamma=2.0):
-    ce = F.cross_entropy(outputs, labels, reduction="none")
-    # p_t = probability of the true class
-    pt = torch.exp(-ce)
-    # Focal term
-    focal_term = (1 - pt) ** gamma
-    # Class weights applied per sample
-    class_w = weights[labels]
-    # Weighted focal loss
-    loss = (class_w * focal_term * ce).mean()
-    return loss
+# def focal_loss(outputs, labels, weights, gamma=2.0):
+#     ce = F.cross_entropy(outputs, labels, reduction="none")
+#     # p_t = probability of the true class
+#     pt = torch.exp(-ce)
+#     # Focal term
+#     focal_term = (1 - pt) ** gamma
+#     # Class weights applied per sample
+#     class_w = weights[labels]
+#     # Weighted focal loss
+#     loss = (class_w * focal_term * ce).mean()
+#     return loss
 
-def compute_batch_weights(labels, num_classes):
-    # count frequencies in the batch
-    valid_mask = (labels >= 0) & (labels < num_classes)
-    valid_labels = labels[valid_mask]
-    unique, counts = torch.unique(valid_labels, return_counts=True)
-    unique = unique.long()
-    freq = torch.zeros(num_classes, device=labels.device)
-    freq[unique] = counts.float()
+# def compute_batch_weights(labels, num_classes):
+#     # count frequencies in the batch
+#     valid_mask = (labels >= 0) & (labels < num_classes)
+#     valid_labels = labels[valid_mask]
+#     unique, counts = torch.unique(valid_labels, return_counts=True)
+#     unique = unique.long()
+#     freq = torch.zeros(num_classes, device=labels.device)
+#     freq[unique] = counts.float()
 
-    # avoid division by zero (classes not in batch)
-    freq = torch.where(freq > 0, freq, torch.tensor(1.0, device=labels.device))
+#     # avoid division by zero (classes not in batch)
+#     freq = torch.where(freq > 0, freq, torch.tensor(1.0, device=labels.device))
 
-    # sqrt-inverse frequency
-    weights = 1.0 / torch.sqrt(freq)
-    weights[0] *= 2.0
+#     # sqrt-inverse frequency
+#     weights = 1.0 / torch.sqrt(freq)
+#     weights[0] *= 2.0
 
-    # normalize mean weight = 1
-    weights = weights / weights.mean()
+#     # normalize mean weight = 1
+#     weights = weights / weights.mean()
 
-    return weights
+#     return weights
 
 if use_saved_model:
     print('Loading model')
     net, optimizer = load_model(saved_model_filename)
 else:
-    net = Net()
-    net.apply(weights_init)
-    if use_cuda and torch.cuda.is_available():
-        net.cuda()
-    optimizer = intitialize_optimizer(net)
+    raise RuntimeError('No saved model specified, cannot run prediction without a trained model. Please set use_saved_model to True and provide a valid saved_model_filename.')
 
-# Set random seed for reproducibility: increment to ensure different training samples after load
-manualSeed = 24601 + curr_epoch
-#manualSeed = random.randint(1, 10000) # use if you want new results
-print('Random Seed: ', manualSeed)
-np.random.seed(manualSeed)
-torch.manual_seed(manualSeed)
+# # Set random seed for reproducibility: increment to ensure different training samples after load
+# manualSeed = 24601 + curr_epoch
+# #manualSeed = random.randint(1, 10000) # use if you want new results
+# print('Random Seed: ', manualSeed)
+# np.random.seed(manualSeed)
+# torch.manual_seed(manualSeed)
 
 ####################################################################################################
 ### PREDICTION ###
-# transform output into list
-def reverse_augmentation_to_coordinates(coords, theta_deg=0.0, mirror_var=1, shift_x_pixels=0.0, shift_y_pixels=0.0):
-    theta_rad = -theta_deg * np.pi / 180  # Reverse rotation
-    if mirror_var == -1:
-        coords[:, 0] = -coords[:, 0]  # Reverse mirroring
-    if theta_deg != 0.0:
-        rot_matrix = np.array([[np.cos(theta_rad), -np.sin(theta_rad)],
-                               [np.sin(theta_rad), np.cos(theta_rad)]])
-        coords = coords @ rot_matrix.T
-    coords[:, 0] -= shift_x_pixels  # Reverse X shift
-    coords[:, 1] -= shift_y_pixels  # Reverse Y shift
-    return coords
+net.eval()
+grid_scores = defaultdict(list)
+all_ids = list(GRIDID_TO_RC.keys())
+predict_tensor = torch.zeros(BATCH_SIZE, nc, 2*size_padding+size_potential, 2*size_padding+size_potential)
 
-def add_to_list(s_id, o, r, city):
-    list_out.append((s_id, o.tolist(), r, city))
+# # transform output into list
+# def reverse_augmentation_to_coordinates(coords, theta_deg=0.0, mirror_var=1, shift_x_pixels=0.0, shift_y_pixels=0.0):
+#     theta_rad = -theta_deg * np.pi / 180  # Reverse rotation
+#     if mirror_var == -1:
+#         coords[:, 0] = -coords[:, 0]  # Reverse mirroring
+#     if theta_deg != 0.0:
+#         rot_matrix = np.array([[np.cos(theta_rad), -np.sin(theta_rad)],
+#                                [np.sin(theta_rad), np.cos(theta_rad)]])
+#         coords = coords @ rot_matrix.T
+#     coords[:, 0] -= shift_x_pixels  # Reverse X shift
+#     coords[:, 1] -= shift_y_pixels  # Reverse Y shift
+#     return coords
+
+# def add_to_list(s_id, o, r, city):
+#     list_out.append((s_id, o.tolist(), r, city))
 
 
-def outputs_to_loc(outputs,transf):
-    o = torch.softmax(outputs, dim=1).cpu().numpy()
+# def outputs_to_loc(outputs,transf):
+#     prob = torch.sigmoid(outputs, dim=1).cpu().numpy()
     
-    for b in range(BATCH_SIZE):
-        s_id = int(transf[b, 0])
-        add_to_list(s_id, o[b], b < BATCH_SIZE_real, city)
+#     for b in range(BATCH_SIZE):
+#         s_id = int(transf[b, 0])
+#         add_to_list(s_id, outputs[b], prob[b])
 
-# run prediction loop
-list_out = list()
+# # run prediction loop
+# list_out = list()
 
 with torch.no_grad():
-    for i in range(num_batches_predict):
-        # show progress
-        if i % 100 == 0:
-            print(str(i+1) + "/" + str(num_batches_predict) + " - time: " + (datetime.now(timezone.utc) + timedelta(hours=-7)).strftime('%Y-%m-%d %H:%M:%S'))
+    for batch_start in range(0, len(all_ids), BATCH_SIZE):
+        batch_ids = all_ids[batch_start : batch_start + BATCH_SIZE]
+        actual_bs = len(batch_ids)
 
-        # get the inputs; data is a list of [inputs, labels]
-        data = create_batch(return_transf=True)
-        inputs, labels, transf = data
+        inputs, patch_origins = create_batch_predict(predict_tensor[:actual_bs], batch_ids)
 
         if use_cuda and torch.cuda.is_available():
             inputs = inputs.cuda()
-            labels = labels.cuda()
 
-        # zero the parameter gradients
-        optimizer.zero_grad()
+        outputs = net(inputs)  # (actual_bs, 1, H, W)
+        probs = torch.sigmoid(outputs).squeeze(1).cpu().numpy()  # (actual_bs, H, W)
 
-        # forward + backward + optimize
-        outputs = net(inputs)
+        window = 2 * size_padding + size_potential
 
-        outputs_to_loc(outputs,transf)
+        for b in range(actual_bs):
+            if patch_origins[b] is None:
+                continue
+            city, patch_top, patch_left = patch_origins[b]
 
-# print(list_out)
+            # build arrays of raster coordinates for all patch cells at once
+            pr_idx = np.arange(window)
+            pc_idx = np.arange(window)
+            pr_grid, pc_grid = np.meshgrid(pr_idx, pc_idx, indexing='ij')  # (window, window)
 
-print(len(list_out))
+            raster_rows = patch_top + pr_grid  # (window, window)
+            raster_cols = patch_left + pc_grid
 
-# save resulting file
-date = (datetime.now(timezone.utc) + timedelta(hours=-7)).strftime('%Y-%m-%d %H:%M:%S')
-filename_out = 'predicted_activation-' + date + '.csv'
+            # flatten and look up grid_ids
+            raster_rows_flat = raster_rows.ravel()
+            raster_cols_flat = raster_cols.ravel()
+            probs_flat = probs[b].ravel()  # (window*window,)
 
-with open(dataroot+filename_out,'w') as f:
-    f.write('s_id,real_missing,prob_1,prob_0,city\n')  
-    for e in list_out:
-        s_id = str(e[0])  
-        real_missing = str(e[2])  
-        prob_1 = e[1][0]  
-        prob_0 = e[1][1]  
-        f.write(f"{s_id},{real_missing},{prob_1},{prob_0}\n")  
+            for idx in range(len(raster_rows_flat)):
+                lookup = (city, int(raster_rows_flat[idx]), int(raster_cols_flat[idx]))
+                if lookup in RC_TO_GRIDID:
+                    gid = RC_TO_GRIDID[lookup]
+                    grid_scores[gid].append(float(probs_flat[idx]))
+
+        if batch_start % (BATCH_SIZE * 100) == 0:
+            print(f"{batch_start}/{len(all_ids)}")
+
+# average scores across all patches a cell appeared in
+results = {gid: np.mean(scores) for gid, scores in grid_scores.items()}
+
+# save
+date = (datetime.now(timezone.utc) + timedelta(hours=-7)).strftime('%Y-%m-%d--%H-%M')
+filename_out = f'predicted_activation-{date}.csv'
+
+with open(dataroot + filename_out, 'w') as f:
+    f.write('grid_id,prob_hwy\n')
+    for gid, prob in results.items():
+        f.write(f'{gid},{prob:.6f}\n')
 
 # cleanup function - only keep the 3 most recent csvs
 csv_files = glob.glob(os.path.join(dataroot, '*.csv'))
