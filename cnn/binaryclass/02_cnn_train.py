@@ -30,8 +30,8 @@ sample = pd.read_pickle('data/input/samplelist.pkl')
 candidate_list = pd.read_pickle('data/output/cnn_candidate_list.pkl')
 grid = pd.read_pickle('data/output/sample.pkl')
 hwys = grid[grid['hwy'] == 1]['grid_id'].unique().tolist()
-features = ['valueh', 'rent', 'distance_to_cbd', 'dist_water', 'dist_to_hwy', 'elevation', 'hwy']
-normalize_features = ['valueh', 'rent', 'distance_to_cbd', 'dist_water', 'dist_to_hwy', 'elevation'] # the only features i want to demean
+features = ['distance_to_cbd', 'dist_water', 'dist_to_hwy', 'elevation', 'hwy']
+normalize_features = ['distance_to_cbd', 'dist_water', 'dist_to_hwy', 'elevation'] # the only features i want to demean
 
 cell_width = 150  # cell width in meters
 size_potential = 4  # potential locations: num_width_potential x num_width_potential
@@ -162,7 +162,7 @@ def gridid_to_rc_map(gdf, cell_width):
     rows_idx = np.floor((maxy - ys) / cell_width).astype(int)
     return {int(gid): (int(r), int(c)) for gid, r, c in zip(gdf['grid_id'].values, rows_idx, cols_idx)}
 
-def extract_patch_from_arrays(feature_array, label_array, row, col, window, mirror_var=1):
+def extract_patch_from_arrays(feature_array, label_array, row, col, window, rot_k=0,mirror_var=1):
     C, H, W = feature_array.shape
     pad = window // 2
 
@@ -196,11 +196,13 @@ def extract_patch_from_arrays(feature_array, label_array, row, col, window, mirr
     label_patch = np.zeros((window, window), dtype=label_array.dtype)
     label_patch[pr_start:pr_end, pc_start:pc_end] = label_array[r_start:r_end, c_start:c_end]
 
-    # randomly mirror
+    if rot_k > 0:
+        patch = np.rot90(patch, k=rot_k, axes=(1, 2)).copy()
+        label_patch = np.rot90(label_patch, k=rot_k).copy()
+
     if mirror_var == -1:
         patch = np.flip(patch, axis=2).copy()
-        rel_col = window - 1 - rel_col  # update relative col if mirrored
-        class_idx = (rel_row - central_start) * size_potential + (rel_col - central_start)
+        label_patch = np.flip(label_patch, axis=1).copy()
     return patch, label_patch, class_idx
 
 grid = normalize_features_per_city(grid, normalize_features, nodata=NODATA)
@@ -285,12 +287,12 @@ def create_batch(batch_tensor=batch_tensor, labels=labels, sample_ids_real=S_id_
         feat_arr, label_arr, trs = city_rasters[city]
 
         # random augmentations (keep same semantics as original)
-        # rot_k = np.random.randint(0, 4)
-        # mirror_var = (np.random.rand() > 0.5)*2 - 1
+        rot_k = np.random.randint(0, 4)
+        mirror_var = (np.random.rand() > 0.5)*2 - 1
         # shift_x_cells = np.random.randint(-size_potential, size_potential)
         # shift_y_cells = np.random.randint(-size_potential, size_potential)
 
-        patch, label_patch, class_idx = extract_patch_from_arrays(feat_arr, label_arr, row, col, window)
+        patch, label_patch, class_idx = extract_patch_from_arrays(feat_arr, label_arr, row, col, window, rot_k=rot_k, mirror_var=mirror_var)
         # , rot_k, mirror_var, shift_x_cells, shift_y_cells)
 
         # if patch channels do not match nc, truncate or pad with zeros
@@ -485,6 +487,109 @@ np.random.seed(manualSeed)
 torch.manual_seed(manualSeed)
 
 ####################################################################################################
+### EVALUATION METRICS ###
+# no augmentation patch extraction for inference
+def extract_patch_centered(feature_array, label_array, row, col, window):
+    C, H, W = feature_array.shape
+    pad = window // 2
+
+    patch_top  = row - pad
+    patch_left = col - pad
+
+    r_start = max(0, patch_top)
+    r_end   = min(H, patch_top + window)
+    c_start = max(0, patch_left)
+    c_end   = min(W, patch_left + window)
+
+    pr_start = max(0, -patch_top)
+    pr_end   = pr_start + (r_end - r_start)
+    pc_start = max(0, -patch_left)
+    pc_end   = pc_start + (c_end - c_start)
+
+    patch = np.zeros((C, window, window), dtype=np.float32)
+    patch[:, pr_start:pr_end, pc_start:pc_end] = \
+        feature_array[:, r_start:r_end, c_start:c_end]
+
+    return patch
+
+def evaluate_candidate_pool(net, city_rasters, GRIDID_TO_RC, grid, hwys,
+                             features, size_padding, size_potential,
+                             threshold=0.3, device='cuda', batch_size=256):
+    net.eval()
+    window = 2 * size_padding + size_potential
+    center = window // 2
+
+    all_probs    = []
+    all_grid_ids = []
+    patch_buffer = []
+    id_buffer    = []
+
+    def flush_buffer(patch_buffer, id_buffer):
+        batch = torch.from_numpy(np.stack(patch_buffer))
+        if device == 'cuda' and torch.cuda.is_available():
+            batch = batch.cuda()
+        with torch.no_grad():
+            out = torch.sigmoid(net(batch)).squeeze(1)  # (B, H, W)
+        focal_probs = out[:, center, center].cpu().numpy()
+        all_probs.extend(focal_probs.tolist())
+        all_grid_ids.extend(id_buffer)
+        patch_buffer.clear()
+        id_buffer.clear()
+
+    with torch.no_grad():
+        for grid_id, (city, row, col) in GRIDID_TO_RC.items():
+            feat_arr, label_arr, _ = city_rasters[city]
+            patch = extract_patch_centered(feat_arr, label_arr, row, col, window)
+            patch_buffer.append(patch)
+            id_buffer.append(grid_id)
+
+            if len(patch_buffer) >= batch_size:
+                flush_buffer(patch_buffer, id_buffer)
+
+        if patch_buffer:
+            flush_buffer(patch_buffer, id_buffer)
+
+    prob_df = pd.DataFrame({'grid_id': all_grid_ids, 'prob': all_probs})
+    prob_df = prob_df.merge(
+        grid[['grid_id', 'hwy', 'elevation', 'dist_water',
+              'dist_to_hwy', 'distance_to_cbd']],
+        on='grid_id', how='left'
+    )
+
+    hwy_mask  = prob_df['hwy'] == 1
+    cand_mask = (prob_df['prob'] >= threshold) & ~hwy_mask
+
+    n_real = hwy_mask.sum()
+    n_cand = cand_mask.sum()
+    recall = (prob_df.loc[hwy_mask, 'prob'] >= threshold).mean()
+
+    print(f'\n--- Candidate Pool Evaluation (threshold={threshold}) ---')
+    print(f'  Real highway squares  : {n_real:,}')
+    print(f'  Candidate pool size   : {n_cand:,}  (target: >> {n_real:,})')
+    print(f'  Highway recall        : {recall:.3f}  (target: close to 1.0)')
+
+    geo_features = ['elevation', 'dist_water', 'dist_to_hwy', 'distance_to_cbd']
+    print(f'\n  Geographic balance (highway squares vs candidate pool):')
+    print(f'  {"Feature":25} {"HWY mean":>12} {"Cand mean":>12} {"Std diff":>10}')
+    print(f'  {"-"*62}')
+    for feat in geo_features:
+        hwy_mean  = prob_df.loc[hwy_mask, feat].mean()
+        hwy_std   = prob_df.loc[hwy_mask, feat].std()
+        cand_mean = prob_df.loc[cand_mask, feat].mean()
+        std_diff  = (cand_mean - hwy_mean) / (hwy_std + 1e-6)
+        print(f'  {feat:25} {hwy_mean:12.3f} {cand_mean:12.3f} {std_diff:10.3f}')
+
+    net.train()
+    return prob_df, n_cand, recall
+
+def overlap_coefficient(probs_hwy1, probs_hwy0, n_bins=100):
+    bins = np.linspace(0, 1, n_bins + 1)
+    hist1, _ = np.histogram(probs_hwy1, bins=bins, density=True)
+    hist0, _ = np.histogram(probs_hwy0, bins=bins, density=True)
+    overlap = np.minimum(hist1, hist0).sum() * (1 / n_bins)
+    return overlap
+
+####################################################################################################
 ### TRAINING ###
 print('starting pooled training')
 print((datetime.now(timezone.utc) + timedelta(hours=-7)).strftime('%Y-%m-%d %H:%M:%S'))
@@ -547,58 +652,85 @@ for epoch in range(curr_epoch, bound_epochs):
         optimizer.step()
         running_loss += loss.item()
 
-        if i % min(10000, ITERS/10) == min(10000, ITERS/10) - 1:
-            
+        if i % print_interval == print_interval - 1:
             with torch.no_grad():
-                probs = torch.sigmoid(outputs)  # (batch, 1, 50, 50)
-                labels_flat = labels.float()    # (batch, 1, 50, 50) binary masks
-                probs_flat = probs.view(-1)
-                labels_flat_vec = labels_flat.view(-1)
-                
-                # mean predicted probability for true highway vs true non-highway cells
-                if (labels_flat_vec == 1).sum() > 0:
-                    mean_prob_pos = probs_flat[labels_flat_vec == 1].mean().item()
-                else:
-                    mean_prob_pos = float('nan')
-                # mean_prob_pos = probs_flat[labels_flat_vec == 1].mean().item()
-                mean_prob_neg = probs_flat[labels_flat_vec == 0].mean().item()
-                
-                # fraction of cells predicted as highway vs true fraction
-                pred_positive_rate = (probs_flat > 0.5).float().mean().item()
-                true_positive_rate = labels_flat_vec.mean().item()
-                
-                # percentiles of predicted probabilities
-                p10 = torch.quantile(probs_flat, 0.10).item()
-                p50 = torch.quantile(probs_flat, 0.50).item()
-                p90 = torch.quantile(probs_flat, 0.90).item()
-                
-                # AUC-ROC on current batch (approximate, using held-out eval batches below)
-                # sort by predicted probability descending
-                sorted_indices = torch.argsort(probs_flat, descending=True)
-                sorted_labels = labels_flat_vec[sorted_indices]
-                n_pos = sorted_labels.sum().item()
-                n_neg = (1 - sorted_labels).sum().item()
-                if n_pos > 0 and n_neg > 0:
-                    tp_cumsum = torch.cumsum(sorted_labels, dim=0)
-                    fp_cumsum = torch.cumsum(1 - sorted_labels, dim=0)
-                    tpr = tp_cumsum / n_pos
-                    fpr = fp_cumsum / n_neg
-                    # trapezoidal integration
-                    auc = torch.trapz(tpr, fpr).item()
-                else:
-                    auc = float('nan')
+                probs = torch.sigmoid(outputs).view(-1).cpu().numpy()
+                labs  = labels.float().view(-1).cpu().numpy()
 
-            print('[%d / %d, %5d / %5d] loss: %.4f | '
-                'mean prob (highway=1): %.3f, (highway=0): %.3f | '
-                'pred rate: %.3f, true rate: %.3f | '
-                'prob percentiles (p10/p50/p90): %.3f / %.3f / %.3f | '
-                'batch AUC: %.3f' %
-                (epoch + 1, bound_epochs, i + 1, ITERS,
-                running_loss / min(10000, ITERS/10),
-                mean_prob_pos, mean_prob_neg,
-                pred_positive_rate, true_positive_rate,
-                p10, p50, p90,
-                auc))
+                probs_hwy1 = probs[labs == 1]
+                probs_hwy0 = probs[labs == 0]
+
+                mean_prob_pos = probs_hwy1.mean() if len(probs_hwy1) > 0 else float('nan')
+                mean_prob_neg = probs_hwy0.mean()
+                overlap = overlap_coefficient(probs_hwy1, probs_hwy0)
+
+                # recall at threshold=0.3 on this batch
+                recall_batch = (probs_hwy1 >= 0.3).mean() if len(probs_hwy1) > 0 else float('nan')
+
+                # percentiles of predicted probabilities
+                p10 = np.percentile(probs, 10)
+                p50 = np.percentile(probs, 50)
+                p90 = np.percentile(probs, 90)
+
+                print(f'[{epoch+1}/{bound_epochs}, {i+1}/{ITERS}] '
+                    f'loss: {running_loss/print_interval:.4f} | '
+                    f'mean prob (hwy=1): {mean_prob_pos:.3f}, (hwy=0): {mean_prob_neg:.3f} | '
+                    f'overlap coeff: {overlap:.3f} | '
+                    f'recall@0.3: {recall_batch:.3f}'
+                    f' | prob percentiles (p10/p50/p90): {p10:.3f} / {p50:.3f} / {p90:.3f}')
+
+        # if i % min(10000, ITERS/10) == min(10000, ITERS/10) - 1:
+            
+        #     with torch.no_grad():
+        #         probs = torch.sigmoid(outputs)  # (batch, 1, 50, 50)
+        #         labels_flat = labels.float()    # (batch, 1, 50, 50) binary masks
+        #         probs_flat = probs.view(-1)
+        #         labels_flat_vec = labels_flat.view(-1)
+                
+        #         # mean predicted probability for true highway vs true non-highway cells
+        #         if (labels_flat_vec == 1).sum() > 0:
+        #             mean_prob_pos = probs_flat[labels_flat_vec == 1].mean().item()
+        #         else:
+        #             mean_prob_pos = float('nan')
+        #         # mean_prob_pos = probs_flat[labels_flat_vec == 1].mean().item()
+        #         mean_prob_neg = probs_flat[labels_flat_vec == 0].mean().item()
+                
+        #         # fraction of cells predicted as highway vs true fraction
+        #         pred_positive_rate = (probs_flat > 0.5).float().mean().item()
+        #         true_positive_rate = labels_flat_vec.mean().item()
+                
+        #         # percentiles of predicted probabilities
+        #         p10 = torch.quantile(probs_flat, 0.10).item()
+        #         p50 = torch.quantile(probs_flat, 0.50).item()
+        #         p90 = torch.quantile(probs_flat, 0.90).item()
+                
+        #         # AUC-ROC on current batch (approximate, using held-out eval batches below)
+        #         # sort by predicted probability descending
+        #         sorted_indices = torch.argsort(probs_flat, descending=True)
+        #         sorted_labels = labels_flat_vec[sorted_indices]
+        #         n_pos = sorted_labels.sum().item()
+        #         n_neg = (1 - sorted_labels).sum().item()
+        #         if n_pos > 0 and n_neg > 0:
+        #             tp_cumsum = torch.cumsum(sorted_labels, dim=0)
+        #             fp_cumsum = torch.cumsum(1 - sorted_labels, dim=0)
+        #             tpr = tp_cumsum / n_pos
+        #             fpr = fp_cumsum / n_neg
+        #             # trapezoidal integration
+        #             auc = torch.trapz(tpr, fpr).item()
+        #         else:
+        #             auc = float('nan')
+
+        #     print('[%d / %d, %5d / %5d] loss: %.4f | '
+        #         'mean prob (highway=1): %.3f, (highway=0): %.3f | '
+        #         'pred rate: %.3f, true rate: %.3f | '
+        #         'prob percentiles (p10/p50/p90): %.3f / %.3f / %.3f | '
+        #         'batch AUC: %.3f' %
+        #         (epoch + 1, bound_epochs, i + 1, ITERS,
+        #         running_loss / min(10000, ITERS/10),
+        #         mean_prob_pos, mean_prob_neg,
+        #         pred_positive_rate, true_positive_rate,
+        #         p10, p50, p90,
+        #         auc))
             
             print((datetime.now(timezone.utc) + timedelta(hours=-7)).strftime('%Y-%m-%d %H:%M:%S'))
             running_loss = 0.0
@@ -609,7 +741,7 @@ for epoch in range(curr_epoch, bound_epochs):
                 eval_running_loss = 0.0
                 eval_probs_all = []
                 eval_labels_all = []
-                
+
                 with torch.no_grad():
                     for eval_i in range(100):
                         eval_inputs, eval_labels = create_batch(sample_ids_real=sample_eval_real,
@@ -637,36 +769,89 @@ for epoch in range(curr_epoch, bound_epochs):
                     # fraction of cells predicted as highway vs true fraction
                     eval_pred_positive_rate = (eval_probs_flat > 0.5).float().mean().item()
                     eval_true_positive_rate = eval_labels_flat.mean().item()
-                    
-                    # percentiles of predicted probabilities
-                    eval_p10 = torch.quantile(eval_probs_flat, 0.10).item()
-                    eval_p50 = torch.quantile(eval_probs_flat, 0.50).item()
-                    eval_p90 = torch.quantile(eval_probs_flat, 0.90).item()
-                    
-                    # AUC-ROC across all eval batches
-                    sorted_indices = torch.argsort(eval_probs_flat, descending=True)
-                    sorted_labels = eval_labels_flat[sorted_indices]
-                    n_pos = sorted_labels.sum().item()
-                    n_neg = (1 - sorted_labels).sum().item()
-                    if n_pos > 0 and n_neg > 0:
-                        tp_cumsum = torch.cumsum(sorted_labels, dim=0)
-                        fp_cumsum = torch.cumsum(1 - sorted_labels, dim=0)
-                        tpr = tp_cumsum / n_pos
-                        fpr = fp_cumsum / n_neg
-                        eval_auc = torch.trapz(tpr, fpr).item()
-                    else:
-                        eval_auc = float('nan')
+
+                    probs_hwy1 = eval_probs_flat[eval_labels_flat == 1].numpy()
+                    probs_hwy0 = eval_probs_flat[eval_labels_flat == 0].numpy()
+
+                    mean_prob_pos = probs_hwy1.mean() if len(probs_hwy1) > 0 else float('nan')
+                    mean_prob_neg = probs_hwy0.mean()
+                    overlap = overlap_coefficient(probs_hwy1, probs_hwy0)
+
+                    # recall at threshold=0.3 on this batch
+                    recall_batch = (probs_hwy1 >= 0.3).mean() if len(probs_hwy1) > 0 else float('nan')
+
+                    eval_probs_np = eval_probs_flat.numpy()
+                    p10 = np.percentile(eval_probs_np, 10)
+                    p50 = np.percentile(eval_probs_np, 50)
+                    p90 = np.percentile(eval_probs_np, 90)
+
+                    print('Held out eval |'
+                        f'loss: {eval_running_loss/eval_interval:.4f} | '
+                        f'mean prob (hwy=1): {eval_mean_prob_pos:.3f}, (hwy=0): {eval_mean_prob_neg:.3f} | '
+                        f'overlap coeff: {overlap:.3f} | '
+                        f'recall@0.3: {recall_batch:.3f}'
+                        f' | prob percentiles (p10/p50/p90): {p10:.3f} / {p50:.3f} / {p90:.3f}')
                 
-                print('Held-out eval | loss: %.4f | '
-                    'mean prob (highway=1): %.3f, (highway=0): %.3f | '
-                    'pred rate: %.3f, true rate: %.3f | '
-                    'prob percentiles (p10/p50/p90): %.3f / %.3f / %.3f | '
-                    'AUC: %.3f' %
-                    (eval_running_loss / 100,
-                    eval_mean_prob_pos, eval_mean_prob_neg,
-                    eval_pred_positive_rate, eval_true_positive_rate,
-                    eval_p10, eval_p50, eval_p90,
-                    eval_auc))
+                # with torch.no_grad():
+                #     for eval_i in range(100):
+                #         eval_inputs, eval_labels = create_batch(sample_ids_real=sample_eval_real,
+                #                                                 sample_ids_random=sample_eval_random)
+                #         if use_cuda and torch.cuda.is_available():
+                #             eval_inputs = eval_inputs.cuda()
+                #             eval_labels = eval_labels.cuda()
+                        
+                #         eval_outputs = net(eval_inputs)
+                #         eval_outputs = eval_outputs.squeeze(1)  # shape (B,H,W)
+                #         eval_loss = criterion(eval_outputs, eval_labels.float())
+                #         eval_running_loss += eval_loss.item()
+                        
+                #         eval_probs_all.append(torch.sigmoid(eval_outputs).view(-1).cpu())
+                #         eval_labels_all.append(eval_labels.float().view(-1).cpu())
+                    
+                #     # concatenate across all eval batches
+                #     eval_probs_flat = torch.cat(eval_probs_all)
+                #     eval_labels_flat = torch.cat(eval_labels_all)
+                    
+                #     # mean predicted probability for true highway vs true non-highway cells
+                #     eval_mean_prob_pos = eval_probs_flat[eval_labels_flat == 1].mean().item()
+                #     eval_mean_prob_neg = eval_probs_flat[eval_labels_flat == 0].mean().item()
+                    
+                #     # fraction of cells predicted as highway vs true fraction
+                #     eval_pred_positive_rate = (eval_probs_flat > 0.5).float().mean().item()
+                #     eval_true_positive_rate = eval_labels_flat.mean().item()
+                    
+                #     # percentiles of predicted probabilities
+                #     eval_p10 = torch.quantile(eval_probs_flat, 0.10).item()
+                #     eval_p50 = torch.quantile(eval_probs_flat, 0.50).item()
+                #     eval_p90 = torch.quantile(eval_probs_flat, 0.90).item()
+                    
+                #     # AUC-ROC across all eval batches
+                #     sorted_indices = torch.argsort(eval_probs_flat, descending=True)
+                #     sorted_labels = eval_labels_flat[sorted_indices]
+                #     n_pos = sorted_labels.sum().item()
+                #     n_neg = (1 - sorted_labels).sum().item()
+                #     if n_pos > 0 and n_neg > 0:
+                #         tp_cumsum = torch.cumsum(sorted_labels, dim=0)
+                #         fp_cumsum = torch.cumsum(1 - sorted_labels, dim=0)
+                #         tpr = tp_cumsum / n_pos
+                #         fpr = fp_cumsum / n_neg
+                #         eval_auc = torch.trapz(tpr, fpr).item()
+                #     else:
+                #         eval_auc = float('nan')
+                
+                # print('Held-out eval | loss: %.4f | '
+                #     'mean prob (highway=1): %.3f, (highway=0): %.3f | '
+                #     'pred rate: %.3f, true rate: %.3f | '
+                #     'prob percentiles (p10/p50/p90): %.3f / %.3f / %.3f | '
+                #     'AUC: %.3f' %
+                #     (eval_running_loss / 100,
+                #     eval_mean_prob_pos, eval_mean_prob_neg,
+                #     eval_pred_positive_rate, eval_true_positive_rate,
+                #     eval_p10, eval_p50, eval_p90,
+                #     eval_auc))
+    prob_df, n_cand, recall = evaluate_candidate_pool(
+    net, city_rasters, GRIDID_TO_RC, grid, hwys,
+    features, size_padding, size_potential, threshold=0.3)
 
     print('Finished Epoch ' + str(epoch+1) + ' of ' + str(bound_epochs) + '. Saving model and optimizer checkpoint.')
     curr_epoch = curr_epoch + 1
