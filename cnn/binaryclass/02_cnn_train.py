@@ -736,63 +736,6 @@ for epoch in range(curr_epoch, bound_epochs):
                         f'recall@0.3: {recall_batch:.3f}'
                         f' | prob percentiles (p10/p50/p90): {p10:.3f} / {p50:.3f} / {p90:.3f}')
                 
-                # with torch.no_grad():
-                #     for eval_i in range(100):
-                #         eval_inputs, eval_labels = create_batch(sample_ids_real=sample_eval_real,
-                #                                                 sample_ids_random=sample_eval_random)
-                #         if use_cuda and torch.cuda.is_available():
-                #             eval_inputs = eval_inputs.cuda()
-                #             eval_labels = eval_labels.cuda()
-                        
-                #         eval_outputs = net(eval_inputs)
-                #         eval_outputs = eval_outputs.squeeze(1)  # shape (B,H,W)
-                #         eval_loss = criterion(eval_outputs, eval_labels.float())
-                #         eval_running_loss += eval_loss.item()
-                        
-                #         eval_probs_all.append(torch.sigmoid(eval_outputs).view(-1).cpu())
-                #         eval_labels_all.append(eval_labels.float().view(-1).cpu())
-                    
-                #     # concatenate across all eval batches
-                #     eval_probs_flat = torch.cat(eval_probs_all)
-                #     eval_labels_flat = torch.cat(eval_labels_all)
-                    
-                #     # mean predicted probability for true highway vs true non-highway cells
-                #     eval_mean_prob_pos = eval_probs_flat[eval_labels_flat == 1].mean().item()
-                #     eval_mean_prob_neg = eval_probs_flat[eval_labels_flat == 0].mean().item()
-                    
-                #     # fraction of cells predicted as highway vs true fraction
-                #     eval_pred_positive_rate = (eval_probs_flat > 0.5).float().mean().item()
-                #     eval_true_positive_rate = eval_labels_flat.mean().item()
-                    
-                #     # percentiles of predicted probabilities
-                #     eval_p10 = torch.quantile(eval_probs_flat, 0.10).item()
-                #     eval_p50 = torch.quantile(eval_probs_flat, 0.50).item()
-                #     eval_p90 = torch.quantile(eval_probs_flat, 0.90).item()
-                    
-                #     # AUC-ROC across all eval batches
-                #     sorted_indices = torch.argsort(eval_probs_flat, descending=True)
-                #     sorted_labels = eval_labels_flat[sorted_indices]
-                #     n_pos = sorted_labels.sum().item()
-                #     n_neg = (1 - sorted_labels).sum().item()
-                #     if n_pos > 0 and n_neg > 0:
-                #         tp_cumsum = torch.cumsum(sorted_labels, dim=0)
-                #         fp_cumsum = torch.cumsum(1 - sorted_labels, dim=0)
-                #         tpr = tp_cumsum / n_pos
-                #         fpr = fp_cumsum / n_neg
-                #         eval_auc = torch.trapz(tpr, fpr).item()
-                #     else:
-                #         eval_auc = float('nan')
-                
-                # print('Held-out eval | loss: %.4f | '
-                #     'mean prob (highway=1): %.3f, (highway=0): %.3f | '
-                #     'pred rate: %.3f, true rate: %.3f | '
-                #     'prob percentiles (p10/p50/p90): %.3f / %.3f / %.3f | '
-                #     'AUC: %.3f' %
-                #     (eval_running_loss / 100,
-                #     eval_mean_prob_pos, eval_mean_prob_neg,
-                #     eval_pred_positive_rate, eval_true_positive_rate,
-                #     eval_p10, eval_p50, eval_p90,
-                #     eval_auc))
     prob_df, n_cand, recall = evaluate_candidate_pool(
     net, city_rasters, GRIDID_TO_RC, grid, hwys,
     features, size_padding, size_potential, threshold=0.3)
