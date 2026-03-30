@@ -5,6 +5,14 @@ import pandas as pd
 import glob
 import os
 
+grid = pd.read_pickle('data/output/sample.pkl')
+dataroot = 'cnn/'
+csv_files = glob.glob(os.path.join(dataroot, '*.csv'))
+csv_files.sort(key=os.path.getmtime, reverse=True)
+last_csv = csv_files[0]
+filename_out = os.path.basename(last_csv)
+print(f'Using most recent predictions from: {filename_out}')
+
 def plot_propensity_overlap(results_csv_path, grid, temperature_values=[1.0, 5.0, 10.0, 20.0]):
     # load predictions
     preds = pd.read_csv(results_csv_path)
@@ -100,6 +108,13 @@ def plot_propensity_overlap(results_csv_path, grid, temperature_values=[1.0, 5.0
     plt.show()
     print('saved: cnn/figures/overlap_support.png')
 
+# run it — point to your most recent prediction csv
+plot_propensity_overlap(
+    results_csv_path=dataroot + filename_out,  # uses the filename from your prediction script
+    grid=grid,
+    temperature_values=[1.0, 5.0, 10.0, 20.0]
+)
+
 def plot_highway_recall(results_csv_path, grid, temperature_values=[1.0, 5.0, 10.0, 20.0]):
     # --- load and merge (same as your existing function) ---
     preds = pd.read_csv(results_csv_path)
@@ -191,24 +206,63 @@ def plot_highway_recall(results_csv_path, grid, temperature_values=[1.0, 5.0, 10
     plt.show()
     print('saved: cnn/figures/recall_diagnostics.png')
 
-grid = pd.read_pickle('data/output/sample.pkl')
-dataroot = 'cnn/'
-csv_files = glob.glob(os.path.join(dataroot, '*.csv'))
-csv_files.sort(key=os.path.getmtime, reverse=True)
-last_csv = csv_files[0]
-filename_out = os.path.basename(last_csv)
-print(f'Using most recent predictions from: {filename_out}')
-
-# run it — point to your most recent prediction csv
-# plot_propensity_overlap(
-#     results_csv_path=dataroot + filename_out,  # uses the filename from your prediction script
-#     grid=grid,
-#     temperature_values=[1.0, 5.0, 10.0, 20.0]
-# )
-
 # --- run it ---
 plot_highway_recall(
     results_csv_path=dataroot + filename_out,
     grid=grid,
     temperature_values=[1.0, 5.0, 10.0, 20.0]
 )
+
+def check_restricted_sample(results_csv_path, grid, T=1.0, tau=0.10):
+    preds = pd.read_csv(results_csv_path)
+    hwy_labels = grid[['grid_id', 'hwy']].drop_duplicates('grid_id')
+    preds = preds.merge(hwy_labels, on='grid_id', how='left')
+    preds['hwy'] = preds['hwy'].fillna(0).astype(int)
+
+    eps = 1e-6
+    raw_probs = preds['prob_hwy'].values.clip(eps, 1 - eps)
+    logits = np.log(raw_probs / (1 - raw_probs))
+    scaled_probs = 1 / (1 + np.exp(-logits / T))
+    
+    restricted = preds[scaled_probs >= tau]
+    
+    n_total     = len(restricted)
+    n_hwy1      = (restricted['hwy'] == 1).sum()
+    n_hwy0      = (restricted['hwy'] == 0).sum()
+    
+    print(f'Restricted sample (T={T}, τ={tau}):')
+    print(f'  Total squares : {n_total:,}')
+    print(f'  highway = 1   : {n_hwy1:,} ({100*n_hwy1/n_total:.1f}%)')
+    print(f'  highway = 0   : {n_hwy0:,} ({100*n_hwy0/n_total:.1f}%)')
+    print(f'  Outcome mean  : {restricted["hwy"].mean():.4f}')
+
+# check_restricted_sample(dataroot + filename_out, grid, T=5.0, tau=0.2)
+
+from scipy.optimize import minimize_scalar
+from scipy.special import expit
+
+def nll_temperature(T, logits, labels):
+    """Negative log likelihood of labels given temperature-scaled logits"""
+    scaled_probs = expit(logits / T)
+    scaled_probs = np.clip(scaled_probs, 1e-7, 1 - 1e-7)
+    return -np.mean(labels * np.log(scaled_probs) + 
+                    (1 - labels) * np.log(1 - scaled_probs))
+
+preds = pd.read_csv(dataroot + filename_out)
+hwy_labels = grid[['grid_id', 'hwy']].drop_duplicates('grid_id')
+preds = preds.merge(hwy_labels, on='grid_id', how='left')
+preds['hwy'] = preds['hwy'].fillna(0).astype(int)
+
+eps = 1e-6
+raw_probs = preds['prob_hwy'].values.clip(eps, 1 - eps)
+logits = np.log(raw_probs / (1 - raw_probs))
+labels = preds['hwy'].values
+
+result = minimize_scalar(
+    nll_temperature, 
+    bounds=(0.1, 50.0), 
+    method='bounded',
+    args=(logits, labels)
+)
+optimal_T = result.x
+print(f'Optimal temperature: {optimal_T:.3f}')
