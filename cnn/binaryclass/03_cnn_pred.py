@@ -328,21 +328,6 @@ class Net(nn.Module):
 def intitialize_optimizer(net):
     return optim.SGD(net.parameters(), lr=0.001, momentum=0.9)
 
-# # functions to save and load model
-# def save_model(filename=None):
-#     if not filename:
-#         date = (datetime.now(timezone.utc) + timedelta(hours=-7)).strftime('%Y-%m-%d--%H-%M')
-#         filename = 'checkpoint-epoch-' + str(curr_epoch) + '-' + date + '.tar'
-#     path_save = outputroot + filename
-#     # save the model
-#     torch.save({
-#                 'net_state_dict': net.state_dict(),
-#                 'optimizer_state_dict': optimizer.state_dict(),
-#                 'curr_epoch': curr_epoch,
-#                 'epoch_set_seed': epoch_set_seed,
-#                 }, path_save)
-#     print('file: ' + path_save)
-
 def load_model(filename, net=None, optimizer=None):
     global epoch_set_seed
     global curr_epoch
@@ -372,86 +357,11 @@ def load_model(filename, net=None, optimizer=None):
     epoch_set_seed.append(curr_epoch)
     return net, optimizer
 
-# # locations for training and evaluation
-# num_distinct_train_real = int(len(S_id_real) * frac_train_real)
-# num_distinct_train_random = int(len(S_id_random) * frac_train_random)
-
-# sample_train_real = list(np.random.choice(a=S_id_real,size=num_distinct_train_real,replace=False))
-# sample_train_real.sort()
-# sample_train_random = list(np.random.choice(a=S_id_random,size=num_distinct_train_random,replace=False))
-# sample_train_random.sort()
-
-# if num_distinct_train_real < len(S_id_real):
-#     sample_eval_real = list(set(S_id_real) - set(sample_train_real))
-# else:
-#     sample_eval_real = S_id_real
-# sample_eval_real.sort()
-# if num_distinct_train_random < len(S_id_random):
-#     sample_eval_random = list(set(S_id_random) - set(sample_train_random))
-# else:
-#     sample_eval_random = S_id_random
-# sample_eval_random.sort()
-
-# # initialize neural net
-# def weights_init(m):
-#     if isinstance(m, nn.Conv2d):
-#         nn.init.kaiming_normal_(m.weight, a=0.2, mode='fan_in', nonlinearity='leaky_relu')
-#         if m.bias is not None:
-#             nn.init.constant_(m.bias, 0.0)
-#     elif isinstance(m, nn.InstanceNorm2d):
-#         if m.weight is not None:
-#             nn.init.constant_(m.weight, 1.0)
-#         if m.bias is not None:
-#             nn.init.constant_(m.bias, 0.0)
-#     elif isinstance(m, nn.Linear):
-#         nn.init.xavier_uniform_(m.weight)
-#         nn.init.constant_(m.bias, 0.0)
-
-# def focal_loss(outputs, labels, weights, gamma=2.0):
-#     ce = F.cross_entropy(outputs, labels, reduction="none")
-#     # p_t = probability of the true class
-#     pt = torch.exp(-ce)
-#     # Focal term
-#     focal_term = (1 - pt) ** gamma
-#     # Class weights applied per sample
-#     class_w = weights[labels]
-#     # Weighted focal loss
-#     loss = (class_w * focal_term * ce).mean()
-#     return loss
-
-# def compute_batch_weights(labels, num_classes):
-#     # count frequencies in the batch
-#     valid_mask = (labels >= 0) & (labels < num_classes)
-#     valid_labels = labels[valid_mask]
-#     unique, counts = torch.unique(valid_labels, return_counts=True)
-#     unique = unique.long()
-#     freq = torch.zeros(num_classes, device=labels.device)
-#     freq[unique] = counts.float()
-
-#     # avoid division by zero (classes not in batch)
-#     freq = torch.where(freq > 0, freq, torch.tensor(1.0, device=labels.device))
-
-#     # sqrt-inverse frequency
-#     weights = 1.0 / torch.sqrt(freq)
-#     weights[0] *= 2.0
-
-#     # normalize mean weight = 1
-#     weights = weights / weights.mean()
-
-#     return weights
-
 if use_saved_model:
     print('Loading model')
     net, optimizer = load_model(saved_model_filename)
 else:
     raise RuntimeError('No saved model specified, cannot run prediction without a trained model. Please set use_saved_model to True and provide a valid saved_model_filename.')
-
-# # Set random seed for reproducibility: increment to ensure different training samples after load
-# manualSeed = 24601 + curr_epoch
-# #manualSeed = random.randint(1, 10000) # use if you want new results
-# print('Random Seed: ', manualSeed)
-# np.random.seed(manualSeed)
-# torch.manual_seed(manualSeed)
 
 ####################################################################################################
 ### PREDICTION ###
@@ -459,33 +369,6 @@ net.eval()
 grid_scores = defaultdict(list)
 all_ids = list(GRIDID_TO_RC.keys())
 predict_tensor = torch.zeros(BATCH_SIZE, nc, 2*size_padding+size_potential, 2*size_padding+size_potential)
-
-# # transform output into list
-# def reverse_augmentation_to_coordinates(coords, theta_deg=0.0, mirror_var=1, shift_x_pixels=0.0, shift_y_pixels=0.0):
-#     theta_rad = -theta_deg * np.pi / 180  # Reverse rotation
-#     if mirror_var == -1:
-#         coords[:, 0] = -coords[:, 0]  # Reverse mirroring
-#     if theta_deg != 0.0:
-#         rot_matrix = np.array([[np.cos(theta_rad), -np.sin(theta_rad)],
-#                                [np.sin(theta_rad), np.cos(theta_rad)]])
-#         coords = coords @ rot_matrix.T
-#     coords[:, 0] -= shift_x_pixels  # Reverse X shift
-#     coords[:, 1] -= shift_y_pixels  # Reverse Y shift
-#     return coords
-
-# def add_to_list(s_id, o, r, city):
-#     list_out.append((s_id, o.tolist(), r, city))
-
-
-# def outputs_to_loc(outputs,transf):
-#     prob = torch.sigmoid(outputs, dim=1).cpu().numpy()
-    
-#     for b in range(BATCH_SIZE):
-#         s_id = int(transf[b, 0])
-#         add_to_list(s_id, outputs[b], prob[b])
-
-# # run prediction loop
-# list_out = list()
 
 with torch.no_grad():
     for batch_start in range(0, len(all_ids), BATCH_SIZE):
