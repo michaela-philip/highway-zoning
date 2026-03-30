@@ -962,3 +962,207 @@ print('Finished Training')
 # test_batch, test_labels = create_batch(sample_ids_real=sample_train_real,
 #                                        sample_ids_random=sample_train_random)
 # visualize_batch(test_batch, test_labels, n_samples=4, feature_names=features)
+
+import matplotlib.pyplot as plt
+import matplotlib.colors as mcolors
+from collections import Counter
+
+def visualize_training_coverage(sample_ids_real, sample_ids_random, 
+                                 grid, hwys, n_batches=500,
+                                 size_padding=4, size_potential=4,
+                                 cell_width=150):
+    window = 2 * size_padding + size_potential
+    
+    # simulate sampling
+    real_counts    = Counter()
+    random_counts  = Counter()
+    
+    for _ in range(n_batches):
+        # real/fill samples
+        for _ in range(BATCH_SIZE_real + BATCH_SIZE_fill):
+            s_id = int(np.random.choice(sample_ids_real))
+            real_counts[s_id] += 1
+        # random/candidate samples
+        for _ in range(BATCH_SIZE_random):
+            s_id = int(np.random.choice(sample_ids_random))
+            random_counts[s_id] += 1
+    
+    all_sampled = set(real_counts.keys()) | set(random_counts.keys())
+    
+    # merge counts into grid
+    grid_plot = grid.copy()
+    grid_plot['real_count']   = grid_plot['grid_id'].map(real_counts).fillna(0)
+    grid_plot['random_count'] = grid_plot['grid_id'].map(random_counts).fillna(0)
+    grid_plot['total_count']  = grid_plot['real_count'] + grid_plot['random_count']
+    grid_plot['is_hwy']       = grid_plot['grid_id'].isin(hwys)
+    grid_plot['in_candidate'] = grid_plot['grid_id'].isin(sample_ids_random)
+    grid_plot['sampled']      = grid_plot['grid_id'].isin(all_sampled)
+    
+    cities = grid_plot['city'].unique()
+    n_cities = len(cities)
+    
+    fig, axes = plt.subplots(n_cities, 3, 
+                              figsize=(15, 5 * n_cities),
+                              squeeze=False)
+    fig.suptitle(f'Training Coverage ({n_batches} simulated batches)', 
+                 fontsize=14, y=1.01)
+    
+    for row_idx, city in enumerate(cities):
+        city_grid = grid_plot[grid_plot['city'] == city].copy()
+        
+        # --- Panel 1: Sampling frequency heatmap ---
+        ax = axes[row_idx, 0]
+        
+        # get raster bounds for this city
+        centroids = city_grid.geometry.centroid
+        xs = centroids.x.values
+        ys = centroids.y.values
+        minx, miny = xs.min(), ys.min()
+        maxx, maxy = xs.max(), ys.max()
+        
+        width  = int(np.ceil((maxx - minx) / cell_width)) + 1
+        height = int(np.ceil((maxy - miny) / cell_width)) + 1
+        
+        freq_grid   = np.zeros((height, width))
+        type_grid   = np.zeros((height, width))  # 0=unsampled,1=candidate,2=highway
+        
+        cols_idx = np.floor((xs - minx) / cell_width).astype(int)
+        rows_idx = np.floor((maxy - ys) / cell_width).astype(int)
+        
+        for _, row in city_grid.iterrows():
+            c = int(np.floor((row.geometry.centroid.x - minx) / cell_width))
+            r = int(np.floor((maxy - row.geometry.centroid.y) / cell_width))
+            if 0 <= r < height and 0 <= c < width:
+                freq_grid[r, c] = row['total_count']
+                if row['is_hwy']:
+                    type_grid[r, c] = 2
+                elif row['in_candidate']:
+                    type_grid[r, c] = 1
+        
+        # plot frequency as heatmap
+        freq_masked = np.ma.masked_where(freq_grid == 0, freq_grid)
+        im = ax.imshow(freq_masked, cmap='YlOrRd', aspect='equal',
+                       interpolation='nearest')
+        
+        # overlay highway squares in blue
+        hwy_overlay = np.ma.masked_where(type_grid != 2, 
+                                          np.ones_like(type_grid))
+        ax.imshow(hwy_overlay, cmap='Blues', aspect='equal',
+                  interpolation='nearest', alpha=0.7, vmin=0, vmax=1)
+        
+        plt.colorbar(im, ax=ax, shrink=0.6, label='Sample frequency')
+        ax.set_title(f'{city} — Sampling frequency\n(blue = highway squares)')
+        ax.axis('off')
+        
+        # --- Panel 2: Coverage binary map ---
+        ax2 = axes[row_idx, 1]
+        
+        coverage_grid = np.zeros((height, width, 3))  # RGB
+        for _, row in city_grid.iterrows():
+            c = int(np.floor((row.geometry.centroid.x - minx) / cell_width))
+            r = int(np.floor((maxy - row.geometry.centroid.y) / cell_width))
+            if 0 <= r < height and 0 <= c < width:
+                if row['is_hwy']:
+                    coverage_grid[r, c] = [0.2, 0.4, 0.8]   # blue = highway
+                elif row['sampled'] and row['in_candidate']:
+                    coverage_grid[r, c] = [0.9, 0.5, 0.1]   # orange = candidate sampled
+                elif row['in_candidate']:
+                    coverage_grid[r, c] = [1.0, 0.9, 0.7]   # light = candidate unsampled
+                elif row['sampled']:
+                    coverage_grid[r, c] = [0.5, 0.8, 0.5]   # green = other sampled
+                else:
+                    coverage_grid[r, c] = [0.85, 0.85, 0.85] # gray = not sampled
+        
+        ax2.imshow(coverage_grid, aspect='equal', interpolation='nearest')
+        ax2.set_title(f'{city} — Coverage map\n'
+                      f'Blue=hwy, Orange=cand sampled, '
+                      f'Yellow=cand unsampled, Gray=not sampled')
+        ax2.axis('off')
+        
+        # add legend patches
+        from matplotlib.patches import Patch
+        legend_elements = [
+            Patch(facecolor=[0.2, 0.4, 0.8], label='Highway'),
+            Patch(facecolor=[0.9, 0.5, 0.1], label='Candidate (sampled)'),
+            Patch(facecolor=[1.0, 0.9, 0.7], label='Candidate (not sampled)'),
+            Patch(facecolor=[0.5, 0.8, 0.5], label='Other (sampled)'),
+            Patch(facecolor=[0.85, 0.85, 0.85], label='Not sampled'),
+        ]
+        ax2.legend(handles=legend_elements, loc='lower right', fontsize=7)
+        
+        # --- Panel 3: Summary statistics bar chart ---
+        ax3 = axes[row_idx, 2]
+        
+        n_hwy        = city_grid['is_hwy'].sum()
+        n_cand       = city_grid['in_candidate'].sum()
+        n_total      = len(city_grid)
+        n_cand_sampled = city_grid[city_grid['in_candidate'] & 
+                                    city_grid['sampled']].shape[0]
+        cand_coverage  = n_cand_sampled / n_cand if n_cand > 0 else 0
+        
+        # sampling distribution statistics
+        cand_counts = city_grid[city_grid['in_candidate']]['total_count']
+        
+        stats = {
+            'Total squares'         : n_total,
+            'Highway squares'       : n_hwy,
+            'Candidate squares'     : n_cand,
+            'Candidates sampled'    : n_cand_sampled,
+        }
+        
+        bars = ax3.barh(list(stats.keys()), list(stats.values()),
+                        color=['steelblue', 'navy', 'darkorange', 'orangered'])
+        ax3.set_xlabel('Count')
+        ax3.set_title(f'{city} — Coverage statistics\n'
+                      f'Candidate coverage: {cand_coverage:.1%}')
+        
+        # add value labels
+        for bar, val in zip(bars, stats.values()):
+            ax3.text(bar.get_width() + n_total * 0.01, 
+                     bar.get_y() + bar.get_height()/2,
+                     str(int(val)), va='center', fontsize=9)
+        
+        # also print sampling concentration
+        if len(cand_counts) > 0:
+            gini = compute_gini(cand_counts.values)
+            ax3.text(0.98, 0.05, 
+                     f'Sampling Gini: {gini:.3f}\n'
+                     f'(0=uniform, 1=concentrated)',
+                     transform=ax3.transAxes, ha='right', va='bottom',
+                     fontsize=8, style='italic',
+                     bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.5))
+    
+    plt.tight_layout()
+    plt.savefig('cnn/figures/training_coverage.png', dpi=100, bbox_inches='tight')
+    plt.show()
+    print('saved: cnn/figures/training_coverage.png')
+    
+    # print overall summary
+    print(f'\nOverall coverage summary ({n_batches} simulated batches):')
+    print(f'  Unique real squares sampled    : '
+          f'{len(real_counts):,} / {len(sample_ids_real):,} '
+          f'({len(real_counts)/len(sample_ids_real):.1%})')
+    print(f'  Unique candidate squares sampled: '
+          f'{len(random_counts):,} / {len(sample_ids_random):,} '
+          f'({len(random_counts)/len(sample_ids_random):.1%})')
+    
+    return grid_plot
+
+def compute_gini(values):
+    values = np.array(values, dtype=float)
+    values = values[values > 0]
+    if len(values) == 0:
+        return 0.0
+    values = np.sort(values)
+    n = len(values)
+    cumvals = np.cumsum(values)
+    return (2 * np.sum((np.arange(1, n+1) * values)) / 
+            (n * cumvals[-1])) - (n + 1) / n
+
+# run it
+grid_plot = visualize_training_coverage(
+    sample_train_real, 
+    sample_train_random,
+    grid, hwys,
+    n_batches=500
+)
