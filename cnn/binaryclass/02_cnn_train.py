@@ -23,7 +23,7 @@ dataroot = 'cnn/binaryclass/'
 outputroot = 'cnn/binaryclass/'
 
 use_saved_model = False
-saved_model_filename = ''
+saved_model_filename = 'cnn/binaryclass/bc_model1.tar'
 
 ####################################################################################################
 ### PARAMETERS ###
