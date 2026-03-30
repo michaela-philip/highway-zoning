@@ -14,6 +14,9 @@ import rasterio
 from rasterio import transform
 from pathlib import Path
 from scipy.ndimage import rotate, shift
+import matplotlib.pyplot as plt
+import matplotlib.colors as mcolors
+from collections import Counter
 
 
 dataroot = 'cnn/binaryclass/'
@@ -749,110 +752,100 @@ print('Finished Training')
 
 ####################################################################################################
 ### OPTIONAL VISUALIZATION (TROUBLESHOOTING) ###
-# import matplotlib.pyplot as plt
-# import matplotlib.colors as mcolors
 
-# def visualize_batch(batch_tensor, labels, n_samples=4, feature_names=None):
-#     """
-#     Visualize patches and labels from a batch.
-#     n_samples: how many batch items to show
-#     """
-#     if feature_names is None:
-#         feature_names = [f'ch{i}' for i in range(batch_tensor.shape[1])]
+def visualize_batch(batch_tensor, labels, n_samples=4, feature_names=None):
+    if feature_names is None:
+        feature_names = [f'ch{i}' for i in range(batch_tensor.shape[1])]
     
-#     n_channels = batch_tensor.shape[1]
-#     n_cols = n_channels + 1  # +1 for label
-#     fig, axes = plt.subplots(n_samples, n_cols, figsize=(3 * n_cols, 3 * n_samples))
+    n_channels = batch_tensor.shape[1]
+    n_cols = n_channels + 1  # +1 for label
+    fig, axes = plt.subplots(n_samples, n_cols, figsize=(3 * n_cols, 3 * n_samples))
     
-#     # handle case where n_samples=1
-#     if n_samples == 1:
-#         axes = axes[np.newaxis, :]
+    # handle case where n_samples=1
+    if n_samples == 1:
+        axes = axes[np.newaxis, :]
 
-#     for b in range(n_samples):
-#         patch = batch_tensor[b].cpu().numpy()   # (nc, H, W)
-#         label = labels[b].cpu().numpy()          # (H, W)
+    for b in range(n_samples):
+        patch = batch_tensor[b].cpu().numpy()   # (nc, H, W)
+        label = labels[b].cpu().numpy()          # (H, W)
 
-#         # determine batch category
-#         if b < BATCH_SIZE_real:
-#             category = 'REAL (hwy masked)'
-#         elif b < BATCH_SIZE_real + BATCH_SIZE_fill:
-#             category = 'FILL (hwy visible)'
-#         else:
-#             category = 'RANDOM (no hwy)'
+        # determine batch category
+        if b < BATCH_SIZE_real:
+            category = 'REAL (hwy masked)'
+        elif b < BATCH_SIZE_real + BATCH_SIZE_fill:
+            category = 'FILL (hwy visible)'
+        else:
+            category = 'RANDOM (no hwy)'
 
-#         for ch in range(n_channels):
-#             ax = axes[b, ch]
-#             img = patch[ch]
+        for ch in range(n_channels):
+            ax = axes[b, ch]
+            img = patch[ch]
             
-#             # check for nodata
-#             valid = img[img != NODATA]
-#             if len(valid) > 0:
-#                 vmin, vmax = valid.min(), valid.max()
-#             else:
-#                 vmin, vmax = 0, 1
+            # check for nodata
+            valid = img[img != NODATA]
+            if len(valid) > 0:
+                vmin, vmax = valid.min(), valid.max()
+            else:
+                vmin, vmax = 0, 1
             
-#             im = ax.imshow(img, vmin=vmin, vmax=vmax, cmap='viridis')
-#             plt.colorbar(im, ax=ax, fraction=0.046)
-#             ax.set_title(f'{feature_names[ch]}\n[{vmin:.2f}, {vmax:.2f}]', fontsize=8)
-#             ax.axis('off')
+            im = ax.imshow(img, vmin=vmin, vmax=vmax, cmap='viridis')
+            plt.colorbar(im, ax=ax, fraction=0.046)
+            ax.set_title(f'{feature_names[ch]}\n[{vmin:.2f}, {vmax:.2f}]', fontsize=8)
+            ax.axis('off')
             
-#             # draw box around central potential grid
-#             central_start = (img.shape[0] - size_potential) // 2
-#             rect = plt.Rectangle(
-#                 (central_start - 0.5, central_start - 0.5),
-#                 size_potential, size_potential,
-#                 linewidth=1.5, edgecolor='red', facecolor='none'
-#             )
-#             ax.add_patch(rect)
+            # draw box around central potential grid
+            central_start = (img.shape[0] - size_potential) // 2
+            rect = plt.Rectangle(
+                (central_start - 0.5, central_start - 0.5),
+                size_potential, size_potential,
+                linewidth=1.5, edgecolor='red', facecolor='none'
+            )
+            ax.add_patch(rect)
 
-#         # plot label
-#         ax = axes[b, -1]
-#         # use a binary colormap so 0/1 are clearly distinct
-#         cmap = mcolors.ListedColormap(['white', 'red'])
-#         ax.imshow(label, vmin=0, vmax=1, cmap=cmap)
-#         hwy_frac = label.mean()
-#         ax.set_title(f'label (hwy)\nfrac={hwy_frac:.4f}\n{category}', fontsize=8)
-#         ax.axis('off')
+        # plot label
+        ax = axes[b, -1]
+        # use a binary colormap so 0/1 are clearly distinct
+        cmap = mcolors.ListedColormap(['white', 'red'])
+        ax.imshow(label, vmin=0, vmax=1, cmap=cmap)
+        hwy_frac = label.mean()
+        ax.set_title(f'label (hwy)\nfrac={hwy_frac:.4f}\n{category}', fontsize=8)
+        ax.axis('off')
         
-#         # draw box around central potential grid
-#         central_start = (label.shape[0] - size_potential) // 2
-#         rect = plt.Rectangle(
-#             (central_start - 0.5, central_start - 0.5),
-#             size_potential, size_potential,
-#             linewidth=1.5, edgecolor='blue', facecolor='none'
-#         )
-#         ax.add_patch(rect)
+        # draw box around central potential grid
+        central_start = (label.shape[0] - size_potential) // 2
+        rect = plt.Rectangle(
+            (central_start - 0.5, central_start - 0.5),
+            size_potential, size_potential,
+            linewidth=1.5, edgecolor='blue', facecolor='none'
+        )
+        ax.add_patch(rect)
 
-#     plt.suptitle('Batch visualization — red box = central potential grid', fontsize=10)
-#     plt.tight_layout()
-#     plt.savefig('data/output/batch_viz.png', dpi=100, bbox_inches='tight')
-#     plt.show()
-#     print('saved to data/output/batch_viz.png')
+    plt.suptitle('Batch visualization — red box = central potential grid', fontsize=10)
+    plt.tight_layout()
+    plt.savefig('data/output/batch_viz.png', dpi=100, bbox_inches='tight')
+    plt.show()
+    print('saved to data/output/batch_viz.png')
     
-#     # also print summary stats per channel
-#     print('\n--- Batch summary ---')
-#     for ch in range(n_channels):
-#         ch_data = batch_tensor[:n_samples, ch].cpu().numpy().flatten()
-#         valid = ch_data[ch_data != NODATA]
-#         if len(valid) > 0:
-#             print(f'  {feature_names[ch]:20s}: min={valid.min():.3f}, max={valid.max():.3f}, '
-#                   f'mean={valid.mean():.3f}, frac_nodata={1 - len(valid)/len(ch_data):.3f}')
-#         else:
-#             print(f'  {feature_names[ch]:20s}: ALL NODATA')
+    # also print summary stats per channel
+    print('\n--- Batch summary ---')
+    for ch in range(n_channels):
+        ch_data = batch_tensor[:n_samples, ch].cpu().numpy().flatten()
+        valid = ch_data[ch_data != NODATA]
+        if len(valid) > 0:
+            print(f'  {feature_names[ch]:20s}: min={valid.min():.3f}, max={valid.max():.3f}, '
+                  f'mean={valid.mean():.3f}, frac_nodata={1 - len(valid)/len(ch_data):.3f}')
+        else:
+            print(f'  {feature_names[ch]:20s}: ALL NODATA')
     
-#     label_data = labels[:n_samples].cpu().numpy().flatten()
-#     print(f'  {"label (hwy)":20s}: frac=1: {label_data.mean():.4f}, '
-#           f'unique values: {np.unique(label_data)}')
+    label_data = labels[:n_samples].cpu().numpy().flatten()
+    print(f'  {"label (hwy)":20s}: frac=1: {label_data.mean():.4f}, '
+          f'unique values: {np.unique(label_data)}')
 
 
 # # run it on a fresh batch
 # test_batch, test_labels = create_batch(sample_ids_real=sample_train_real,
 #                                        sample_ids_random=sample_train_random)
 # visualize_batch(test_batch, test_labels, n_samples=4, feature_names=features)
-
-import matplotlib.pyplot as plt
-import matplotlib.colors as mcolors
-from collections import Counter
 
 def visualize_training_coverage(sample_ids_real, sample_ids_random, 
                                  grid, hwys, n_batches=500,
@@ -1047,9 +1040,9 @@ def compute_gini(values):
             (n * cumvals[-1])) - (n + 1) / n
 
 # run it
-grid_plot = visualize_training_coverage(
-    sample_train_real, 
-    sample_train_random,
-    grid, hwys,
-    n_batches=500
-)
+# grid_plot = visualize_training_coverage(
+#     sample_train_real, 
+#     sample_train_random,
+#     grid, hwys,
+#     n_batches=500
+# )
