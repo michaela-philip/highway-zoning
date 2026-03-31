@@ -20,7 +20,6 @@ rename_dict = {
 # function to export df as latex table with full page width and add'l formatting
 def format_regression_results(results):
     df = pd.DataFrame({'coef':results.params, 'stderror': results.bse, 'pvalue': results.pvalues})[1:]
-    df['pvalue'] = results.pvalues[1:]
     def sig_coef(row):
         if row['pvalue'] < 0.001:
             return f"{row['coef']:.3f}^{{***}}"
