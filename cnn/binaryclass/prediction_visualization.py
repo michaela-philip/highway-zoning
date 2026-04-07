@@ -1,5 +1,7 @@
 import matplotlib.pyplot as plt
 import matplotlib.ticker as mticker
+import matplotlib.gridspec as gridspec
+from scipy import stats
 import numpy as np
 import pandas as pd
 import glob
@@ -266,3 +268,191 @@ result = minimize_scalar(
 )
 optimal_T = result.x
 print(f'Optimal temperature: {optimal_T:.3f}')
+
+def plot_geographic_similarity_conditional(preds_csv, grid, 
+                                            geo_features=None,
+                                            prob_bins=None,
+                                            figsize=(16, 20)):
+    if geo_features is None:
+        geo_features = ['elevation', 'dist_water', 'dist_to_hwy', 'distance_to_cbd']
+    
+    if prob_bins is None:
+        prob_bins = [0.0, 0.05, 0.10, 0.15, 0.20, 0.30, 1.0]
+
+    # --- load and merge ---
+    preds = pd.read_csv(preds_csv)
+    preds['grid_id'] = preds['grid_id'].astype(str)
+    grid_copy = grid.copy()
+    grid_copy['grid_id'] = grid_copy['grid_id'].astype(str)
+
+    df = preds.merge(
+        grid_copy[['grid_id', 'hwy'] + geo_features],
+        on='grid_id', how='left'
+    )
+    df['hwy'] = df['hwy'].fillna(0).astype(int)
+    df['prob_bin'] = pd.cut(df['prob_hwy'], bins=prob_bins, 
+                             include_lowest=True)
+    bin_labels = [str(b) for b in df['prob_bin'].cat.categories]
+    n_bins     = len(bin_labels)
+    n_features = len(geo_features)
+
+    # --- layout ---
+    # one row per feature, one column per bin
+    # plus a summary row at the bottom (standardized mean difference)
+    fig = plt.figure(figsize=figsize)
+    gs  = gridspec.GridSpec(n_features + 1, n_bins, 
+                             hspace=0.5, wspace=0.35)
+
+    feature_labels = {
+        'elevation'      : 'Elevation (std)',
+        'dist_water'     : 'Dist. to Water (std)',
+        'dist_to_hwy'    : 'Dist. to Hwy (std)',
+        'distance_to_cbd': 'Dist. to CBD (std)'
+    }
+
+    smd_matrix = np.full((n_features, n_bins), np.nan)
+
+    for col_idx, (bin_label, bin_cat) in enumerate(
+            zip(bin_labels, df['prob_bin'].cat.categories)):
+
+        bin_data = df[df['prob_bin'] == bin_cat]
+        hwy1 = bin_data[bin_data['hwy'] == 1]
+        hwy0 = bin_data[bin_data['hwy'] == 0]
+        n1, n0 = len(hwy1), len(hwy0)
+
+        for row_idx, feat in enumerate(geo_features):
+            ax = fig.add_subplot(gs[row_idx, col_idx])
+
+            vals1 = hwy1[feat].dropna().values
+            vals0 = hwy0[feat].dropna().values
+
+            if len(vals1) > 1 and len(vals0) > 1:
+                # kernel density estimates
+                x_min = min(vals1.min(), vals0.min())
+                x_max = max(vals1.max(), vals0.max())
+                x_range = np.linspace(x_min - 0.5, x_max + 0.5, 200)
+
+                kde1 = stats.gaussian_kde(vals1)
+                kde0 = stats.gaussian_kde(vals0)
+
+                ax.fill_between(x_range, kde1(x_range), 
+                                alpha=0.4, color='tomato', label='hwy=1')
+                ax.fill_between(x_range, kde0(x_range), 
+                                alpha=0.4, color='steelblue', label='hwy=0')
+                ax.plot(x_range, kde1(x_range), color='tomato', lw=1.2)
+                ax.plot(x_range, kde0(x_range), color='steelblue', lw=1.2)
+
+                # vertical lines at means
+                ax.axvline(vals1.mean(), color='tomato', 
+                           linestyle='--', lw=1, alpha=0.8)
+                ax.axvline(vals0.mean(), color='steelblue', 
+                           linestyle='--', lw=1, alpha=0.8)
+
+                # standardized mean difference
+                pooled_std = np.sqrt(
+                    (vals1.std()**2 + vals0.std()**2) / 2
+                )
+                smd = ((vals1.mean() - vals0.mean()) / pooled_std 
+                       if pooled_std > 0 else 0)
+                smd_matrix[row_idx, col_idx] = smd
+
+                ax.set_title(f'SMD={smd:.2f}', fontsize=7, pad=2)
+
+            elif len(vals1) == 1:
+                ax.axvline(vals1[0], color='tomato', lw=2, label='hwy=1')
+                if len(vals0) > 0:
+                    kde0 = stats.gaussian_kde(vals0) if len(vals0) > 1 else None
+                    if kde0:
+                        x_range = np.linspace(vals0.min()-0.5, vals0.max()+0.5, 200)
+                        ax.fill_between(x_range, kde0(x_range),
+                                        alpha=0.4, color='steelblue')
+                ax.set_title('n=1 hwy', fontsize=7, pad=2)
+
+            else:
+                ax.text(0.5, 0.5, 'No hwy=1\nin bin',
+                        ha='center', va='center',
+                        transform=ax.transAxes, fontsize=7)
+
+            # labels
+            if col_idx == 0:
+                ax.set_ylabel(feature_labels.get(feat, feat), fontsize=8)
+            if row_idx == 0:
+                ax.set_xlabel('')
+                bin_str = str(bin_cat).replace('(','').replace(']','')
+                lo, hi  = bin_str.split(',')
+                ax.set_title(
+                    f'p ∈ ({float(lo.strip()):.2f}, {float(hi.strip()):.2f}]\n'
+                    f'n₁={n1}, n₀={n0}\nSMD={smd_matrix[row_idx,col_idx]:.2f}',
+                    fontsize=7, pad=4
+                )
+
+            ax.tick_params(labelsize=6)
+            ax.set_yticks([])
+
+            if row_idx == 0 and col_idx == n_bins - 1:
+                ax.legend(fontsize=6, loc='upper right')
+
+    # --- summary row: SMD heatmap across bins and features ---
+    ax_heat = fig.add_subplot(gs[n_features, :])
+    im = ax_heat.imshow(
+        np.abs(smd_matrix), aspect='auto',
+        cmap='RdYlGn_r', vmin=0, vmax=0.5
+    )
+    ax_heat.set_xticks(range(n_bins))
+    ax_heat.set_xticklabels(bin_labels, fontsize=8, rotation=30, ha='right')
+    ax_heat.set_yticks(range(n_features))
+    ax_heat.set_yticklabels(
+        [feature_labels.get(f, f) for f in geo_features], fontsize=8
+    )
+    ax_heat.set_title(
+        '|Standardized Mean Difference| by Probability Bin and Feature\n'
+        '(green = similar, red = different — target: green everywhere)',
+        fontsize=9
+    )
+    plt.colorbar(im, ax=ax_heat, shrink=0.6, label='|SMD|')
+
+    # annotate cells with values
+    for i in range(n_features):
+        for j in range(n_bins):
+            if not np.isnan(smd_matrix[i, j]):
+                ax_heat.text(j, i, f'{smd_matrix[i,j]:.2f}',
+                             ha='center', va='center',
+                             fontsize=7,
+                             color='white' if abs(smd_matrix[i,j]) > 0.35 
+                             else 'black')
+
+    fig.suptitle(
+        'Geographic Similarity of Highway and Non-Highway Squares\n'
+        'Conditional on CNN Predicted Probability\n'
+        '(distributions should overlap within each bin if CNN captures geography)',
+        fontsize=11, y=1.01
+    )
+
+    plt.savefig('cnn/figures/geographic_similarity_conditional.png',
+                dpi=100, bbox_inches='tight')
+    plt.show()
+    print('saved: cnn/figures/geographic_similarity_conditional.png')
+
+    # --- print summary table ---
+    print('\nStandardized Mean Difference Summary (hwy=1 vs hwy=0 within bin):')
+    print('Target: |SMD| < 0.10 in all cells\n')
+    smd_df = pd.DataFrame(
+        smd_matrix,
+        index=[feature_labels.get(f, f) for f in geo_features],
+        columns=bin_labels
+    )
+    print(smd_df.round(3).to_string())
+    print(f'\nMean |SMD| across all bins and features: '
+          f'{np.nanmean(np.abs(smd_matrix)):.3f}')
+    print(f'Max  |SMD|: {np.nanmax(np.abs(smd_matrix)):.3f}')
+
+    return smd_df, smd_matrix
+
+
+# --- run it ---
+smd_df, smd_matrix = plot_geographic_similarity_conditional(
+    preds,
+    grid,
+    geo_features = ['elevation', 'dist_water', 'dist_to_hwy', 'distance_to_cbd'],
+    prob_bins  = [0.0, 0.05, 0.10, 0.15, 0.20, 0.30, 1.0]
+)
