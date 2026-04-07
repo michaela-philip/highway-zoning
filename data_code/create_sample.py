@@ -2,6 +2,7 @@ import pandas as pd
 import numpy as np
 import geopandas as gpd
 import shapely.geometry
+import requests
 
 ####################################################################################################
 ### SECTION TO BE EDITED UPON ADDITION OF NEW CITIES ###
@@ -87,6 +88,104 @@ def place_geology(geology, grid):
     geology_grid = geology_grid.rename(columns = {'RASTERVALU':'elevation'})
     geology_grid = geology_grid.dissolve(by='grid_id', aggfunc={'elevation':'mean', 'dist_water':'mean'})
     return geology_grid
+
+### FUNCTION TO ADD FLOOD PLAIN DATA TO GRID ###
+FLOOD_HAZARD_URL = "https://services.arcgis.com/P3ePLMYs2RVChkJx/arcgis/rest/services/USA_Flood_Hazard_Reduced_Set_gdb/FeatureServer/0/query"
+RAILROAD_URL = "https://services2.arcgis.com/FiaPA4ga0iQKduv3/arcgis/rest/services/Transportation_v1/FeatureServer/9/query"
+
+def place_floodplains(grid):
+    # get bounding box in WGS84 for the API spatial filter
+    bounds = grid.to_crs('EPSG:4326').total_bounds  # (minx, miny, maxx, maxy)
+    envelope = f"{bounds[0]},{bounds[1]},{bounds[2]},{bounds[3]}"
+
+    # paginate through results (server max is 750 per request)
+    all_features = []
+    offset = 0
+    while True:
+        params = {
+            'where': '1=1',
+            'geometry': envelope,
+            'geometryType': 'esriGeometryEnvelope',
+            'inSR': '4326',
+            'spatialRel': 'esriSpatialRelIntersects',
+            'outFields': 'SFHA_TF',
+            'returnGeometry': 'true',
+            'outSR': '3857',
+            'f': 'geojson',
+            'resultOffset': offset,
+            'resultRecordCount': 750,
+        }
+        response = requests.get(FLOOD_HAZARD_URL, params=params)
+        response.raise_for_status()
+        data = response.json()
+        features = data.get('features', [])
+        all_features.extend(features)
+        if not data.get('properties', {}).get('exceededTransferLimit', False):
+            break
+        offset += 750
+    print(f'flood plains: fetched {len(all_features)} features')
+
+    if not all_features:
+        grid['flood_risk'] = 0
+        return grid[['grid_id', 'flood_risk']]
+
+    flood_gdf = gpd.GeoDataFrame.from_features(all_features, crs='EPSG:3857')
+    flood_gdf = flood_gdf.to_crs(grid.crs)
+
+    # keep only SFHA == True polygons
+    sfha = flood_gdf[flood_gdf['SFHA_TF'] == 'T']
+
+    # any grid cell intersecting an SFHA polygon gets flood_risk = 1
+    joined = gpd.sjoin(grid[['grid_id', 'geometry']], sfha[['geometry']], how='left', predicate='intersects')
+    flood_risk = joined.groupby('grid_id')['index_right'].any().astype(int).rename('flood_risk')
+    output = grid[['grid_id']].merge(flood_risk, on='grid_id', how='left')
+    output['flood_risk'] = output['flood_risk'].fillna(0).astype(int)
+    return output
+
+### FUNCTION TO ADD RAILROAD DISTANCE TO GRID ###
+def place_railroads(grid):
+    # buffer bounding box by ~1km (in degrees) to catch railroads just outside grid edge
+    bounds = grid.to_crs('EPSG:4326').total_bounds  # (minx, miny, maxx, maxy)
+    buf = 0.01
+    envelope = f"{bounds[0]-buf},{bounds[1]-buf},{bounds[2]+buf},{bounds[3]+buf}"
+
+    all_features = []
+    offset = 0
+    while True:
+        params = {
+            'where': '1=1',
+            'geometry': envelope,
+            'geometryType': 'esriGeometryEnvelope',
+            'inSR': '4326',
+            'spatialRel': 'esriSpatialRelIntersects',
+            'outFields': 'OBJECTID',
+            'returnGeometry': 'true',
+            'outSR': '3857',
+            'f': 'geojson',
+            'resultOffset': offset,
+            'resultRecordCount': 2000,
+        }
+        response = requests.get(RAILROAD_URL, params=params)
+        response.raise_for_status()
+        data = response.json()
+        features = data.get('features', [])
+        all_features.extend(features)
+        if not data.get('properties', {}).get('exceededTransferLimit', False):
+            break
+        offset += 2000
+    print(f'railroads: fetched {len(all_features)} features')
+
+    if not all_features:
+        grid['dist_to_rr'] = np.nan
+        return grid[['grid_id', 'dist_to_rr']]
+
+    rr_gdf = gpd.GeoDataFrame.from_features(all_features, crs='EPSG:3857')
+    rr_gdf = rr_gdf.to_crs(grid.crs)
+    rr_union = rr_gdf.union_all()
+
+    output = grid[['grid_id', 'geometry']].copy()
+    output['dist_to_rr'] = output.geometry.centroid.apply(lambda x: x.distance(rr_union))
+    return output[['grid_id', 'dist_to_rr']]
 
 ### FUNCTION TO PLACE CENSUS INFO INTO GRID ###
 def place_census(census, grid):
@@ -240,6 +339,7 @@ def create_grid(zoning, centroids, geology, census, state59, state40, us59, us40
     # overlay zoning map with grid squares and classify each square
     output = classify_grid(zoning, grid, centroids, city_sample, zoning2)
     print('zoning added to grid')
+    
 
     # overlay geological info 
     output = output.merge(place_geology(geology, output)[['dist_water', 'elevation']], on = 'grid_id', how = 'left')
@@ -255,6 +355,15 @@ def create_grid(zoning, centroids, geology, census, state59, state40, us59, us40
     # interpolate missing rent and home values
     output = impute_values(output)
     print('missing rent and home values imputed')
+
+    # overlay flood plain data
+    output = output.merge(place_floodplains(grid), on='grid_id', how='left')
+    output['flood_risk'] = output['flood_risk'].fillna(0).astype(int)
+    print('flood plains added to grid')
+
+    # calculate distance to nearest railroad
+    output = output.merge(place_railroads(grid), on='grid_id', how='left')
+    print('railroad distances added to grid')
 
     # place highways into grid
     output = output.merge(place_highways(grid, state59, state40, us59, us40, interstate)[['grid_id', 'hwy_59', 'hwy_40', 'dist_to_hwy']],
