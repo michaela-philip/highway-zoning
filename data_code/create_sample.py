@@ -3,6 +3,7 @@ import numpy as np
 import geopandas as gpd
 import shapely.geometry
 import requests
+import time
 
 ####################################################################################################
 ### SECTION TO BE EDITED UPON ADDITION OF NEW CITIES ###
@@ -89,6 +90,17 @@ def place_geology(geology, grid):
     geology_grid = geology_grid.dissolve(by='grid_id', aggfunc={'elevation':'mean', 'dist_water':'mean'})
     return geology_grid
 
+def _arcgis_query(url, params, retries=5, backoff=2):
+    for attempt in range(retries):
+        response = requests.get(url, params=params)
+        if response.status_code in (502, 503, 504):
+            if attempt < retries - 1:
+                time.sleep(backoff ** attempt)
+                continue
+        response.raise_for_status()
+        return response.json()
+    response.raise_for_status()
+
 ### FUNCTION TO ADD FLOOD PLAIN DATA TO GRID ###
 FLOOD_HAZARD_URL = "https://services.arcgis.com/P3ePLMYs2RVChkJx/arcgis/rest/services/USA_Flood_Hazard_Reduced_Set_gdb/FeatureServer/0/query"
 RAILROAD_URL = "https://services2.arcgis.com/FiaPA4ga0iQKduv3/arcgis/rest/services/Transportation_v1/FeatureServer/9/query"
@@ -115,9 +127,7 @@ def place_floodplains(grid):
             'resultOffset': offset,
             'resultRecordCount': 750,
         }
-        response = requests.get(FLOOD_HAZARD_URL, params=params)
-        response.raise_for_status()
-        data = response.json()
+        data = _arcgis_query(FLOOD_HAZARD_URL, params)
         features = data.get('features', [])
         all_features.extend(features)
         if not data.get('properties', {}).get('exceededTransferLimit', False):
@@ -165,9 +175,7 @@ def place_railroads(grid):
             'resultOffset': offset,
             'resultRecordCount': 2000,
         }
-        response = requests.get(RAILROAD_URL, params=params)
-        response.raise_for_status()
-        data = response.json()
+        data = _arcgis_query(RAILROAD_URL, params)
         features = data.get('features', [])
         all_features.extend(features)
         if not data.get('properties', {}).get('exceededTransferLimit', False):
