@@ -10,33 +10,36 @@ from helpers.latex_formatting import export_single_regression, export_multiple_r
 from data_code.candidates import candidate_dict
 
 df = pd.read_pickle('data/output/sample.pkl')
-df['rent'] = df['rent'].replace(0, np.nan)
-df['valueh'] = df['valueh'].replace(0, np.nan)
-df = df.dropna(subset = ['rent', 'valueh']).copy()
+df['rent'] = df['rent'].replace(0, 0.00001)
+df['valueh'] = df['valueh'].replace(0, 0.00001)
+# df = df.dropna(subset = ['rent', 'valueh']).copy()
 
-def bootstrap_lpm(sample, n_bootstraps=1000, seed = 42):
+# prepare variables
+df['log_valueh'] = np.log(df['valueh'].values)
+valueh_avail = df['valueh_avail'].values
+df['log_rent'] = np.log(df['rent'].values)
+rent_avail = df['rent_avail'].values
+df['city_louisville'] = (df['city'] == 'louisville').astype(int)
+df['city_littlerock'] = (df['city'] == 'littlerock').astype(int)
+# city_dummies = pd.get_dummies(df['city'], prefix='city', drop_first=True).values
+owner = df['owner'].values
+residential = df['Residential'].values
+black = df['mblack_1945def'].values
+df['Residential_black'] = df['Residential'] * df['mblack_1945def'].values
+dist_water = df['dist_water'].values
+dist_to_cbd = df['distance_to_cbd'].values
+x_vars = ['Residential', 'mblack_1945def', 'Residential_black', 'log_valueh', 'log_rent', 'owner', 'dist_water', 'distance_to_cbd', 'city_louisville', 'city_littlerock'] 
+
+columns = ['Intercept', 'Residential', 'Black', 'Residential x Black', 'Log(Value)', 'Log(Rent)', 'Owner', 'Distance to Water', 'Distance to CBD'] + [f'City_{c}' for c in df['city'].unique()[1:]]
+
+def bootstrap_lpm(sample, x_vars, n_bootstraps=1000, seed = 42):
     rng = np.random.default_rng(seed)
 
     n = len(sample)
-
-    # construct/transform some variables
-    log_valueh = np.log(sample['valueh'].values)
-    log_rent = np.log(sample['rent'].values)
-    city_dummies = pd.get_dummies(sample['city'], prefix='city', drop_first=True).values
-    owner = sample['owner'].values
-
-    residential = sample['Residential'].values
-    black = sample['mblack_1945def'].values
-    X = np.column_stack([
-        np.ones(n),
-        residential,
-        black,
-        residential * black,
-        log_valueh,
-        log_rent,
-        owner,
-        city_dummies])
     y = sample['hwy'].values
+    X = np.column_stack([np.ones(len(sample)), sample[x_vars].values])
+    
+    print(X.shape, y.shape) 
 
     beta_hat = np.linalg.lstsq(X, y, rcond=None)[0]
 
@@ -59,12 +62,12 @@ out_frames = []
 for city in df['city'].unique():
     candidates = candidate_dict[city]
     controls = df.loc[(df['city'] == city) & (df['grid_id'].isin(candidates))].copy()
-    treated = df.loc[(df['city'] == city) & (df['hwy']==1) & (~df['grid_id'].isin(candidates))].copy()
+    # treated = df.loc[(df['city'] == city) & (df['hwy']==1) & (~df['grid_id'].isin(candidates))].copy()
     out_frames.append(controls)
-    out_frames.append(treated)
+    # out_frames.append(treated)
 dir_sample = pd.concat(out_frames, ignore_index=True)
-dir_beta, dir_boot_coefs, dir_se, dir_ci_lower, dir_ci_upper, y, X = bootstrap_lpm(dir_sample)
-dir_results = bootstrap_results_to_namespace(dir_beta, dir_boot_coefs, y, X, col_names = ['Intercept', 'Residential', 'Black', 'Residential x Black', 'Log(Value)', 'Log(Rent)', 'Owner'] + [f'City_{c}' for c in dir_sample['city'].unique()[1:]])
+dir_beta, dir_boot_coefs, dir_se, dir_ci_lower, dir_ci_upper, y, X = bootstrap_lpm(dir_sample, x_vars)
+dir_results = bootstrap_results_to_namespace(dir_beta, dir_boot_coefs, y, X, col_names = columns)
 dir_results = format_regression_results(dir_results)
 
 # indirect sample
@@ -74,8 +77,8 @@ for city in df['city'].unique():
     controls = df.loc[(df['city'] == city) & (~df['grid_id'].isin(candidates))].copy()
     out_frames.append(controls)
 ind_sample = pd.concat(out_frames, ignore_index=True)
-ind_beta, ind_boot_coefs, ind_se, ind_ci_lower, ind_ci_upper, y, X = bootstrap_lpm(ind_sample)
-indir_results = bootstrap_results_to_namespace(ind_beta, ind_boot_coefs, y, X, col_names = ['Intercept', 'Residential', 'Black', 'Residential x Black', 'Log(Value)', 'Log(Rent)', 'Owner'] + [f'City_{c}' for c in ind_sample['city'].unique()[1:]])
+ind_beta, ind_boot_coefs, ind_se, ind_ci_lower, ind_ci_upper, y, X = bootstrap_lpm(ind_sample, x_vars)
+indir_results = bootstrap_results_to_namespace(ind_beta, ind_boot_coefs, y, X, col_names = columns)
 indir_results = format_regression_results(indir_results)
 
 # ML based sample 
@@ -91,8 +94,8 @@ target_prob = df.loc[df['hwy'] == 1, 'prob_hwy'].quantile(0.25)
 print(f"Target probability for ML-based sample restriction: {target_prob:.4f}")
 
 sample = df.loc[df['prob_hwy'] >= target_prob].copy()
-ml_beta, ml_boot_coefs, ml_se, ml_ci_lower, ml_ci_upper, y, X = bootstrap_lpm(sample)
-ml_results = bootstrap_results_to_namespace(ml_beta, ml_boot_coefs, y, X, col_names = ['Intercept', 'Residential', 'Black', 'Residential x Black', 'Log(Value)', 'Log(Rent)', 'Owner'] + [f'City_{c}' for c in sample['city'].unique()[1:]])
+ml_beta, ml_boot_coefs, ml_se, ml_ci_lower, ml_ci_upper, y, X = bootstrap_lpm(sample, x_vars)
+ml_results = bootstrap_results_to_namespace(ml_beta, ml_boot_coefs, y, X, col_names = columns)
 ml_results = format_regression_results(ml_results)
 
 # export direct and indirect results together
@@ -102,42 +105,42 @@ sample_restrict_table = export_multiple_regressions({"Direct Sample": dir_result
                             leaveout = ['owner', 'Intercept' + ''.join([f'City_{c}' for c in ind_sample['city'].unique()[1:]])])
 
 # run lpm with predicted probabilities as covariate on full sample
-sample = df.copy()
-eps = 1e-6
-prob_clipped = sample['prob_hwy'].clip(eps, 1 - eps)
-sample['logit'] = np.log(prob_clipped / (1 - prob_clipped))
-city_dummies = pd.get_dummies(sample['city'], prefix='city', drop_first=True).values
-X = np.column_stack([
-        np.ones(len(sample)),
-        sample['Residential'].values,
-        sample['mblack_1945def'].values,
-        sample['Residential'].values * sample['mblack_1945def'].values,
-        np.log(sample['valueh'].values),
-        np.log(sample['rent'].values),
-        sample['owner'].values,
-        sample['logit'].values,
-        city_dummies
-    ])
-y = sample['hwy'].values
+# sample = df.copy()
+# eps = 1e-6
+# prob_clipped = sample['prob_hwy'].clip(eps, 1 - eps)
+# sample['logit'] = np.log(prob_clipped / (1 - prob_clipped))
+# city_dummies = pd.get_dummies(sample['city'], prefix='city', drop_first=True).values
+# X = np.column_stack([
+#         np.ones(len(sample)),
+#         sample['Residential'].values,
+#         sample['mblack_1945def'].values,
+#         sample['Residential'].values * sample['mblack_1945def'].values,
+#         np.log(sample['valueh'].values),
+#         np.log(sample['rent'].values),
+#         sample['owner'].values,
+#         sample['logit'].values,
+#         city_dummies
+#     ])
+# y = sample['hwy'].values
 
-rng = np.random.default_rng(42)
-n = len(sample)
-n_bootstraps = 1000
+# rng = np.random.default_rng(42)
+# n = len(sample)
+# n_bootstraps = 1000
 
-beta_hat = np.linalg.lstsq(X, y, rcond=None)[0]
+# beta_hat = np.linalg.lstsq(X, y, rcond=None)[0]
 
-boot_coefs = []
-for b in range(n_bootstraps):
-    boot_idx = rng.choice(n, size = n, replace = True)
-    X_boot = X[boot_idx]
-    y_boot = y[boot_idx]
-    beta_boot = np.linalg.lstsq(X_boot, y_boot, rcond=None)[0]
-    boot_coefs.append(beta_boot)    
+# boot_coefs = []
+# for b in range(n_bootstraps):
+#     boot_idx = rng.choice(n, size = n, replace = True)
+#     X_boot = X[boot_idx]
+#     y_boot = y[boot_idx]
+#     beta_boot = np.linalg.lstsq(X_boot, y_boot, rcond=None)[0]
+#     boot_coefs.append(beta_boot)    
 
-boot_coefs = np.array(boot_coefs)
-se = boot_coefs.std(axis = 0)
-ci_lower = np.percentile(boot_coefs, 2.5, axis = 0)
-ci_upper = np.percentile(boot_coefs, 97.5, axis = 0)
-ml_results = bootstrap_results_to_namespace(beta_hat, boot_coefs, y, X, col_names = ['Intercept', 'Residential', 'Black', 'Residential x Black', 'Log(Value)', 'Log(Rent)', 'Owner', 'Prob(Hwy)'] + [f'City_{c}' for c in sample['city'].unique()[1:]])
-ml_results = format_regression_results(ml_results)
-ml_cov_table = export_single_regression(ml_results, caption = "Determinants of Highway Placement - Full Sample with Predicted Probability", label = 'tab:ml_prob_cov', widthmultiplier=0.7, leaveout = ['owner', 'Intercept' + ''.join([f'City_{c}' for c in ind_sample['city'].unique()[1:]])])
+# boot_coefs = np.array(boot_coefs)
+# se = boot_coefs.std(axis = 0)
+# ci_lower = np.percentile(boot_coefs, 2.5, axis = 0)
+# ci_upper = np.percentile(boot_coefs, 97.5, axis = 0)
+# ml_results = bootstrap_results_to_namespace(beta_hat, boot_coefs, y, X, col_names = ['Intercept', 'Residential', 'Black', 'Residential x Black', 'Log(Value)', 'Log(Rent)', 'Owner', 'Prob(Hwy)'] + [f'City_{c}' for c in sample['city'].unique()[1:]])
+# ml_results = format_regression_results(ml_results)
+# ml_cov_table = export_single_regression(ml_results, caption = "Determinants of Highway Placement - Full Sample with Predicted Probability", label = 'tab:ml_prob_cov', widthmultiplier=0.7, leaveout = ['owner', 'Intercept' + ''.join([f'City_{c}' for c in ind_sample['city'].unique()[1:]])])
