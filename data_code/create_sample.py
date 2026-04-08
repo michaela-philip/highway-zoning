@@ -4,6 +4,10 @@ import geopandas as gpd
 import shapely.geometry
 import requests
 import time
+import io
+import rasterio
+from rasterio.transform import from_bounds
+from rasterstats import zonal_stats
 
 ####################################################################################################
 ### SECTION TO BE EDITED UPON ADDITION OF NEW CITIES ###
@@ -86,9 +90,69 @@ def classify_grid(zoning1, grid, centroids, city_sample, zoning2 = None):
 def place_geology(geology, grid):
     geology = geology.to_crs(grid.crs)
     geology_grid = gpd.sjoin(grid, geology, how = 'left', predicate = 'contains')
-    geology_grid = geology_grid.rename(columns = {'RASTERVALU':'elevation'})
-    geology_grid = geology_grid.dissolve(by='grid_id', aggfunc={'elevation':'mean', 'dist_water':'mean'})
+    geology_grid = geology_grid.dissolve(by='grid_id', aggfunc={'dist_water':'mean'})
     return geology_grid
+
+### FUNCTION TO ADD ELEVATION AND SLOPE FROM USGS 3DEP WCS ###
+WCS_URL = "https://elevation.nationalmap.gov/arcgis/services/3DEPElevation/ImageServer/WCSServer"
+
+def place_elevation_slope(grid):
+    # request bounding box in WGS84
+    bounds = grid.to_crs('EPSG:4326').total_bounds  # (minx, miny, maxx, maxy)
+    minx, miny, maxx, maxy = bounds
+
+    # ~10m resolution (1/3 arc-second): 0.0000926 degrees/pixel
+    px_size = 0.0000926
+    width  = max(1, round((maxx - minx) / px_size))
+    height = max(1, round((maxy - miny) / px_size))
+
+    params = {
+        'SERVICE': 'WCS',
+        'VERSION': '1.0.0',
+        'REQUEST': 'GetCoverage',
+        'COVERAGE': 'DEP3Elevation',
+        'BBOX': f'{minx},{miny},{maxx},{maxy}',
+        'CRS': 'EPSG:4326',
+        'RESPONSE_CRS': 'EPSG:4326',
+        'FORMAT': 'GeoTIFF',
+        'WIDTH': width,
+        'HEIGHT': height,
+    }
+    response = requests.get(WCS_URL, params=params)
+    response.raise_for_status()
+    print(f'elevation WCS: downloaded {len(response.content)/1e6:.1f} MB')
+
+    with rasterio.open(io.BytesIO(response.content)) as src:
+        dem = src.read(1).astype(float)
+        nodata = src.nodata
+        transform = src.transform
+        crs = src.crs
+
+    if nodata is not None:
+        dem[dem == nodata] = np.nan
+
+    # compute slope from DEM using finite differences
+    # transform[0] and transform[4] are pixel width/height in degrees; convert to meters
+    # 1 degree latitude ~ 111,000m; longitude correction applied at mean latitude
+    mean_lat = (miny + maxy) / 2
+    dy_m = abs(transform[4]) * 111000
+    dx_m = abs(transform[0]) * 111000 * np.cos(np.radians(mean_lat))
+    dz_dy, dz_dx = np.gradient(np.where(np.isnan(dem), 0, dem), dy_m, dx_m)
+    slope = np.sqrt(dz_dx**2 + dz_dy**2)
+    # mask slope where DEM was nodata
+    slope[np.isnan(dem)] = np.nan
+
+    # reproject grid to WCS CRS for zonal stats
+    grid_wcs = grid.to_crs(crs)
+    affine = transform
+
+    elev_stats  = zonal_stats(grid_wcs, dem,   affine=affine, stats=['mean'], nodata=np.nan)
+    slope_stats = zonal_stats(grid_wcs, slope, affine=affine, stats=['mean'], nodata=np.nan)
+
+    output = grid[['grid_id']].copy()
+    output['elevation'] = [s['mean'] for s in elev_stats]
+    output['slope']     = [s['mean'] for s in slope_stats]
+    return output
 
 def _arcgis_query(url, params, retries=5, backoff=2):
     for attempt in range(retries):
@@ -349,9 +413,13 @@ def create_grid(zoning, centroids, geology, census, state59, state40, us59, us40
     print('zoning added to grid')
     
 
-    # overlay geological info 
-    output = output.merge(place_geology(geology, output)[['dist_water', 'elevation']], on = 'grid_id', how = 'left')
+    # overlay geological info
+    output = output.merge(place_geology(geology, output)[['dist_water']], on='grid_id', how='left')
     print('geology added to grid')
+
+    # add elevation and slope from USGS 3DEP
+    output = output.merge(place_elevation_slope(grid), on='grid_id', how='left')
+    print('elevation and slope added to grid')
 
     # overlay census data on grid
     output = output.merge(place_census(census, output)[['grid_id', 'numprec', 'black_pop', 'rent', 'valueh', 
@@ -387,6 +455,9 @@ def create_grid(zoning, centroids, geology, census, state59, state40, us59, us40
     avg_elev = output.loc[output['hwy'] == 1, 'elevation'].mean()
     print('average elevation in hwy grids:', avg_elev)
     output['dm_elevation'] = output['elevation'] - avg_elev
+    avg_slope = output.loc[output['hwy'] == 1, 'slope'].mean()
+    print('average slope in hwy grids:', avg_slope)
+    output['dm_slope'] = output['slope'] - avg_slope
     return output
 
 def create_sample(df, sample):
