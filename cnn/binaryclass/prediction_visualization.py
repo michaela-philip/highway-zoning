@@ -111,11 +111,11 @@ def plot_propensity_overlap(results_csv_path, grid, temperature_values=[1.0, 5.0
     print('saved: cnn/figures/overlap_support.png')
 
 # run it — point to your most recent prediction csv
-plot_propensity_overlap(
-    results_csv_path=dataroot + filename_out,  # uses the filename from your prediction script
-    grid=grid,
-    temperature_values=[1.0, 5.0, 10.0, 20.0]
-)
+# plot_propensity_overlap(
+#     results_csv_path=dataroot + filename_out,  # uses the filename from your prediction script
+#     grid=grid,
+#     temperature_values=[1.0, 5.0, 10.0, 20.0]
+# )
 
 def plot_highway_recall(results_csv_path, grid, temperature_values=[1.0, 5.0, 10.0, 20.0]):
     # --- load and merge (same as your existing function) ---
@@ -208,12 +208,12 @@ def plot_highway_recall(results_csv_path, grid, temperature_values=[1.0, 5.0, 10
     plt.show()
     print('saved: cnn/figures/recall_diagnostics.png')
 
-# --- run it ---
-plot_highway_recall(
-    results_csv_path=dataroot + filename_out,
-    grid=grid,
-    temperature_values=[1.0, 5.0, 10.0, 20.0]
-)
+# # --- run it ---
+# plot_highway_recall(
+#     results_csv_path=dataroot + filename_out,
+#     grid=grid,
+#     temperature_values=[1.0, 5.0, 10.0, 20.0]
+# )
 
 def check_restricted_sample(results_csv_path, grid, T=1.0, tau=0.10):
     preds = pd.read_csv(results_csv_path)
@@ -260,14 +260,14 @@ raw_probs = preds['prob_hwy'].values.clip(eps, 1 - eps)
 logits = np.log(raw_probs / (1 - raw_probs))
 labels = preds['hwy'].values
 
-result = minimize_scalar(
-    nll_temperature, 
-    bounds=(0.1, 50.0), 
-    method='bounded',
-    args=(logits, labels)
-)
-optimal_T = result.x
-print(f'Optimal temperature: {optimal_T:.3f}')
+# result = minimize_scalar(
+#     nll_temperature, 
+#     bounds=(0.1, 50.0), 
+#     method='bounded',
+#     args=(logits, labels)
+# )
+# optimal_T = result.x
+# print(f'Optimal temperature: {optimal_T:.3f}')
 
 def plot_geographic_similarity_conditional(preds_csv, grid, 
                                             geo_features=None,
@@ -307,7 +307,9 @@ def plot_geographic_similarity_conditional(preds_csv, grid,
         'elevation'      : 'Elevation (std)',
         'dist_water'     : 'Dist. to Water (std)',
         'dist_to_hwy'    : 'Dist. to Hwy (std)',
-        'distance_to_cbd': 'Dist. to CBD (std)'
+        'distance_to_cbd': 'Dist. to CBD (std)',
+        'dist_to_rr'    : 'Dist. to RR (std)',
+        'flood_risk'    : 'Flood Risk (std)'
     }
 
     smd_matrix = np.full((n_features, n_bins), np.nan)
@@ -327,51 +329,52 @@ def plot_geographic_similarity_conditional(preds_csv, grid,
             vals0 = hwy0[feat].dropna().values
 
             if len(vals1) > 1 and len(vals0) > 1:
-                # kernel density estimates
-                x_min = min(vals1.min(), vals0.min())
-                x_max = max(vals1.max(), vals0.max())
-                x_range = np.linspace(x_min - 0.5, x_max + 0.5, 200)
-
-                kde1 = stats.gaussian_kde(vals1)
-                kde0 = stats.gaussian_kde(vals0)
-
-                ax.fill_between(x_range, kde1(x_range), 
-                                alpha=0.4, color='tomato', label='hwy=1')
-                ax.fill_between(x_range, kde0(x_range), 
-                                alpha=0.4, color='steelblue', label='hwy=0')
-                ax.plot(x_range, kde1(x_range), color='tomato', lw=1.2)
-                ax.plot(x_range, kde0(x_range), color='steelblue', lw=1.2)
-
-                # vertical lines at means
-                ax.axvline(vals1.mean(), color='tomato', 
-                           linestyle='--', lw=1, alpha=0.8)
-                ax.axvline(vals0.mean(), color='steelblue', 
-                           linestyle='--', lw=1, alpha=0.8)
-
-                # standardized mean difference
-                pooled_std = np.sqrt(
-                    (vals1.std()**2 + vals0.std()**2) / 2
-                )
-                smd = ((vals1.mean() - vals0.mean()) / pooled_std 
-                       if pooled_std > 0 else 0)
-                smd_matrix[row_idx, col_idx] = smd
-
-                ax.set_title(f'SMD={smd:.2f}', fontsize=7, pad=2)
-
-            elif len(vals1) == 1:
-                ax.axvline(vals1[0], color='tomato', lw=2, label='hwy=1')
-                if len(vals0) > 0:
-                    kde0 = stats.gaussian_kde(vals0) if len(vals0) > 1 else None
-                    if kde0:
+                # check for zero variance — KDE fails on constant data
+                if vals1.std() == 0:
+                    # all highway squares in this bin have same value — plot as vline
+                    ax.axvline(vals1[0], color='tomato', lw=2, label='hwy=1')
+                    if vals0.std() > 0:
+                        kde0 = stats.gaussian_kde(vals0)
                         x_range = np.linspace(vals0.min()-0.5, vals0.max()+0.5, 200)
-                        ax.fill_between(x_range, kde0(x_range),
-                                        alpha=0.4, color='steelblue')
-                ax.set_title('n=1 hwy', fontsize=7, pad=2)
+                        ax.fill_between(x_range, kde0(x_range), alpha=0.4, color='steelblue')
+                    smd = ((vals1.mean() - vals0.mean()) / 
+                        (vals0.std() if vals0.std() > 0 else 1e-6))
+                    smd_matrix[row_idx, col_idx] = smd
+                    ax.set_title(f'SMD={smd:.2f}\n(const hwy)', fontsize=7, pad=2)
+                elif vals0.std() == 0:
+                    # all non-highway squares in this bin have same value
+                    ax.axvline(vals0[0], color='steelblue', lw=2, label='hwy=0')
+                    if vals1.std() > 0:
+                        kde1 = stats.gaussian_kde(vals1)
+                        x_range = np.linspace(vals1.min()-0.5, vals1.max()+0.5, 200)
+                        ax.fill_between(x_range, kde1(x_range), alpha=0.4, color='tomato')
+                    smd = ((vals1.mean() - vals0.mean()) / 
+                        (vals1.std() if vals1.std() > 0 else 1e-6))
+                    smd_matrix[row_idx, col_idx] = smd
+                    ax.set_title(f'SMD={smd:.2f}\n(const non-hwy)', fontsize=7, pad=2)
+                else:
+                    # normal case — both have variation, proceed with KDE
+                    x_min = min(vals1.min(), vals0.min())
+                    x_max = max(vals1.max(), vals0.max())
+                    x_range = np.linspace(x_min - 0.5, x_max + 0.5, 200)
 
-            else:
-                ax.text(0.5, 0.5, 'No hwy=1\nin bin',
-                        ha='center', va='center',
-                        transform=ax.transAxes, fontsize=7)
+                    kde1 = stats.gaussian_kde(vals1)
+                    kde0 = stats.gaussian_kde(vals0)
+
+                    ax.fill_between(x_range, kde1(x_range), 
+                                    alpha=0.4, color='tomato', label='hwy=1')
+                    ax.fill_between(x_range, kde0(x_range), 
+                                    alpha=0.4, color='steelblue', label='hwy=0')
+                    ax.plot(x_range, kde1(x_range), color='tomato', lw=1.2)
+                    ax.plot(x_range, kde0(x_range), color='steelblue', lw=1.2)
+
+                    ax.axvline(vals1.mean(), color='tomato', linestyle='--', lw=1, alpha=0.8)
+                    ax.axvline(vals0.mean(), color='steelblue', linestyle='--', lw=1, alpha=0.8)
+
+                    pooled_std = np.sqrt((vals1.std()**2 + vals0.std()**2) / 2)
+                    smd = (vals1.mean() - vals0.mean()) / pooled_std if pooled_std > 0 else 0
+                    smd_matrix[row_idx, col_idx] = smd
+                    ax.set_title(f'SMD={smd:.2f}', fontsize=7, pad=2)
 
             # labels
             if col_idx == 0:
@@ -451,8 +454,8 @@ def plot_geographic_similarity_conditional(preds_csv, grid,
 
 # --- run it ---
 smd_df, smd_matrix = plot_geographic_similarity_conditional(
-    preds,
+    dataroot + filename_out,
     grid,
-    geo_features = ['elevation', 'dist_water', 'dist_to_hwy', 'distance_to_cbd'],
+    geo_features = ['elevation', 'dist_water', 'dist_to_hwy', 'distance_to_cbd', 'dist_to_rr', 'flood_risk'],
     prob_bins  = [0.0, 0.05, 0.10, 0.15, 0.20, 0.30, 1.0]
 )
