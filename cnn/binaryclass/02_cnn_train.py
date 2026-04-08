@@ -37,7 +37,7 @@ features = ['distance_to_cbd', 'dist_water', 'dist_to_hwy', 'dist_to_rr', 'flood
 normalize_features = ['distance_to_cbd', 'dist_water', 'dist_to_hwy', 'dist_to_rr', 'elevation', 'slope'] # the only features i want to demean
 
 cell_width = 150  # cell width in meters
-size_potential = 4  # potential locations: num_width_potential x num_width_potential
+size_potential = 6  # potential locations: num_width_potential x num_width_potential
 size_padding = 6  # number of padding cells on each side of potential grid
 nc = len(features)  # number of channels: 1) other grocery stores 2) other businesses
 BATCH_SIZE_real = 32  # regions with missing grocery store per batch
