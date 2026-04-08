@@ -37,8 +37,8 @@ features = ['distance_to_cbd', 'dist_water', 'dist_to_hwy', 'dist_to_rr', 'flood
 normalize_features = ['distance_to_cbd', 'dist_water', 'dist_to_hwy', 'dist_to_rr', 'elevation', 'slope'] # the only features i want to demean
 
 cell_width = 150  # cell width in meters
-size_potential = 6  # potential locations: num_width_potential x num_width_potential
-size_padding = 6  # number of padding cells on each side of potential grid
+size_potential = 4  # potential locations: num_width_potential x num_width_potential
+size_padding = 8  # number of padding cells on each side of potential grid
 nc = len(features)  # number of channels: 1) other grocery stores 2) other businesses
 BATCH_SIZE_real = 32  # regions with missing grocery store per batch
 BATCH_SIZE_fill = 16  # regions with real location filled in (-> no missing) per batch
@@ -552,7 +552,7 @@ def evaluate_candidate_pool(net, city_rasters, GRIDID_TO_RC, grid, hwys,
     prob_df = pd.DataFrame({'grid_id': all_grid_ids, 'prob': all_probs})
     prob_df = prob_df.merge(
         grid[['grid_id', 'hwy', 'elevation', 'dist_water',
-              'dist_to_hwy', 'distance_to_cbd', 'dist_to_rr', 'flood_risk']],
+              'dist_to_hwy', 'distance_to_cbd', 'dist_to_rr', 'flood_risk', 'slope']],
         on='grid_id', how='left'
     )
 
@@ -568,7 +568,7 @@ def evaluate_candidate_pool(net, city_rasters, GRIDID_TO_RC, grid, hwys,
     print(f'  Candidate pool size   : {n_cand:,}  (target: >> {n_real:,})')
     print(f'  Highway recall        : {recall:.3f}  (target: close to 1.0)')
 
-    geo_features = ['elevation', 'dist_water', 'dist_to_hwy', 'distance_to_cbd']
+    geo_features = ['elevation', 'dist_water', 'dist_to_hwy', 'distance_to_cbd', 'slope', 'dist_to_rr', 'flood_risk']
     print(f'\n  Geographic balance (highway squares vs candidate pool):')
     print(f'  {"Feature":25} {"HWY mean":>12} {"Cand mean":>12} {"Std diff":>10}')
     print(f'  {"-"*62}')
