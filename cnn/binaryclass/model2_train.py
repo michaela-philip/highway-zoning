@@ -899,7 +899,7 @@ for epoch in range(curr_epoch, bound_epochs):
 
     print('Finished Epoch ' + str(epoch+1) + ' of ' + str(bound_epochs) + '. Saving model and optimizer checkpoint.')
     curr_epoch = curr_epoch + 1
-    save_model('bc_model1.tar')
+    save_model('bc_model2.tar')
     print((datetime.now(timezone.utc) + timedelta(hours=-7)).strftime('%Y-%m-%d %H:%M:%S'))
 
 print('Finished Training')
