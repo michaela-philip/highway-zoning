@@ -30,12 +30,12 @@ sample = pd.read_pickle('data/input/samplelist.pkl')
 candidate_list = pd.read_pickle('data/output/cnn_candidate_list.pkl')
 grid = pd.read_pickle('data/output/sample.pkl')
 hwys = grid[grid['hwy'] == 1]['grid_id'].unique().tolist()
-features = ['distance_to_cbd', 'dist_water', 'dist_to_hwy', 'elevation', 'hwy']
-normalize_features = ['distance_to_cbd', 'dist_water', 'dist_to_hwy', 'elevation'] # the only features i want to demean
+features = ['distance_to_cbd', 'dist_water', 'dist_to_hwy', 'dist_to_rr', 'flood_risk', 'elevation', 'slope', 'hwy']
+normalize_features = ['distance_to_cbd', 'dist_water', 'dist_to_hwy', 'dist_to_rr', 'elevation','slope'] # the only features i want to demean
 
 cell_width = 150  # cell width in meters (convert from miles)
-size_potential = 4  # potential locations: num_width_potential x num_width_potential
-size_padding = 4  # number of padding cells on each side of potential grid
+size_potential = 2  # potential locations: num_width_potential x num_width_potential
+size_padding = 8  # number of padding cells on each side of potential grid
 nc = len(features)  # number of channels: 1) other grocery stores 2) other businesses
 
 obs = grid.shape[0]
