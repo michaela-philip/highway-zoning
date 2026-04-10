@@ -23,7 +23,8 @@ dataroot = 'cnn/binaryclass/'
 outputroot = 'cnn/binaryclass/'
 
 use_saved_model = False
-saved_model_filename = 'cnn/binaryclass/bc_model1.tar'
+RUN_WINDOW_SEARCH = False  # set to True to run, False to skip
+saved_model_filename = 'cnn/binaryclass/bc_model2.tar'
 
 ####################################################################################################
 ### PARAMETERS ###
@@ -33,11 +34,11 @@ sample = pd.read_pickle('data/input/samplelist.pkl')
 candidate_list = pd.read_pickle('data/output/cnn_candidate_list.pkl')
 grid = pd.read_pickle('data/output/sample.pkl')
 hwys = grid[grid['hwy'] == 1]['grid_id'].unique().tolist()
-features = ['distance_to_cbd', 'dist_water', 'dist_to_hwy', 'dist_to_rr', 'flood_risk', 'elevation', 'slope', 'hwy']
-normalize_features = ['distance_to_cbd', 'dist_water', 'dist_to_hwy', 'dist_to_rr', 'elevation', 'slope'] # the only features i want to demean
+features = ['distance_to_cbd', 'dist_water', 'dist_to_hwy', 'dist_to_rr', 'flood_risk', 'elevation', 'slope', 'owner', 'hwy']
+normalize_features = ['distance_to_cbd', 'dist_water', 'dist_to_hwy', 'dist_to_rr', 'elevation', 'owner', 'slope'] # the only features i want to demean
 
 cell_width = 150  # cell width in meters
-size_potential = 4  # potential locations: num_width_potential x num_width_potential
+size_potential = 2  # potential locations: num_width_potential x num_width_potential
 size_padding = 8  # number of padding cells on each side of potential grid
 nc = len(features)  # number of channels: 1) other grocery stores 2) other businesses
 BATCH_SIZE_real = 32  # regions with missing grocery store per batch
@@ -165,47 +166,46 @@ def gridid_to_rc_map(gdf, cell_width):
     rows_idx = np.floor((maxy - ys) / cell_width).astype(int)
     return {int(gid): (int(r), int(c)) for gid, r, c in zip(gdf['grid_id'].values, rows_idx, cols_idx)}
 
-def extract_patch_from_arrays(feature_array, label_array, row, col, window, rot_k=0,mirror_var=1):
+def extract_patch_from_arrays(feature_array, label_array, row, col, window,
+                               rot_k=0, mirror_var=1, _size_potential=None):
+    sv = _size_potential if _size_potential is not None else size_potential
     C, H, W = feature_array.shape
-    pad = window // 2
 
-    # define the relative location of the central part of the patch
-    central_start = (window - size_potential) // 2
-    central_end = central_start + size_potential
+    central_start = (window - sv) // 2
+    central_end   = central_start + sv
 
-    # randomly assign original cell to some location in central patch
-    rel_col = np.random.randint(central_start, central_end)
-    rel_row = np.random.randint(central_start, central_end)
-    class_idx = (rel_row - central_start) * size_potential + (rel_col - central_start)
+    rel_col   = np.random.randint(central_start, central_end)
+    rel_row   = np.random.randint(central_start, central_end)
+    class_idx = (rel_row - central_start) * sv + (rel_col - central_start)
 
-    patch_top = row - rel_row
+    patch_top  = row - rel_row
     patch_left = col - rel_col
 
-    # compute raster bounds
     r_start = max(0, patch_top)
-    r_end = min(H, patch_top + window)
+    r_end   = min(H, patch_top + window)
     c_start = max(0, patch_left)
-    c_end = min(W, patch_left + window)
+    c_end   = min(W, patch_left + window)
 
-    # compute patch indices
     pr_start = max(0, -patch_top)
-    pr_end = pr_start + (r_end - r_start)
+    pr_end   = pr_start + (r_end - r_start)
     pc_start = max(0, -patch_left)
-    pc_end = pc_start + (c_end - c_start)
+    pc_end   = pc_start + (c_end - c_start)
 
-    # extract
-    patch = np.zeros((C, window, window), dtype = np.float32)
-    patch[:, pr_start:pr_end, pc_start:pc_end] = feature_array[:, r_start:r_end, c_start:c_end]
+    patch = np.zeros((C, window, window), dtype=np.float32)
+    patch[:, pr_start:pr_end, pc_start:pc_end] = \
+        feature_array[:, r_start:r_end, c_start:c_end]
     label_patch = np.zeros((window, window), dtype=label_array.dtype)
-    label_patch[pr_start:pr_end, pc_start:pc_end] = label_array[r_start:r_end, c_start:c_end]
+    label_patch[pr_start:pr_end, pc_start:pc_end] = \
+        label_array[r_start:r_end, c_start:c_end]
 
     if rot_k > 0:
-        patch = np.rot90(patch, k=rot_k, axes=(1, 2)).copy()
+        patch       = np.rot90(patch, k=rot_k, axes=(1, 2)).copy()
         label_patch = np.rot90(label_patch, k=rot_k).copy()
 
     if mirror_var == -1:
-        patch = np.flip(patch, axis=2).copy()
+        patch       = np.flip(patch, axis=2).copy()
         label_patch = np.flip(label_patch, axis=1).copy()
+
     return patch, label_patch, class_idx
 
 grid = normalize_features_per_city(grid, normalize_features, nodata=NODATA)
@@ -256,71 +256,72 @@ S_id_real = hwys
 S_id_real = np.array(S_id_real, dtype=int)
 S_id_random = np.array(S_id_random, dtype=int)
 
-def create_batch(batch_tensor=batch_tensor, labels=labels, sample_ids_real=S_id_real, sample_ids_random=S_id_random, return_transf=False):
-    batch_tensor = batch_tensor*0
-    labels = labels*0
+def create_batch(batch_tensor=batch_tensor, labels=labels,
+                 sample_ids_real=S_id_real, sample_ids_random=S_id_random,
+                 return_transf=False,
+                 _size_padding=None,
+                 _size_potential=None):
+    
+    # use passed values if provided, otherwise fall back to globals
+    sp = _size_padding   if _size_padding   is not None else size_padding
+    sv = _size_potential if _size_potential is not None else size_potential
+    window = 2 * sp + sv
+
+    batch_tensor = batch_tensor * 0
+    labels = labels * 0
 
     if return_transf:
-        transf = np.zeros(shape=(BATCH_SIZE,5))
+        transf = np.zeros(shape=(BATCH_SIZE, 5))
 
-    window = 2*size_padding + size_potential
     pad = window // 2
 
-    # guard: ensure sample sets not empty
     if len(sample_ids_real) == 0 and len(sample_ids_random) == 0:
-        raise RuntimeError("sample_ids_real or sample_ids_random is empty after filtering for valid labels")
+        raise RuntimeError("sample_ids_real or sample_ids_random is empty")
 
     for b in range(BATCH_SIZE):
-
         if b < BATCH_SIZE_real + BATCH_SIZE_fill:
-            if len(sample_ids_real) == 0:
-                s_id = int(np.random.choice(sample_ids_random))
-            else:
-                s_id = int(np.random.choice(sample_ids_real))
+            s_id = int(np.random.choice(sample_ids_real)) if len(sample_ids_real) > 0 \
+                   else int(np.random.choice(sample_ids_random))
         else:
-            if len(sample_ids_random) == 0:
-                s_id = int(np.random.choice(sample_ids_real))
-            else:
-                s_id = int(np.random.choice(sample_ids_random))
+            s_id = int(np.random.choice(sample_ids_random)) if len(sample_ids_random) > 0 \
+                   else int(np.random.choice(sample_ids_real))
 
-        # find raster row/col for this grid_id
         if int(s_id) not in GRIDID_TO_RC:
             continue
         city, row, col = GRIDID_TO_RC[int(s_id)]
         feat_arr, label_arr, trs = city_rasters[city]
 
-        # random augmentations (keep same semantics as original)
-        rot_k = np.random.randint(0, 4)
-        mirror_var = (np.random.rand() > 0.5)*2 - 1
+        rot_k      = np.random.randint(0, 4)
+        mirror_var = (np.random.rand() > 0.5) * 2 - 1
 
-        patch, label_patch, class_idx = extract_patch_from_arrays(feat_arr, label_arr, row, col, window, rot_k=rot_k, mirror_var=mirror_var)
+        # pass sp and sv through to extract_patch_from_arrays
+        patch, label_patch, class_idx = extract_patch_from_arrays(
+            feat_arr, label_arr, row, col, window,
+            rot_k=rot_k, mirror_var=mirror_var,
+            _size_potential=sv
+        )
 
-        # if patch channels do not match nc, truncate or pad with zeros
         C = patch.shape[0]
-        if C != nc:
-            print(f"Warning: Patch channels ({C}) do not match expected channels ({nc}). Adjusting...")
         if C >= nc:
             patch = patch[:nc, :, :]
         else:
             pad_ch = np.zeros((nc - C, window, window), dtype='float32')
             patch = np.vstack([patch, pad_ch])
 
-        # verify patch dimensions
         if patch.shape[1:] != (window, window):
-            raise ValueError(f"Patch dimensions {patch.shape[1:]} do not match expected size ({window}, {window})")
+            raise ValueError(f"Patch dimensions {patch.shape[1:]} != ({window}, {window})")
 
-        # assign patch channels to grid tensor
         for ch in range(nc):
             batch_tensor[b, ch, :, :] = torch.from_numpy(patch[ch])
 
-        # assign label to label tensor
         label_patch_tensor = torch.from_numpy(label_patch)
-        clean_label_patch = torch.where((label_patch_tensor == 0) | (label_patch_tensor == 1),
-                                        label_patch_tensor.float(),
-                                        torch.zeros_like(label_patch_tensor.float()))
+        clean_label_patch = torch.where(
+            (label_patch_tensor == 0) | (label_patch_tensor == 1),
+            label_patch_tensor.float(),
+            torch.zeros_like(label_patch_tensor.float())
+        )
         labels[b] = clean_label_patch
 
-        # 'zero' out highways in the 'real' samples
         if b < BATCH_SIZE_real:
             batch_tensor[b, features.index('hwy'), :, :] = 0
 
@@ -588,6 +589,159 @@ def overlap_coefficient(probs_hwy1, probs_hwy0, n_bins=100):
     hist0, _ = np.histogram(probs_hwy0, bins=bins, density=True)
     overlap = np.minimum(hist1, hist0).sum() * (1 / n_bins)
     return overlap
+
+####################################################################################################
+### WINDOW SEARCH (run before full training) ###
+
+def evaluate_window_config(size_padding, size_potential,
+                            grid, hwys, features,
+                            city_rasters, GRIDID_TO_RC,
+                            sample_train_real, sample_train_random,
+                            n_epochs=5, n_iters=300,
+                            threshold=0.05,
+                            geo_features=['elevation', 'slope', 'dist_water',
+                                          'dist_to_hwy', 'distance_to_cbd',
+                                          'dist_to_rr', 'flood_risk']):
+    window = 2 * size_padding + size_potential
+    nc_local = len(features)
+
+    print(f"\n{'='*60}")
+    print(f"  size_padding={size_padding}, size_potential={size_potential}"
+          f", window={window}x{window} = {window*cell_width}m")
+    print(f"{'='*60}")
+
+    net_ws = Net()
+    net_ws.apply(weights_init)
+    if use_cuda and torch.cuda.is_available():
+        net_ws.cuda()
+    opt_ws = intitialize_optimizer(net_ws)
+    criterion_ws = torch.nn.BCEWithLogitsLoss()
+
+    bt = torch.zeros(BATCH_SIZE, nc_local, window, window)
+    lb = torch.empty(BATCH_SIZE, window, window, dtype=torch.int64)
+
+    net_ws.train()
+    for epoch in range(n_epochs):
+        for i in range(n_iters):
+            data = create_batch(
+                batch_tensor=bt,
+                labels=lb,
+                sample_ids_real=sample_train_real,
+                sample_ids_random=sample_train_random,
+                _size_padding=size_padding,
+                _size_potential=size_potential
+            )
+            inp, lbl = data
+            if use_cuda and torch.cuda.is_available():
+                inp = inp.cuda()
+                lbl = lbl.cuda()
+            opt_ws.zero_grad()
+            out = net_ws(inp).squeeze(1)
+            loss = criterion_ws(out, lbl.float())
+            loss.backward()
+            torch.nn.utils.clip_grad_norm_(net_ws.parameters(), max_norm=1.0)
+            opt_ws.step()
+
+    # evaluate_candidate_pool already merges geo features into prob_df
+    prob_df, n_cand, recall = evaluate_candidate_pool(
+        net_ws, city_rasters, GRIDID_TO_RC, grid, hwys,
+        features, size_padding, size_potential,
+        threshold=threshold
+    )
+
+    # no second merge needed — geo features already in prob_df
+    # just verify they're there
+    missing = [f for f in geo_features if f not in prob_df.columns]
+    if missing:
+        print(f"  Warning: missing geo features in prob_df: {missing}")
+        geo_features = [f for f in geo_features if f in prob_df.columns]
+
+    eps = 1e-6
+    prob_clipped = prob_df['prob'].clip(eps, 1 - eps)
+    prob_df['logit'] = np.log(prob_clipped / (1 - prob_clipped))
+
+    prob_bins = [0.0, 0.05, 0.10, 0.15, 0.20, 0.30, 1.0]
+    prob_df['prob_bin'] = pd.cut(prob_df['prob'], bins=prob_bins,
+                                  include_lowest=True)
+
+    smds = []
+    key_bins = prob_df['prob_bin'].cat.categories[1:4]
+
+    for bin_cat in key_bins:
+        bin_data = prob_df[prob_df['prob_bin'] == bin_cat]
+        hwy1 = bin_data[bin_data['hwy'] == 1]
+        hwy0 = bin_data[bin_data['hwy'] == 0]
+        if len(hwy1) < 2 or len(hwy0) < 2:
+            continue
+        for feat in geo_features:
+            v1 = hwy1[feat].dropna().values
+            v0 = hwy0[feat].dropna().values
+            if len(v1) < 2 or len(v0) < 2:
+                continue
+            if v1.std() == 0 or v0.std() == 0:
+                continue
+            pooled_std = np.sqrt((v1.std()**2 + v0.std()**2) / 2)
+            if pooled_std > 0:
+                smds.append(abs((v1.mean() - v0.mean()) / pooled_std))
+
+    mean_smd = np.mean(smds) if smds else np.nan
+    print(f"  Mean |SMD| in key bins: {mean_smd:.4f} | "
+          f"n_cand: {n_cand:,} | recall: {recall:.3f}")
+
+    return {
+        'size_padding'   : size_padding,
+        'size_potential' : size_potential,
+        'window'         : window,
+        'mean_smd'       : mean_smd,
+        'n_cand'         : n_cand,
+        'recall'         : recall,
+    }, net_ws
+
+if RUN_WINDOW_SEARCH:
+    import itertools
+
+    padding_options   = [6, 8, 10, 12]
+    potential_options = [2, 4, 6]
+
+    ws_results = []
+    best_smd   = np.inf
+    best_ws_config = {'size_padding': size_padding,
+                      'size_potential': size_potential}
+
+    for sp, sv in itertools.product(padding_options, potential_options):
+        result, _ = evaluate_window_config(
+            size_padding=sp, size_potential=sv,
+            grid=grid, hwys=hwys, features=features,
+            city_rasters=city_rasters, GRIDID_TO_RC=GRIDID_TO_RC,
+            sample_train_real=sample_train_real,
+            sample_train_random=sample_train_random,
+            n_epochs=5, n_iters=300
+        )
+        ws_results.append(result)
+
+        if result['mean_smd'] < best_smd and result['recall'] > 0.5:
+            best_smd = result['mean_smd']
+            best_ws_config = {
+                'size_padding'  : sp,
+                'size_potential': sv
+            }
+
+    ws_df = pd.DataFrame(ws_results).sort_values('mean_smd')
+    print("\n=== Window Search Results ===")
+    print(ws_df.to_string(index=False))
+    print(f"\nBest config: {best_ws_config} | mean_smd={best_smd:.4f}")
+
+    # update globals to use best config
+    size_padding   = best_ws_config['size_padding']
+    size_potential = best_ws_config['size_potential']
+
+    # rebuild batch tensors with new window size
+    window = 2 * size_padding + size_potential
+    batch_tensor = torch.zeros(BATCH_SIZE, nc, window, window)
+    labels = torch.empty(BATCH_SIZE, window, window, dtype=torch.int64)
+
+    print(f"\nProceeding to full training with "
+          f"size_padding={size_padding}, size_potential={size_potential}")
 
 ####################################################################################################
 ### TRAINING ###
