@@ -417,7 +417,7 @@ results = {gid: np.mean(scores) for gid, scores in grid_scores.items()}
 
 # save
 date = (datetime.now(timezone.utc) + timedelta(hours=-7)).strftime('%Y-%m-%d--%H-%M')
-filename_out = f'predicted_activation-{date}.csv'
+filename_out = f'predicted_activation-model2-{date}.csv'
 
 with open(dataroot + filename_out, 'w') as f:
     f.write('grid_id,prob_hwy\n')
@@ -431,12 +431,12 @@ csv_files = glob.glob(os.path.join(dataroot, '*.csv'))
 csv_files.sort(key=os.path.getmtime, reverse=True)
 
 # Keep only the most recent 3 files
-files_to_keep = csv_files[:3]
-files_to_delete = csv_files[3:]
+files_to_keep = csv_files[:5]
+files_to_delete = csv_files[5:]
 
 # Delete older files
 for file in files_to_delete:
     os.remove(file)
     print(f"Deleted: {file}")
 
-print(f"Kept the most recent 3 files: {files_to_keep}")
+print(f"Kept the most recent 5 files: {files_to_keep}")
