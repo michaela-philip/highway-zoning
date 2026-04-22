@@ -265,10 +265,353 @@ def plot_geographic_similarity_conditional(preds_csv, grid,
     return smd_df, smd_matrix
 
 
-# --- run it ---
+# # --- run it ---
 smd_df, smd_matrix = plot_geographic_similarity_conditional(
     dataroot + filename_out,
     grid,
     geo_features = ['elevation', 'dist_water', 'dist_to_hwy', 'distance_to_cbd', 'dist_to_rr', 'flood_risk'],
     prob_bins  = [0.0, 0.05, 0.10, 0.15, 0.20, 0.30, 1.0]
 )
+
+import numpy as np
+import pandas as pd
+import geopandas as gpd
+import matplotlib.pyplot as plt
+import matplotlib.colors as mcolors
+import matplotlib.patches as mpatches
+from matplotlib.colors import LinearSegmentedColormap
+from mpl_toolkits.axes_grid1 import make_axes_locatable
+import warnings
+warnings.filterwarnings('ignore')
+
+model1 = sorted(glob.glob(os.path.join(dataroot, 'predicted_activation-model1*.csv')), key=os.path.getmtime, reverse=True)[0]
+model2 = sorted(glob.glob(os.path.join(dataroot, 'predicted_activation-model2*.csv')), key=os.path.getmtime, reverse=True)[0]
+model3 = sorted(glob.glob(os.path.join(dataroot, 'predicted_activation-model3*.csv')), key=os.path.getmtime, reverse=True)[0]
+model4 = sorted(glob.glob(os.path.join(dataroot, 'predicted_activation-model4*.csv')), key=os.path.getmtime, reverse=True)[0]
+
+
+def plot_probability_heatmap(preds_csv, grid, 
+                              cities=None,
+                              prob_col='prob_hwy',
+                              figsize_per_city=(10, 8),
+                              cmap='YlOrRd',
+                              threshold=0.05,
+                              save_path='cnn/figures/probability_heatmap.png'):
+    # --- load and merge ---
+    preds = pd.read_csv(preds_csv)
+    preds['grid_id'] = preds['grid_id'].astype(str)
+
+    grid_plot = grid.copy()
+    grid_plot['grid_id'] = grid_plot['grid_id'].astype(str)
+    grid_plot = grid_plot.merge(
+        preds[['grid_id', prob_col]], on='grid_id', how='left'
+    )
+    grid_plot[prob_col] = grid_plot[prob_col].fillna(0)
+
+    if cities is None:
+        cities = sorted(grid_plot['city'].unique())
+    n_cities = len(cities)
+
+    fig, axes = plt.subplots(
+        n_cities, 1,
+        figsize=(figsize_per_city[0], figsize_per_city[1] * n_cities),
+        squeeze=False
+    )
+
+    # shared colormap and norm across all cities
+    vmin = 0.0
+    vmax = grid_plot[prob_col].quantile(0.99)  # clip top 1% for contrast
+
+    norm = mcolors.PowerNorm(gamma=0.4, vmin=vmin, vmax=vmax)
+
+    # custom colormap: white -> yellow -> orange -> red -> dark red
+    colors_list = ['#f7f7f7', '#fee08b', '#fc8d59', '#d73027', '#67001f']
+    cmap_custom = LinearSegmentedColormap.from_list(
+        'hwy_prob', colors_list, N=256
+    )
+
+    for row_idx, city in enumerate(cities):
+        ax = axes[row_idx, 0]
+        city_grid = grid_plot[grid_plot['city'] == city].copy()
+
+        # reproject to a sensible local CRS for plotting if needed
+        if city_grid.crs and city_grid.crs.is_geographic:
+            city_grid = city_grid.to_crs(epsg=3857)
+
+        # --- layer 1: all squares colored by probability ---
+        city_grid.plot(
+            column=prob_col,
+            ax=ax,
+            cmap=cmap_custom,
+            norm=norm,
+            linewidth=0,
+            alpha=0.85
+        )
+
+        # --- layer 2: outline candidate pool (prob >= threshold) ---
+        candidates = city_grid[
+            (city_grid[prob_col] >= threshold) & 
+            (city_grid['hwy'] == 0)
+        ]
+        if len(candidates) > 0:
+            candidates.plot(
+                ax=ax,
+                facecolor='none',
+                edgecolor='steelblue',
+                linewidth=0.8,
+                alpha=0.6
+            )
+
+        # --- layer 3: highway squares prominently marked ---
+        hwy_squares = city_grid[city_grid['hwy'] == 1]
+        if len(hwy_squares) > 0:
+            hwy_squares.plot(
+                ax=ax,
+                facecolor='cyan',
+                edgecolor='black',
+                linewidth=0.8,
+                alpha=0.95,
+                zorder=5
+            )
+
+        ax.set_title(
+            f'{city.title()} — CNN Geographic Suitability Probability \n',
+            fontsize=10
+        )
+        ax.set_axis_off()
+
+        # --- colorbar ---
+        divider = make_axes_locatable(ax)
+        cax = divider.append_axes('right', size='3%', pad=0.05)
+        sm = plt.cm.ScalarMappable(cmap=cmap_custom, norm=norm)
+        sm.set_array([])
+        cb = fig.colorbar(sm, cax=cax)
+        cb.set_label('P(highway | geography)', fontsize=9)
+
+        # annotate with summary stats
+        n_cand = len(candidates)
+        n_hwy  = len(hwy_squares)
+        mean_p_hwy  = city_grid.loc[city_grid['hwy']==1, prob_col].mean()
+        mean_p_cand = candidates[prob_col].mean() if len(candidates) > 0 \
+                      else float('nan')
+
+        textstr = (f'Highway squares: {n_hwy}\n'
+                   f'Candidate pool: {n_cand:,}\n'
+                   f'Mean P (hwy squares): {mean_p_hwy:.3f}\n'
+                   f'Mean P (candidates): {mean_p_cand:.3f}')
+        ax.text(0.02, 0.02, textstr,
+                transform=ax.transAxes,
+                fontsize=8, verticalalignment='bottom',
+                bbox=dict(boxstyle='round', facecolor='white',
+                          alpha=0.8, edgecolor='gray'))
+
+    plt.suptitle(
+        'Geographic Suitability for Highway Placement\n',
+        fontsize=13, y=1.01, fontweight='bold'
+    )
+    plt.tight_layout()
+    plt.savefig(save_path, dpi=150, bbox_inches='tight')
+    plt.show()
+    print(f'saved: {save_path}')
+
+    return grid_plot
+
+
+def plot_probability_heatmap_detailed(preds_csv, grid,
+                                       city,
+                                       prob_col='prob_hwy',
+                                       threshold=0.05,
+                                       n_quantile_panels=4,
+                                       save_path=None):
+    preds = pd.read_csv(preds_csv)
+    preds['grid_id'] = preds['grid_id'].astype(str)
+
+    grid_plot = grid[grid['city'] == city].copy()
+    grid_plot['grid_id'] = grid_plot['grid_id'].astype(str)
+    grid_plot = grid_plot.merge(
+        preds[['grid_id', prob_col]], on='grid_id', how='left'
+    )
+    grid_plot[prob_col] = grid_plot[prob_col].fillna(0)
+
+    if grid_plot.crs and grid_plot.crs.is_geographic:
+        grid_plot = grid_plot.to_crs(epsg=3857)
+
+    # quantile-based probability bins for discrete coloring
+    quantile_labels = [f'Q{i+1}' for i in range(n_quantile_panels)]
+    grid_plot['prob_bin'] = pd.qcut(
+        grid_plot[prob_col],
+        q=n_quantile_panels,
+        labels=quantile_labels,
+        duplicates='drop'
+    )
+
+    fig = plt.figure(figsize=(18, 12))
+
+    # --- main map: continuous probability ---
+    ax_main = fig.add_axes([0.0, 0.35, 0.55, 0.60])
+
+    colors_list = ['#f7f7f7', '#fee08b', '#fc8d59', '#d73027', '#67001f']
+    cmap_custom = LinearSegmentedColormap.from_list(
+        'hwy_prob', colors_list, N=256
+    )
+    vmax = grid_plot[prob_col].quantile(0.99)
+    norm = mcolors.PowerNorm(gamma=0.4, vmin=0, vmax=vmax)
+
+    grid_plot.plot(
+        column=prob_col, ax=ax_main,
+        cmap=cmap_custom, norm=norm,
+        linewidth=0, alpha=0.9
+    )
+
+    # candidate pool outline
+    candidates = grid_plot[
+        (grid_plot[prob_col] >= threshold) & (grid_plot['hwy'] == 0)
+    ]
+    if len(candidates) > 0:
+        candidates.plot(ax=ax_main, facecolor='none',
+                        edgecolor='dodgerblue', linewidth=0.5, alpha=0.7)
+
+    # highway squares
+    hwy_sq = grid_plot[grid_plot['hwy'] == 1]
+    hwy_sq.plot(ax=ax_main, facecolor='cyan', edgecolor='black',
+                linewidth=0.8, alpha=0.95, zorder=5)
+
+    ax_main.set_title(f'{city.title()} — Continuous Probability',
+                       fontsize=11)
+    ax_main.set_axis_off()
+
+    sm = plt.cm.ScalarMappable(cmap=cmap_custom, norm=norm)
+    sm.set_array([])
+    cb = fig.colorbar(sm, ax=ax_main, shrink=0.6,
+                       label='P(highway | geography)')
+
+    # --- zoom panel: highest probability area ---
+    ax_zoom = fig.add_axes([0.56, 0.35, 0.43, 0.60])
+
+    # find bounding box of top-decile probability squares
+    top_decile = grid_plot[
+        grid_plot[prob_col] >= grid_plot[prob_col].quantile(0.90)
+    ]
+    if len(top_decile) > 0:
+        minx, miny, maxx, maxy = top_decile.total_bounds
+        pad_x = (maxx - minx) * 0.15
+        pad_y = (maxy - miny) * 0.15
+
+        grid_plot.plot(
+            column=prob_col, ax=ax_zoom,
+            cmap=cmap_custom, norm=norm,
+            linewidth=0, alpha=0.9
+        )
+        if len(candidates) > 0:
+            candidates.plot(ax=ax_zoom, facecolor='none',
+                            edgecolor='dodgerblue',
+                            linewidth=0.8, alpha=0.8)
+        hwy_sq.plot(ax=ax_zoom, facecolor='cyan', edgecolor='black',
+                    linewidth=1.0, alpha=0.95, zorder=5)
+
+        ax_zoom.set_xlim(minx - pad_x, maxx + pad_x)
+        ax_zoom.set_ylim(miny - pad_y, maxy + pad_y)
+        ax_zoom.set_title('Zoom: Top 10% Probability Area', fontsize=11)
+        ax_zoom.set_axis_off()
+
+    # --- bottom: probability histogram by highway status ---
+    ax_hist = fig.add_axes([0.0, 0.05, 0.55, 0.25])
+
+    probs_hwy1 = grid_plot.loc[grid_plot['hwy'] == 1, prob_col]
+    probs_hwy0 = grid_plot.loc[grid_plot['hwy'] == 0, prob_col]
+
+    bins = np.linspace(0, grid_plot[prob_col].quantile(0.995), 50)
+    ax_hist.hist(probs_hwy0, bins=bins, density=True,
+                 alpha=0.5, color='steelblue', label='hwy=0')
+    ax_hist.hist(probs_hwy1, bins=bins, density=True,
+                 alpha=0.6, color='tomato', label='hwy=1')
+    ax_hist.axvline(threshold, color='black', linestyle='--',
+                    linewidth=1.2, label=f'threshold={threshold}')
+    ax_hist.set_xlabel('Predicted Probability')
+    ax_hist.set_ylabel('Density')
+    ax_hist.set_title('Probability Distribution by Highway Status')
+    ax_hist.legend(fontsize=9)
+
+    # --- bottom right: spatial autocorrelation of predictions ---
+    ax_scatter = fig.add_axes([0.60, 0.05, 0.38, 0.25])
+
+    # probability rank vs. distance to nearest highway square
+    if len(hwy_sq) > 0:
+        from scipy.spatial import cKDTree
+
+        hwy_centroids = np.column_stack([
+            hwy_sq.geometry.centroid.x.values,
+            hwy_sq.geometry.centroid.y.values
+        ])
+        all_centroids = np.column_stack([
+            grid_plot.geometry.centroid.x.values,
+            grid_plot.geometry.centroid.y.values
+        ])
+        tree = cKDTree(hwy_centroids)
+        dists, _ = tree.query(all_centroids, k=1)
+        grid_plot['dist_to_nearest_hwy'] = dists
+
+        sample = grid_plot[grid_plot['hwy'] == 0].sample(
+            min(2000, len(grid_plot[grid_plot['hwy'] == 0])),
+            random_state=42
+        )
+        ax_scatter.scatter(
+            sample['dist_to_nearest_hwy'] / 1000,
+            sample[prob_col],
+            alpha=0.15, s=3, color='steelblue'
+        )
+        # rolling mean
+        sorted_s = sample.sort_values('dist_to_nearest_hwy')
+        window = max(50, len(sorted_s) // 20)
+        rolling_mean = (sorted_s[prob_col]
+                        .rolling(window, center=True, min_periods=10)
+                        .mean())
+        ax_scatter.plot(
+            sorted_s['dist_to_nearest_hwy'].values / 1000,
+            rolling_mean.values,
+            color='tomato', linewidth=2, label='Rolling mean'
+        )
+        ax_scatter.set_xlabel('Distance to Nearest Highway Square (km)')
+        ax_scatter.set_ylabel('Predicted Probability')
+        ax_scatter.set_title('Probability vs. Distance to Real Highway\n'
+                              '(non-hwy squares only)')
+        ax_scatter.legend(fontsize=8)
+
+    plt.suptitle(
+        f'{city.title()} — Detailed CNN Probability Analysis',
+        fontsize=13, fontweight='bold', y=1.01
+    )
+
+    if save_path is None:
+        save_path = f'cnn/figures/probability_heatmap_{city}.png'
+    plt.savefig(save_path, dpi=150, bbox_inches='tight')
+    plt.show()
+    print(f'saved: {save_path}')
+
+    return grid_plot
+
+
+# --- run ---
+import os
+os.makedirs('cnn/figures', exist_ok=True)
+
+# all cities overview
+grid_with_probs = plot_probability_heatmap(
+    preds_csv  = dataroot + filename_out,
+    grid       = grid,
+    threshold  = 0.05,
+    save_path  = 'cnn/figures/probability_heatmap_model4.png'
+)
+
+# grid_with_probs = plot_probability_heatmap(preds_csv = model1, grid = grid, threshold = 0.05, save_path = 'cnn/figures/probability_heatmap_model1.png')
+# grid_with_probs = plot_probability_heatmap(preds_csv = model2, grid = grid, threshold = 0.05, save_path = 'cnn/figures/probability_heatmap_model2.png')
+# grid_with_probs = plot_probability_heatmap(preds_csv = model3, grid = grid, threshold = 0.05, save_path = 'cnn/figures/probability_heatmap_model3.png')
+
+# detailed view per city
+for city in grid['city'].unique():
+    plot_probability_heatmap_detailed(
+        preds_csv = model4,
+        grid      = grid,
+        city      = city,
+        threshold = 0.05
+    )
