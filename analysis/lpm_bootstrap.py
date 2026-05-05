@@ -79,12 +79,10 @@ def bootstrap_lpm(sample, x_vars, n_bootstraps=1000, seed = 42):
 
 # direct sample
 out_frames = []
-for city in df['city'].unique():
+for city in df_restricted['city'].unique():
     candidates = candidate_dict[city]
-    controls = df.loc[(df['city'] == city) & (df['grid_id'].isin(candidates))].copy()
-    # treated = df.loc[(df['city'] == city) & (df['hwy']==1) & (~df['grid_id'].isin(candidates))].copy()
+    controls = df_restricted.loc[(df_restricted['city'] == city) & (df_restricted['grid_id'].isin(candidates))].copy()
     out_frames.append(controls)
-    # out_frames.append(treated)
 dir_sample = pd.concat(out_frames, ignore_index=True)
 dir_beta, dir_boot_coefs, dir_se, dir_ci_lower, dir_ci_upper, y, X = bootstrap_lpm(dir_sample, x_vars)
 dir_results = bootstrap_results_to_namespace(dir_beta, dir_boot_coefs, y, X, col_names = columns)
@@ -92,12 +90,10 @@ dir_results = format_regression_results(dir_results)
 
 # indirect sample
 out_frames = []
-for city in df['city'].unique():
+for city in df_restricted['city'].unique():
     candidates = candidate_dict[city]
-    controls = df.loc[(df['city'] == city) & (~df['grid_id'].isin(candidates))].copy()
-    # treated = df.loc[(df['city'] == city) & (df['hwy']==1) & (~df['grid_id'].isin(candidates))].copy()
+    controls = df_restricted.loc[(df_restricted['city'] == city) & (~df_restricted['grid_id'].isin(candidates))].copy()
     out_frames.append(controls)
-    # out_frames.append(treated)
 ind_sample = pd.concat(out_frames, ignore_index=True)
 ind_beta, ind_boot_coefs, ind_se, ind_ci_lower, ind_ci_upper, y, X = bootstrap_lpm(ind_sample, x_vars)
 indir_results = bootstrap_results_to_namespace(ind_beta, ind_boot_coefs, y, X, col_names = columns)
@@ -111,10 +107,11 @@ logits_df = pd.read_csv(model4)
 logits_df['grid_id'] = logits_df['grid_id'].astype(str)
 df_restricted['grid_id'] = df_restricted['grid_id'].astype(str)
 df = df_restricted.merge(logits_df[['grid_id', 'prob_hwy']], on='grid_id', how='left')
-cutoff_prob = df.loc[df['prob_hwy'].notnull(), 'prob_hwy'].quantile(0.05) 
+cutoff_low = df.loc[df['prob_hwy'].notnull(), 'prob_hwy'].quantile(0.05) 
+cutoff_high = df.loc[df['prob_hwy'].notnull(), 'prob_hwy'].quantile(0.95)
 df['dm_prob'] = df.groupby('city')['prob_hwy'].transform(lambda x: (x - x.mean()) / x.std())
 # sample = df.loc[df['dm_prob'] > 0].copy()
-sample = df.loc[df['prob_hwy'] >= cutoff_prob].copy()
+sample = df.loc[(df['prob_hwy'] >= cutoff_low) & (df['prob_hwy']<= cutoff_high)].copy()
 
 ml_beta, ml_boot_coefs, ml_se, ml_ci_lower, ml_ci_upper, y, X = bootstrap_lpm(sample, x_vars)
 ml_results = bootstrap_results_to_namespace(ml_beta, ml_boot_coefs, y, X, col_names = columns)
