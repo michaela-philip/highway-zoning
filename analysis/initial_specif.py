@@ -5,47 +5,46 @@ import pandas as pd
 import statsmodels.api as sm
 import statsmodels.formula.api as smf
 import numpy as np
+import geopandas as gpd
 
 from helpers.latex_formatting import export_single_regression, export_multiple_regressions, format_regression_results
 
 df = pd.read_pickle('data/output/sample.pkl')
-df['rent'] = df['rent'].replace(0, np.nan)
-df['valueh'] = df['valueh'].replace(0, np.nan)
-df = df.dropna(subset = ['rent', 'valueh']).copy()
+df['rent'] = df['rent'].replace(0, 0.00001)
+df['valueh'] = df['valueh'].replace(0, 0.00001)
 
-# construct samples
-from data_code.candidates import candidate_dict
-out_frames = []
-for city in df['city'].unique():
-    candidates = candidate_dict[city]
-    controls = df.loc[(df['city'] == city) & (df['grid_id'].isin(candidates))].copy()
-    treated = df.loc[(df['city'] == city) & (df['hwy']==1) & (~df['grid_id'].isin(candidates))].copy()
-    out_frames.append(controls)
-    out_frames.append(treated)
-sample = pd.concat(out_frames, ignore_index=True)
+# prepare variables
+df['log_valueh'] = np.log(df['valueh']) * df['valueh_avail']
+df['log_rent'] = np.log(df['rent']) * df['rent_avail']
+df['city_louisville'] = (df['city'] == 'louisville').astype(int)
+df['city_littlerock'] = (df['city'] == 'littlerock').astype(int)
+df['distance_to_cbd_sq'] = df['distance_to_cbd'] ** 2
+df['log_dist_to_rr'] = np.log(df['dist_to_rr'])
+df['log_dist_to_rr_sq'] = df['log_dist_to_rr'] ** 2
+df['log_dist_to_hwy'] = np.log(df['dist_to_hwy'])
+df['ResidentialxBlack'] = df['Residential'] * df['mblack_1945def']
 
-out_frames = []
-for city in df['city'].unique():
-    candidates = candidate_dict[city]
-    controls = df.loc[(df['city'] == city) & (~df['grid_id'].isin(candidates))].copy()
-    out_frames.append(controls)
-inv_sample = pd.concat(out_frames, ignore_index=True)
+# identify squares adjacent to existing highways
+hwy_40_squares = df[df['hwy_40'] == 1][['grid_id', 'geometry']].copy()
+all_squares = df[['grid_id', 'geometry']].copy()
+touches_result = gpd.sjoin(
+    all_squares,
+    hwy_40_squares[['geometry']],
+    how='left',
+    predicate='touches'
+)
 
-# run and export regressions
-model_1945def = 'hwy ~ mblack_1945def + Residential + (mblack_1945def * Residential) + np.log(rent) + np.log(valueh) + dist_water + owner + C(city)'
-results_wholesample = format_regression_results(smf.ols(model_1945def, data=df).fit(cov_type='cluster', cov_kwds={'groups': df['city']}))
+# squares that got a match are adjacent to the 1940 network
+adjacent_ids = set(
+    touches_result[touches_result['index_right'].notna()]['grid_id']
+)
 
-model_1945def = 'hwy ~ (mblack_1945def * Residential) + np.log(rent) + np.log(valueh) + dist_water + owner + C(city)'
-results_inv = format_regression_results(smf.ols(model_1945def, data=inv_sample).fit(cov_type='cluster', cov_kwds={'groups': inv_sample['city']}))
+df_restricted = df[~df['grid_id'].isin(adjacent_ids)].copy()
+df_restricted = df[df['hwy_40'] == 0].copy() # drop any remaining 1940 highways that are not adjacent to others
 
-model_1945def = 'hwy ~ (mblack_1945def * Residential) + np.log(rent) + np.log(valueh) + dist_water + owner + C(city)'
-results_effic = format_regression_results(smf.ols(model_1945def, data=sample).fit(cov_type='cluster', cov_kwds={'groups': sample['city']}))
+x_vars = ['Residential', 'mblack_1945def', 'ResidentialxBlack', 'log_valueh', 'log_rent', 'log_dist_to_rr', 'log_dist_to_rr_sq', 'log_dist_to_hwy', 'distance_to_cbd', 'distance_to_cbd_sq', 'flood_risk', 'dist_water', 'slope', 'dm_elevation', 'owner', 'numprec', 'city_louisville', 'city_littlerock'] 
+columns = ['Intercept', 'Residential', 'Black', 'Residential x Black', 'Log(Value)', 'Log(Rent)', 'dist(RR)', 'dist(RR^2)', 'ldist(Hwy)', 'dist(CBD)', 'dist(CBD^2)', 'Flood Risk', 'dist(Water)', 'Slope', 'Elevation', 'Owner', 'Number of Residents'] + [f'City_{c}' for c in df['city'].unique()[1:]]
 
-# wholesample regression in its own table
-export_single_regression(results_wholesample, caption = 'Determinants of Highway Placement - Whole Sample', label = 'tab:wholesample_results', widthmultiplier=0.7, leaveout = ['dist_water', 'owner'])
-
-# other results together
-export_multiple_regressions({"`Efficient' Sample": results_effic, "`Inefficient' Sample": results_inv},
-                            caption = "Determinants of Highway Placement - `Efficiency' Restricted Samples",
-                            label = 'tab:effic_results',
-                            leaveout = ['dist_water', 'owner'])
+# run and export regression
+results_wholesample = format_regression_results(sm.OLS(df_restricted['hwy'], sm.add_constant(df_restricted[x_vars])).fit(cov_type='cluster', cov_kwds={'groups': df_restricted['city']}))
+export_single_regression(results_wholesample, caption = 'Determinants of Highway Placement - Full Sample', label = 'tab:wholesample_results', widthmultiplier=0.7, leaveout = ['log_valueh', 'log_rent', 'log_dist_to_rr', 'log_dist_to_rr_sq', 'log_dist_to_hwy', 'distance_to_cbd', 'distance_to_cbd_sq', 'flood_risk', 'dist_water', 'slope', 'dm_elevation', 'owner', 'numprec', 'city_louisville', 'city_littlerock'])
