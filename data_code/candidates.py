@@ -124,3 +124,4 @@ candidate_list = [item for sublist in candidate_dict.values() for item in sublis
 candidates = data.loc[data['grid_id'].isin(candidate_list)].copy()
 hwys = data['hwy'].sum()
 print(f'{candidates['hwy'].sum()} out of {hwys} highways are in candidate list ({100 * candidates['hwy'].sum() / hwys:.2f}%)')
+print(f'{len(candidate_list)} candidate squares out of {len(data)} total squares ({100 * len(candidate_list) / len(data):.2f}%)')
