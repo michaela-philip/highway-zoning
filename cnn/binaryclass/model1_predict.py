@@ -30,8 +30,8 @@ sample = pd.read_pickle('data/input/samplelist.pkl')
 candidate_list = pd.read_pickle('data/output/cnn_candidate_list.pkl')
 grid = pd.read_pickle('data/output/sample.pkl')
 hwys = grid[grid['hwy'] == 1]['grid_id'].unique().tolist()
-features = ['distance_to_cbd', 'dist_water', 'dist_to_hwy', 'dist_to_rr', 'flood_risk', 'elevation', 'slope', 'hwy']
-normalize_features = ['distance_to_cbd', 'dist_water', 'dist_to_hwy', 'dist_to_rr', 'elevation','slope'] # the only features i want to demean
+features = ['distance_to_cbd', 'dist_water', 'dist_to_rr', 'flood_risk', 'elevation', 'slope', 'hwy']
+normalize_features = ['distance_to_cbd', 'dist_water', 'dist_to_rr', 'elevation', 'slope'] # the only features i want to demean
 
 cell_width = 150  # cell width in meters (convert from miles)
 size_potential = 2  # potential locations: num_width_potential x num_width_potential
@@ -424,13 +424,13 @@ with open(dataroot + filename_out, 'w') as f:
     for gid, prob in results.items():
         f.write(f'{gid},{prob:.6f}\n')
 
-# cleanup function - only keep the 3 most recent csvs
+# cleanup function - only keep the 5 most recent csvs
 csv_files = glob.glob(os.path.join(dataroot, '*.csv'))
 
 # Sort files by modification time (most recent first)
 csv_files.sort(key=os.path.getmtime, reverse=True)
 
-# Keep only the most recent 3 files
+# Keep only the most recent 5 files
 files_to_keep = csv_files[:5]
 files_to_delete = csv_files[5:]
 
