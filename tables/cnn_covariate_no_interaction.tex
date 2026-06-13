@@ -1,0 +1,26 @@
+\begin{table}[h]
+\centering
+\caption{Determinants of Highway Placement - Conditional on CNN (No Interactions)}
+\label{tab:cnn_covariate_no_interaction}
+\begin{tabular*}{\textwidth}{@{\extracolsep{\fill}}l*{3}{r}}
+\toprule
+ & Whole Sample & Direct Sample & Indirect Sample \\
+\midrule
+Residential & \makecell[tr]{0.005 \\ (0.007)} & \makecell[tr]{0.017^{***} \\ (0.005)} & \makecell[tr]{-0.016 \\ (0.009)} \\
+Black & \makecell[tr]{0.001 \\ (0.014)} & \makecell[tr]{0.017^{*} \\ (0.007)} & \makecell[tr]{-0.035^{***} \\ (0.009)} \\
+ResidentialxBlack & \makecell[tr]{-0.010 \\ (0.011)} & nan & nan \\
+prob_hwy & \makecell[tr]{1.819^{**} \\ (0.573)} & nan & nan \\
+R-squared & 0.232 & 0.331 & 0.128 \\
+Observations & 6506 & 3851 & 2655 \\
+Residential x Black & nan & \makecell[tr]{-0.026^{**} \\ (0.009)} & \makecell[tr]{0.025^{*} \\ (0.010)} \\
+Probability of Highway (CNN) & nan & \makecell[tr]{2.486^{***} \\ (0.165)} & \makecell[tr]{1.028^{***} \\ (0.216)} \\
+Log(Value) & nan & \makecell[tr]{0.002^{*} \\ (0.001)} & \makecell[tr]{0.002 \\ (0.001)} \\
+Log(Rent) & nan & \makecell[tr]{0.002 \\ (0.002)} & \makecell[tr]{-0.000 \\ (0.001)} \\
+Log(Distance to Highway) & nan & \makecell[tr]{-0.008^{**} \\ (0.002)} & \makecell[tr]{-0.008^{**} \\ (0.003)} \\
+Owner & nan & \makecell[tr]{-0.011 \\ (0.011)} & \makecell[tr]{-0.023^{**} \\ (0.009)} \\
+Number of Residents & nan & \makecell[tr]{-0.000^{*} \\ (0.000)} & \makecell[tr]{-0.000 \\ (0.000)} \\
+City_Louisville & nan & \makecell[tr]{0.010^{*} \\ (0.004)} & \makecell[tr]{0.001 \\ (0.004)} \\
+City_LittleRock & nan & \makecell[tr]{0.019^{**} \\ (0.006)} & \makecell[tr]{-0.022^{**} \\ (0.007)} \\
+\bottomrule
+\end{tabular*}
+\end{table}
