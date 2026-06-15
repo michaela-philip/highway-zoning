@@ -1,0 +1,20 @@
+\begin{table}[h]
+\centering
+\caption{Whole Sample - Conditional on CNN}
+\label{tab:cnn_covariate_wholesample}
+\begin{tabular*}{\textwidth}{@{\extracolsep{\fill}}l*{2}{r}}
+\toprule
+ & Whole Sample - No Interaction & Whole Sample - Interaction \\
+\midrule
+Residential & \makecell[tr]{0.005 \\ (0.007)} & \makecell[tr]{0.037^{*} \\ (0.015)} \\
+Black & \makecell[tr]{0.001 \\ (0.014)} & \makecell[tr]{0.002 \\ (0.025)} \\
+ResidentialxBlack & \makecell[tr]{-0.010 \\ (0.011)} & \makecell[tr]{-0.031 \\ (0.046)} \\
+prob_hwy & \makecell[tr]{1.819^{**} \\ (0.573)} & \makecell[tr]{2.338^{***} \\ (0.500)} \\
+R-squared & 0.232 & 0.244 \\
+Observations & 6506 & 6506 \\
+BlackxProbHwy & nan & \makecell[tr]{-0.038 \\ (0.925)} \\
+ResidentialxProbHwy & nan & \makecell[tr]{-0.882 \\ (0.647)} \\
+ResidentialxBlackxProbHwy & nan & \makecell[tr]{0.603 \\ (1.436)} \\
+\bottomrule
+\end{tabular*}
+\end{table}

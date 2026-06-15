@@ -1,0 +1,27 @@
+\begin{table}[h]
+\centering
+\caption{Indirect vs Direct - Conditional on CNN}
+\label{tab:cnn_covariate_direct_indirect}
+\begin{tabular*}{\textwidth}{@{\extracolsep{\fill}}l*{4}{r}}
+\toprule
+ & Direct Sample - No Interaction & Direct Sample - Interaction & Indirect Sample - No Interaction & Indirect Sample - Interaction \\
+\midrule
+Residential & \makecell[tr]{0.017^{***} \\ (0.005)} & \makecell[tr]{0.012 \\ (0.010)} & \makecell[tr]{-0.016 \\ (0.009)} & \makecell[tr]{0.051^{***} \\ (0.014)} \\
+Black & \makecell[tr]{0.017^{*} \\ (0.007)} & \makecell[tr]{-0.023 \\ (0.016)} & \makecell[tr]{-0.035^{***} \\ (0.009)} & \makecell[tr]{0.061^{***} \\ (0.013)} \\
+Residential x Black & \makecell[tr]{-0.026^{**} \\ (0.009)} & \makecell[tr]{0.006 \\ (0.025)} & \makecell[tr]{0.025^{*} \\ (0.010)} & \makecell[tr]{-0.082^{**} \\ (0.027)} \\
+Probability of Highway (CNN) & \makecell[tr]{2.486^{***} \\ (0.165)} & \makecell[tr]{2.283^{***} \\ (0.271)} & \makecell[tr]{1.028^{***} \\ (0.216)} & \makecell[tr]{2.501^{***} \\ (0.464)} \\
+Log(Value) & \makecell[tr]{0.002^{*} \\ (0.001)} & \makecell[tr]{0.002^{*} \\ (0.001)} & \makecell[tr]{0.002 \\ (0.001)} & \makecell[tr]{0.001 \\ (0.001)} \\
+Log(Rent) & \makecell[tr]{0.002 \\ (0.002)} & \makecell[tr]{0.002 \\ (0.002)} & \makecell[tr]{-0.000 \\ (0.001)} & \makecell[tr]{-0.000 \\ (0.001)} \\
+Log(Distance to Highway) & \makecell[tr]{-0.008^{**} \\ (0.002)} & \makecell[tr]{-0.007^{**} \\ (0.002)} & \makecell[tr]{-0.008^{**} \\ (0.003)} & \makecell[tr]{-0.005^{*} \\ (0.002)} \\
+Owner & \makecell[tr]{-0.011 \\ (0.011)} & \makecell[tr]{-0.013 \\ (0.011)} & \makecell[tr]{-0.023^{**} \\ (0.009)} & \makecell[tr]{-0.021^{*} \\ (0.008)} \\
+Number of Residents & \makecell[tr]{-0.000^{*} \\ (0.000)} & \makecell[tr]{-0.000^{*} \\ (0.000)} & \makecell[tr]{-0.000 \\ (0.000)} & \makecell[tr]{-0.000 \\ (0.000)} \\
+City_Louisville & \makecell[tr]{0.010^{*} \\ (0.004)} & \makecell[tr]{0.011^{**} \\ (0.004)} & \makecell[tr]{0.001 \\ (0.004)} & \makecell[tr]{0.001 \\ (0.004)} \\
+City_LittleRock & \makecell[tr]{0.019^{**} \\ (0.006)} & \makecell[tr]{0.017^{**} \\ (0.006)} & \makecell[tr]{-0.022^{**} \\ (0.007)} & \makecell[tr]{-0.026^{***} \\ (0.007)} \\
+R-squared & 0.331 & 0.336 & 0.128 & 0.183 \\
+Observations & 3851 & 3851 & 2655 & 2655 \\
+Black x Probability of Highway & nan & \makecell[tr]{1.091 \\ (0.576)} & nan & \makecell[tr]{-2.405^{***} \\ (0.461)} \\
+Residential x Probability of Highway & nan & \makecell[tr]{0.127 \\ (0.375)} & nan & \makecell[tr]{-1.771^{***} \\ (0.503)} \\
+Residential x Black x Probability of Highway & nan & \makecell[tr]{-0.853 \\ (0.910)} & nan & \makecell[tr]{2.733^{**} \\ (0.865)} \\
+\bottomrule
+\end{tabular*}
+\end{table}
