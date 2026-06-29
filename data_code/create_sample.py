@@ -11,12 +11,14 @@ from rasterstats import zonal_stats
 
 ####################################################################################################
 ### SECTION TO BE EDITED UPON ADDITION OF NEW CITIES ###
-atlanta_zoning = gpd.read_file('data/input/zoning_shapefiles/atlanta/zoning.shp')
+atlanta_zoning1 = gpd.read_file('data/input/zoning_shapefiles/atlanta/zoning.shp')
+atlanta_zoning2 = gpd.read_file('data/input/zoning_shapefiles/atlanta/zoning-1954.shp')
 louisville_zoning1 = gpd.read_file('data/input/zoning_shapefiles/louisville/zoning-1947.shp')
 louisville_zoning2 = gpd.read_file('data/input/zoning_shapefiles/louisville/zoning-1931.shp')
 littlerock = gpd.read_file('data/input/zoning_shapefiles/littlerock/zoning-1937.shp')
 zoning = {
-    'atlanta': atlanta_zoning,
+    'atlanta_1929': atlanta_zoning1,
+    'atlanta_1954': atlanta_zoning2,
     'louisville_1947': louisville_zoning1,
     'louisville_1931': louisville_zoning2,
     'littlerock': littlerock
@@ -471,6 +473,10 @@ def create_sample(df, sample):
             city_zoning1 = zoning['louisville_1947']
             city_zoning2 = zoning['louisville_1931']
             city_grid = create_grid(city_zoning1, centroids, city_geology, city_df, state59, state40, us59, us40, interstate, gridsize = 150, city_sample = city_sample, zoning2 = city_zoning2, grid_0 = grid_0)
+        elif city == 'atlanta':
+            city_zoning1 = zoning['atlanta_1929']
+            city_zoning2 = zoning['atlanta_1954']
+            city_grid = create_grid(city_zoning1, centroids, city_geology, city_df, state59, state40, us59, us40, interstate, gridsize = 150, city_sample = city_sample, zoning2 = city_zoning2, grid_0 = grid_0)   
         else:
             city_zoning = zoning[city]
             city_grid = create_grid(city_zoning, centroids, city_geology, city_df, state59, state40, us59, us40, interstate, city_sample = city_sample, gridsize = 150, grid_0 = grid_0)
