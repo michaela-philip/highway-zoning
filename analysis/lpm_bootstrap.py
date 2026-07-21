@@ -7,13 +7,15 @@ import pandas as pd
 from helpers.latex_formatting import export_multiple_regressions
 from analysis.lib.data import load_sample, restrict_to_discretionary, merge_cnn_probs, split_by_candidates
 from analysis.lib.bootstrap import bootstrap_lpm_table
-from analysis.lib.specs import CORE_VARS, HOUSING_VARS, GEO_CONTROLS, HH_CONTROLS, build_spec, leaveout_except
+from analysis.lib.specs import (
+    CORE_VARS, HOUSING_VARS, GEO_CONTROLS, LOG_DIST_HWY, HH_CONTROLS, build_spec, leaveout_except,
+)
 from data_code.candidates import candidate_dict
 
 df = load_sample()
 df_restricted = restrict_to_discretionary(df)
 
-x_vars, columns = build_spec(df_restricted, CORE_VARS, HOUSING_VARS, GEO_CONTROLS, HH_CONTROLS)
+x_vars, columns = build_spec(df_restricted, CORE_VARS, HOUSING_VARS, GEO_CONTROLS, LOG_DIST_HWY, HH_CONTROLS)
 leaveout = leaveout_except(columns, keep=[label for _, label in CORE_VARS])
 
 # direct vs. indirect samples (ML/manual candidate squares vs. the rest)
