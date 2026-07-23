@@ -44,6 +44,11 @@ CNN_INTERACTIONS = [
     ('ResidentialxBlackxProbHwy', 'Residential x Black x Probability of Highway'),
 ]
 
+DEM_ACCESS = [
+    ('dem_access_norm', 'Demographic Access (Normalized)'),
+    ('ResidentialxAccess', 'Residential x Demographic Access'),
+]
+
 CITY_LABELS = {'louisville': 'City_Louisville', 'littlerock': 'City_LittleRock'}
 
 
