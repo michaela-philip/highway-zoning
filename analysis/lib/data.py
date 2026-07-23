@@ -4,6 +4,7 @@ import os
 import geopandas as gpd
 import numpy as np
 import pandas as pd
+from scipy.spatial.distance import cdist
 
 
 def load_sample(path='data/output/sample.pkl'):
@@ -83,3 +84,27 @@ def split_by_candidates(df, candidate_dict):
     direct = pd.concat(direct_frames, ignore_index=True)
     indirect = pd.concat(indirect_frames, ignore_index=True)
     return direct, indirect
+
+def compute_demographic_access(grid, demographic_var, decay_m, max_dist_m = 5000):
+    centroids = grid.geometry.centroid
+    coords = np.column_stack([centroids.x.values, centroids.y.values])
+
+    dists = cdist(coords, coords, metric = 'euclidean')
+
+    # compute distance decay weights
+    weights = np.exp(-dists / decay_m)
+    weights[dists>max_dist_m] = 0
+    np.fill_diagonal(weights, 0)
+
+    demo_vals = grid[demographic_var].fillna(0).values
+
+    # weighted sum and normalized 
+    access = weights @ demo_vals
+    weight_sums = weights.sum(axis=1)
+    dem_access_norm = np.where(weight_sums > 0, access / weight_sums, 0)
+
+    grid = grid.copy()
+    grid['dem_access_norm'] = dem_access_norm
+    grid['dem_access_raw'] = access
+    grid['ResidentialxAccess'] = grid['Residential'] * grid['dem_access_norm']
+    return grid
