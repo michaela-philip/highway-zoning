@@ -8,7 +8,7 @@ from analysis.lib.data import (
 )
 from analysis.lib.bootstrap import bootstrap_lpm_table
 from analysis.lib.specs import (
-    CORE_VARS, HOUSING_VARS, HH_CONTROLS, CNN_PROB, CNN_INTERACTIONS, LOG_DIST_HWY,
+    CORE_VARS, HOUSING_VARS, HH_CONTROLS, CNN_PROB, CNN_INTERACTIONS, LOG_DIST_HWY, GEO_CONTROLS,
     build_spec, fit_ols,
 )
 from analysis.lib.marginal_effects import marginal_effects_table
@@ -20,12 +20,12 @@ df_restricted = merge_cnn_probs(df_restricted, 'predicted_activation-model1*.csv
 df_restricted = add_cnn_interactions(df_restricted)
 
 # whole sample - no interaction with prob_hwy
-x_vars_no_int, columns_no_int = build_spec(df_restricted, CORE_VARS, CNN_PROB, HOUSING_VARS, LOG_DIST_HWY, HH_CONTROLS)
+x_vars_no_int, columns_no_int = build_spec(df_restricted, CORE_VARS, CNN_PROB, HOUSING_VARS, LOG_DIST_HWY, HH_CONTROLS, GEO_CONTROLS)
 results_wholesample = format_regression_results(fit_ols(df_restricted, x_vars_no_int, columns_no_int))
 print('wholesample without interactions:', results_wholesample)
 
 # whole sample - interaction with prob_hwy
-x_vars, columns = build_spec(df_restricted, CORE_VARS, CNN_PROB, CNN_INTERACTIONS, HOUSING_VARS, LOG_DIST_HWY, HH_CONTROLS)
+x_vars, columns = build_spec(df_restricted, CORE_VARS, CNN_PROB, CNN_INTERACTIONS, HOUSING_VARS, LOG_DIST_HWY, HH_CONTROLS, GEO_CONTROLS)
 results_wholesample_interaction = format_regression_results(fit_ols(df_restricted, x_vars, columns))
 print('wholesample with interactions:', results_wholesample_interaction)
 
