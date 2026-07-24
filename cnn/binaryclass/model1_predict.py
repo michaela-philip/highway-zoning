@@ -381,7 +381,7 @@ with torch.no_grad():
             inputs = inputs.cuda()
 
         outputs = net(inputs)  # (actual_bs, 1, H, W)
-        probs = torch.sigmoid(outputs).squeeze(1).cpu().numpy()  # (actual_bs, H, W)
+        logits = outputs.squeeze(1).cpu().numpy()  # (actual_bs, H, W)
 
         window = 2 * size_padding + size_potential
 
@@ -401,28 +401,32 @@ with torch.no_grad():
             # flatten and look up grid_ids
             raster_rows_flat = raster_rows.ravel()
             raster_cols_flat = raster_cols.ravel()
-            probs_flat = probs[b].ravel()  # (window*window,)
+            logits_flat = logits[b].ravel()  # (window*window,)
 
             for idx in range(len(raster_rows_flat)):
                 lookup = (city, int(raster_rows_flat[idx]), int(raster_cols_flat[idx]))
                 if lookup in RC_TO_GRIDID:
                     gid = RC_TO_GRIDID[lookup]
-                    grid_scores[gid].append(float(probs_flat[idx]))
+                    grid_scores[gid].append(float(logits_flat[idx]))
 
         if batch_start % (BATCH_SIZE * 100) == 0:
             print(f"{batch_start}/{len(all_ids)}")
 
-# average scores across all patches a cell appeared in
-results = {gid: np.mean(scores) for gid, scores in grid_scores.items()}
+# average logits across all patches a cell appeared in, then convert to a probability
+results = {}
+for gid, scores in grid_scores.items():
+    logit = np.mean(scores)
+    prob = 1 / (1 + np.exp(-logit))
+    results[gid] = (logit, prob)
 
 # save
 date = (datetime.now(timezone.utc) + timedelta(hours=-7)).strftime('%Y-%m-%d--%H-%M')
 filename_out = f'predicted_activation-model1-{date}.csv'
 
 with open(dataroot + filename_out, 'w') as f:
-    f.write('grid_id,prob_hwy\n')
-    for gid, prob in results.items():
-        f.write(f'{gid},{prob:.6f}\n')
+    f.write('grid_id,logit_hwy,prob_hwy\n')
+    for gid, (logit, prob) in results.items():
+        f.write(f'{gid},{logit:.6f},{prob:.6f}\n')
 
 # cleanup function - only keep the 5 most recent csvs
 csv_files = glob.glob(os.path.join(dataroot, '*.csv'))
