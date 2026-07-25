@@ -22,6 +22,8 @@ def load_sample(path='data/output/sample.pkl'):
     df['log_dist_to_rr_sq'] = df['log_dist_to_rr'] ** 2
     df['log_dist_to_hwy'] = np.log(df['dist_to_hwy'])
     df['ResidentialxBlack'] = df['Residential'] * df['mblack_1945def']
+    df['ResidentialxPctBlack'] = df['Residential'] * df['pct_black']
+    df['ResidentialxShareBlack'] = df['Residential'] * df['share_black']
     return df
 
 
@@ -56,7 +58,7 @@ def merge_cnn_probs(df, model_pattern, dataroot='cnn/'):
     orig_dtype = df['grid_id'].dtype
     df = df.copy()
     df['grid_id'] = df['grid_id'].astype(str)
-    df = df.merge(logits_df[['grid_id', 'prob_hwy']], on='grid_id', how='left')
+    df = df.merge(logits_df[['grid_id', 'logit_hwy', 'prob_hwy']], on='grid_id', how='left')
     df['grid_id'] = df['grid_id'].astype(orig_dtype)
     return df
 
@@ -68,6 +70,9 @@ def add_cnn_interactions(df):
     df['BlackxProbHwy'] = df['mblack_1945def'] * df['prob_hwy']
     df['ResidentialxProbHwy'] = df['Residential'] * df['prob_hwy']
     df['ResidentialxBlackxProbHwy'] = df['Residential'] * df['mblack_1945def'] * df['prob_hwy']
+    df['BlackxLogHwy'] = df['mblack_1945def'] * df['logit_hwy']
+    df['ResidentialxLogHwy'] = df['Residential'] * df['logit_hwy']
+    df['ResidentialxBlackxLogHwy'] = df['Residential'] * df['mblack_1945def'] * df['logit_hwy']
     return df
 
 
