@@ -9,6 +9,18 @@ CORE_VARS = [
     ('ResidentialxBlack', 'Residential x Black'),
 ]
 
+PCT_BLACK = [
+    ('pct_black', 'Percent Black'),
+    ('Residential', 'Residential'),
+    ('ResidentialxPctBlack', 'Residential x Percent Black')
+]
+
+SHARE_BLACK = [
+    ('share_black', 'Share Black'),
+    ('Residential', 'Residential'),
+    ('ResidentialxShareBlack', 'Residential x Share Black')
+]
+
 HOUSING_VARS = [
     ('log_valueh', 'Log(Value)'),
     ('log_rent', 'Log(Rent)'),
@@ -22,7 +34,7 @@ GEO_CONTROLS = [
     ('flood_risk', 'Flood Risk'),
     ('dist_water', 'dist(Water)'),
     ('slope', 'Slope'),
-    ('dm_elevation', 'Elevation'),
+    ('dm_elevation', 'Elevation')
 ]
 
 HH_CONTROLS = [
@@ -35,17 +47,32 @@ LOG_DIST_HWY = [
 ]
 
 CNN_PROB = [
-    ('prob_hwy', 'Probability of Highway (CNN)'),
+    ('prob_hwy', 'Probability of Highway (CNN)')
 ]
 
-CNN_INTERACTIONS = [
+CNN_LOGIT = [
+    ('logit_hwy', 'CNN Logit')
+]
+
+LOG_CNN = [
+    ('log_prob', 'Log Probability of Highway (CNN)')
+]
+
+PROB_INTERACTIONS = [
     ('BlackxProbHwy', 'Black x Probability of Highway'),
     ('ResidentialxProbHwy', 'Residential x Probability of Highway'),
     ('ResidentialxBlackxProbHwy', 'Residential x Black x Probability of Highway'),
 ]
 
+LOGIT_INTERACTIONS = [
+    ('BlackxLogHwy', 'Black x CNN Logit'),
+    ('ResidentialxLogHwy', 'Residential x CNN Logit'),
+    ('ResidentialxBlackxLogHwy', 'Residential x Black x CNN Logit'),
+]
+
 DEM_ACCESS = [
     ('dem_access_norm', 'Demographic Access (Normalized)'),
+    ('Residential', 'Residential'),
     ('ResidentialxAccess', 'Residential x Demographic Access'),
 ]
 
