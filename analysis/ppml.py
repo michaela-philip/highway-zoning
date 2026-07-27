@@ -6,12 +6,12 @@ from helpers.latex_formatting import export_single_regression
 from analysis.lib.data import (
     load_sample, restrict_to_discretionary, merge_cnn_probs, add_cnn_interactions, split_by_candidates, compute_demographic_access
 )
-from analysis.lib.bootstrap import bootstrap_ppml, bootstrap_ppml_table
+from analysis.lib.bootstrap import bootstrap_ppml_table
 from analysis.lib.specs import (
     CORE_VARS, HOUSING_VARS, HH_CONTROLS, CNN_PROB, PROB_INTERACTIONS, LOGIT_INTERACTIONS, LOG_DIST_HWY, GEO_CONTROLS, DEM_ACCESS, PCT_BLACK, SHARE_BLACK, CNN_LOGIT,
     build_spec, leaveout_except,
 )
-from analysis.lib.marginal_effects import (marginal_effects_table, ppml_marginal_effects)
+from analysis.lib.marginal_effects import marginal_effects_table
 from data_code.candidates import candidate_dict
 
 df = load_sample()
@@ -42,21 +42,13 @@ export_single_regression(
 # ind_results, ind_beta, ind_se, ind_boot_coefs = bootstrap_ppml_table(ind_sample, x_vars, columns, n_bootstraps=500, seed=42)
 
 
-# marginal effects (delta method) need the analytic GLM fit object, which only the
-# lower-level bootstrap_ppml returns (bootstrap_ppml_table only returns the table/beta/se/
-# boot_coefs needed for export):
-# beta, boot_coefs, se, ci_lower, ci_upper, y, X, full_model = bootstrap_ppml(df, x_vars, n_bootstraps=500, seed=42)
-# logit_percentiles = df['logit_hwy'].quantile(
-#     [0.10, 0.25, 0.50, 0.75, 0.90]
-# ).tolist()
-
-# results = ppml_marginal_effects(
-#     fitted_model      = full_model,
-#     df                = df,
-#     x_vars            = x_vars,
-#     columns = columns,
-#     eval_at           = 'mean',
-#     logit_var         = 'logit_hwy',
-#     logit_label       = 'LogHwy',
-#     logit_eval_values = logit_percentiles
+# marginal_effects_table works the same way here as it does for OLS/LPM (see
+# cnn_specif.py) -- just pass link='log' (PPML has an exponential mean function) plus the
+# sweep_* args to sweep the CNN logit across its quantiles, interacted with Residential/Black:
+# logit_percentiles = df['logit_hwy'].quantile([0.10, 0.25, 0.50, 0.75, 0.90]).tolist()
+# cells = marginal_effects_table(
+#     df, x_vars, columns, beta, boot_coefs,
+#     link='log',
+#     sweep_var='logit_hwy', sweep_label='CNN Logit', sweep_values=logit_percentiles,
+#     sweep_interactions=LOGIT_INTERACTIONS,
 # )
