@@ -6,11 +6,12 @@ import geopandas as gpd
 import numpy as np
 import pandas as pd
 
-from helpers.latex_formatting import export_multiple_regressions, format_regression_results
+from helpers.latex_formatting import export_multiple_regressions
 from analysis.lib.data import load_sample, restrict_to_discretionary
+from analysis.lib.bootstrap import bootstrap_lpm_table
 from analysis.lib.specs import (
     CORE_VARS, HOUSING_VARS, GEO_CONTROLS, LOG_DIST_HWY, HH_CONTROLS,
-    build_spec, leaveout_except, fit_ols,
+    build_spec, leaveout_except,
 )
 
 # grid squares are 150m (data_code/create_sample.py: gridsize=150). Thicken each highway
@@ -65,7 +66,7 @@ def widen_highways(grid):
 def fit_spec(df):
     df_restricted = restrict_to_discretionary(df)
     x_vars, columns = build_spec(df_restricted, CORE_VARS, HOUSING_VARS, GEO_CONTROLS, LOG_DIST_HWY, HH_CONTROLS)
-    results = format_regression_results(fit_ols(df_restricted, x_vars, columns))
+    results, *_ = bootstrap_lpm_table(df_restricted, x_vars, columns)
     return results, columns
 
 
