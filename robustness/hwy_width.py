@@ -42,18 +42,18 @@ def widen_highways(grid):
     built_1959 = pd.concat([state59, us59, interstate])
     built_1940 = pd.concat([state40, us40])
 
-    # thicken each highway centerline ine on either side
+    # thicken each highway centerline on either side
     corridor_1959 = gpd.GeoDataFrame(geometry=built_1959.buffer(BUFFER_M), crs=grid.crs)
     corridor_1940 = gpd.GeoDataFrame(geometry=built_1940.buffer(BUFFER_M), crs=grid.crs)
 
     grid_geo = grid[['grid_id', 'geometry']]
 
     hwy_59 = gpd.sjoin(grid_geo, corridor_1959, how='left', predicate='intersects')
-    hwy_59['hwy_59_wide'] = np.where(hwy_59['index_right'].isna() 0, 1)
+    hwy_59['hwy_59_wide'] = np.where(hwy_59['index_right'].isna(), 0, 1)
     hwy_59 = hwy_59.groupby('grid_id').agg({'hwy_59_wide': 'max'})
 
     hwy_40 = gpd.sjoin(grid_geo, corridor_1940, how='left', predicate='intersects')
-    hwy_40['hwy_40_wide'] = np.where(hwy_40['index_right'].isna() 0, 1)
+    hwy_40['hwy_40_wide'] = np.where(hwy_40['index_right'].isna(), 0, 1)
     hwy_40 = hwy_40.groupby('grid_id').agg({'hwy_40_wide':'max'})
 
     widened = hwy_59.join(hwy_40, how='outer').reset_index()
