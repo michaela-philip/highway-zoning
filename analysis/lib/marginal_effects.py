@@ -1,39 +1,72 @@
 import numpy as np
 import pandas as pd
-from scipy.stats import norm
 
 from analysis.lib.specs import CORE_VARS
 
+CELLS = {
+    'White Non-Residential': (0, 0),
+    'White Residential': (1, 0),
+    'Black Non-Residential': (0, 1),
+    'Black Residential': (1, 1),
+}
 
-def marginal_effects_table(df, x_vars, columns, beta, boot_coefs, eval_at='mean'):
+CONTRASTS = {
+    'Protection effect (White): Non-Res vs Res': ('White Non-Residential', 'White Residential'),
+    'Protection effect (Black): Non-Res vs Res': ('Black Non-Residential', 'Black Residential'),
+    'Racial gap (Non-Residential): White vs Black': ('White Non-Residential', 'Black Non-Residential'),
+    'Racial gap (Residential): White vs Black': ('White Residential', 'Black Residential'),
+}
+
+
+def marginal_effects_table(df, x_vars, columns, beta, boot_coefs=None,
+                            link='identity', eval_at='mean',
+                            sweep_var=None, sweep_label=None, sweep_values=None,
+                            sweep_interactions=None):
     """
-    Predicted P(hwy=1) for the four Residential x Black cells, holding every other
-    regressor in x_vars at its sample mean (or median). Works with any (x_vars,
-    columns) pair from analysis.lib.specs.build_spec and any (beta, boot_coefs) pair
-    from analysis.lib.bootstrap.bootstrap_lpm[_table] -- the sample, spec, and
-    controls can vary freely (e.g. across cities, direct/indirect, CNN-conditional).
+    Predicted outcome for the four Residential x Black cells, holding every other
+    regressor in x_vars at its sample mean (or median). Works uniformly with the
+    (beta, boot_coefs) pair returned by ANY of analysis.lib.bootstrap's standardized fit
+    functions -- fit_ols, bootstrap_lpm_table, bootstrap_ppml_table -- so the sample,
+    spec, and fit method can all vary freely: set link='log' for a PPML/exponential-mean
+    fit (bootstrap_ppml_table), leave link='identity' (default) for OLS/LPM.
 
     Requires x_vars/columns to include CORE_VARS (Residential, Black, and their
     interaction) -- true for every spec built via build_spec in this project.
 
-    Also reports:
-    - Protection effect: Residential vs Non-Residential, within race
-    - Racial gap: Black vs White, within Residential/Non-Residential
-    - Disparate protection (difference-in-differences)
+    boot_coefs=None (as returned by fit_ols, which has no bootstrap draws) falls back to
+    point-estimate-only cells with no SE/CI/p-values -- pass a bootstrap-based beta/
+    boot_coefs (bootstrap_lpm_table/bootstrap_ppml_table for the same spec) to get those.
 
-    Returns {cell label: (point estimate, bootstrap SE, bootstrap draws)}.
+    Optionally sweep a third variable interacted with Residential/Black (e.g. a CNN
+    logit/probability) across sweep_values, evaluating every cell/contrast at each value:
+      sweep_var           raw column name of the base (non-interacted) term, e.g. 'logit_hwy'
+      sweep_label          its friendly label, e.g. 'CNN Logit'
+      sweep_values         list of values to evaluate at
+      sweep_interactions   the (var, label) block for its 3 interactions with
+                           Black/Residential/Residential x Black -- e.g. specs.LOGIT_INTERACTIONS
+                           or specs.PROB_INTERACTIONS, same (var, label) block format as
+                           CORE_VARS, in [Blackxsweep, Residentialxsweep, ResidentialxBlackxsweep]
+                           order (matching how those blocks are defined in analysis/lib/specs.py)
+
+    Returns {cell label: (point estimate, bootstrap SE or None, bootstrap draws or None)}
+    when not sweeping, or {sweep value: {...that same dict...}} when sweep_var is given.
     """
+    assert link in ('identity', 'log')
     row_var, row_label = CORE_VARS[0]
     col_var, col_label = CORE_VARS[1]
     inter_var, inter_label = CORE_VARS[2]
 
+    varying_labels = {row_label, col_label, inter_label}
+    if sweep_var is not None:
+        varying_labels.add(sweep_label)
+        varying_labels.update(lbl for _, lbl in sweep_interactions)
+
     # every other regressor gets held fixed at its mean/median, keyed by its friendly label
-    other_pairs = [(v, c) for v, c in zip(x_vars, columns[1:])
-                   if c not in (row_label, col_label, inter_label)]
+    other_pairs = [(v, c) for v, c in zip(x_vars, columns[1:]) if c not in varying_labels]
     other_raw = [v for v, _ in other_pairs]
     eval_vals = df[other_raw].mean() if eval_at == 'mean' else df[other_raw].median()
 
-    def predict_cell(residential, black, coef_vec):
+    def make_x(residential, black, sweep_value=None):
         x = pd.Series(0.0, index=columns)
         x['Intercept'] = 1.0
         x[row_label] = residential
@@ -41,283 +74,97 @@ def marginal_effects_table(df, x_vars, columns, beta, boot_coefs, eval_at='mean'
         x[inter_label] = residential * black
         for raw, friendly in other_pairs:
             x[friendly] = eval_vals[raw]
-        return float(x.values @ coef_vec)
-
-    cells = {
-        'White Non-Residential': (0, 0),
-        'White Residential': (1, 0),
-        'Black Non-Residential': (0, 1),
-        'Black Residential': (1, 1),
-    }
-
-    beta = np.asarray(beta)
-    predictions = {label: predict_cell(res, blk, beta) for label, (res, blk) in cells.items()}
-
-    boot_preds = {label: [] for label in cells}
-    for bc in boot_coefs:
-        if np.any(np.isnan(bc)):
-            continue
-        for label, (res, blk) in cells.items():
-            boot_preds[label].append(predict_cell(res, blk, bc))
-    boot_preds = {label: np.array(v) for label, v in boot_preds.items()}
-
-    print("\n" + "=" * 70)
-    print("MARGINAL EFFECTS TABLE")
-    print(f"(Other variables held at {'mean' if eval_at == 'mean' else 'median'})")
-    print("=" * 70)
-    print(f"\n{'Neighborhood Type':30} {'P(Highway)':>12} {'SE':>8} {'95% CI':>20}")
-    print("-" * 72)
-
-    cell_estimates = {}
-    for label in cells:
-        pred = predictions[label]
-        boot_arr = boot_preds[label]
-        se_val = np.std(boot_arr)
-        ci_lo = np.percentile(boot_arr, 2.5)
-        ci_hi = np.percentile(boot_arr, 97.5)
-        cell_estimates[label] = (pred, se_val, boot_arr)
-        print(f"{label:30} {pred:12.4f} {se_val:8.4f} [{ci_lo:.4f}, {ci_hi:.4f}]")
-
-    print("\n--- Key Contrasts ---")
-    contrasts = {
-        'Protection effect (White): Non-Res vs Res': ('White Non-Residential', 'White Residential'),
-        'Protection effect (Black): Non-Res vs Res': ('Black Non-Residential', 'Black Residential'),
-        'Racial gap (Non-Residential): White vs Black': ('White Non-Residential', 'Black Non-Residential'),
-        'Racial gap (Residential): White vs Black': ('White Residential', 'Black Residential'),
-        'Disparate protection (DiD)': None,  # special case, computed below
-    }
-
-    print(f"\n{'Contrast':50} {'Diff':>10} {'SE':>8} {'p-val':>8}")
-    print("-" * 78)
-
-    for label, pair in contrasts.items():
-        if pair is None:
-            # DiD: (Black Non-Res - Black Res) - (White Non-Res - White Res)
-            boot_diff_arr = (
-                boot_preds['Black Non-Residential'] - boot_preds['Black Residential']
-                - boot_preds['White Non-Residential'] + boot_preds['White Residential']
-            )
-            diff = (
-                predictions['Black Non-Residential'] - predictions['Black Residential']
-                - predictions['White Non-Residential'] + predictions['White Residential']
-            )
-        else:
-            a_label, b_label = pair
-            diff = predictions[a_label] - predictions[b_label]
-            boot_diff_arr = boot_preds[a_label] - boot_preds[b_label]
-
-        se_val = np.std(boot_diff_arr)
-        p_val = 2 * min((boot_diff_arr > 0).mean(), (boot_diff_arr < 0).mean())
-        stars = '***' if p_val < 0.01 else '**' if p_val < 0.05 else '*' if p_val < 0.10 else ''
-        print(f"{label:50} {diff:10.4f} {se_val:8.4f} {p_val:8.3f}{stars}")
-
-    print("\n  'Disparate protection (DiD)' is the difference-in-differences:")
-    print("  (Black Non-Res - Black Res) - (White Non-Res - White Res)")
-    print("  Negative = residential zoning less protective for Black neighborhoods")
-
-    return cell_estimates
-
-def ppml_marginal_effects(fitted_model, df, x_vars,
-                           columns=None,
-                           eval_at='mean',
-                           logit_var=None,      # raw column name, e.g. 'logit_hwy'
-                           logit_label=None,    # friendly label in columns, e.g. 'Logit(Hwy|Geo)'
-                           logit_eval_values=None,  # values at which to evaluate
-                           ):
-    
-    beta = fitted_model.params
-    if columns is None:
-        columns = fitted_model.params.index.tolist()
-    print(columns)
-    col_idx = {c: i for i, c in enumerate(columns)}
-    
-    # intercept_key = 'const' if 'const' in col_idx else 'Intercept'
-    
-    # core labels that get varied across cells or swept
-    core = {'Residential', 'mblack_1945def', 'ResidentialxBlack'}
-    if logit_var is not None and logit_label is not None:
-        blk_logit_label    = f'Blackx{logit_label}'
-        res_logit_label    = f'Residentialx{logit_label}'
-        resblk_logit_label = f'ResidentialxBlackx{logit_label}'
-        logit_interaction_labels = {
-            logit_label, blk_logit_label,
-            res_logit_label, resblk_logit_label
-        }
-        core |= logit_interaction_labels
-    else:
-        logit_interaction_labels = set()
-
-    # controls held fixed
-    ctrl_cols = [
-        (v, c) for v, c in zip(x_vars, columns)
-        if c not in core
-    ]
-    ctrl_vals = (
-        df[[v for v, _ in ctrl_cols]].mean()
-        if eval_at == 'mean'
-        else df[[v for v, _ in ctrl_cols]].median()
-    )
-
-    # base vector with controls set, demographics zeroed
-    base_x = np.zeros(len(columns))
-    # base_x[col_idx[intercept_key]] = 1.0
-    for raw, friendly in ctrl_cols:
-        if friendly in col_idx:
-            base_x[col_idx[friendly]] = ctrl_vals[raw]
-
-    cells = {
-        'White Non-Residential': (0, 0),
-        'White Residential':     (1, 0),
-        'Black Non-Residential': (0, 1),
-        'Black Residential':     (1, 1),
-    }
-
-    def make_x(residential, black, logit_value=None):
-        x = base_x.copy()
-        if 'Residential' in col_idx:
-            x[col_idx['Residential']]       = residential
-        if 'mblack_1945def' in col_idx:
-            x[col_idx['mblack_1945def']]    = black
-        if 'ResidentialxBlack' in col_idx:
-            x[col_idx['ResidentialxBlack']] = residential * black
-
-        if logit_var is not None and logit_value is not None:
-            lv = logit_value
-            if logit_label in col_idx:
-                x[col_idx[logit_label]]          = lv
-            if blk_logit_label in col_idx:
-                x[col_idx[blk_logit_label]]      = black * lv
-            if res_logit_label in col_idx:
-                x[col_idx[res_logit_label]]      = residential * lv
-            if resblk_logit_label in col_idx:
-                x[col_idx[resblk_logit_label]]   = residential * black * lv
+        if sweep_var is not None and sweep_value is not None:
+            col_x_label, row_x_label, both_x_label = [lbl for _, lbl in sweep_interactions]
+            x[sweep_label] = sweep_value
+            x[col_x_label] = black * sweep_value
+            x[row_x_label] = residential * sweep_value
+            x[both_x_label] = residential * black * sweep_value
         return x
 
-    def predicted_prob(x_vec):
-        return np.exp(float(x_vec @ beta))
+    def predict(x, coef_vec):
+        z = float(x.values @ coef_vec)
+        return np.exp(z) if link == 'log' else z
 
-    def delta_se(x_vec):
-        mu  = np.exp(x_vec @ beta)
-        var = mu**2 * (x_vec @ fitted_model.cov_params() @ x_vec)
-        return np.sqrt(max(var, 0))
-
-    def delta_contrast_se(x_a, x_b):
-        mu_a = np.exp(x_a @ beta)
-        mu_b = np.exp(x_b @ beta)
-        grad = mu_a * x_a - mu_b * x_b
-        var  = grad @ fitted_model.cov_params() @ grad
-        return np.sqrt(max(var, 0))
-
-    def delta_did_se(x_bnr, x_br, x_wnr, x_wr):
-        mu_bnr = np.exp(x_bnr @ beta)
-        mu_br  = np.exp(x_br  @ beta)
-        mu_wnr = np.exp(x_wnr @ beta)
-        mu_wr  = np.exp(x_wr  @ beta)
-        grad   = mu_bnr*x_bnr - mu_br*x_br - mu_wnr*x_wnr + mu_wr*x_wr
-        var    = grad @ fitted_model.cov_params() @ grad
-        return np.sqrt(max(var, 0))
-
-    # evaluation points for logit sweep
-    if logit_var is not None:
-        if logit_eval_values is None:
-            logit_eval_values = [df[logit_var].mean()]
-    else:
-        logit_eval_values = [None]
+    beta_arr = np.asarray(beta)
+    sweep_grid = sweep_values if sweep_var is not None else [None]
 
     all_results = {}
+    for sv in sweep_grid:
+        sv_str = f" | {sweep_label} = {sv:.3f}" if sv is not None else ""
+        print("\n" + "=" * 70)
+        print(f"MARGINAL EFFECTS TABLE{sv_str}")
+        print(f"(Other variables held at {'mean' if eval_at == 'mean' else 'median'})")
+        print("=" * 70)
+        print(f"\n{'Neighborhood Type':30} {'Predicted':>12} {'SE':>8} {'95% CI':>20}")
+        print("-" * 72)
 
-    for lv in logit_eval_values:
-        lv_str = f" | CNN logit = {lv:.3f}" if lv is not None else ""
-        print(f"\n{'='*70}")
-        print(f"PPML MARGINAL EFFECTS{lv_str}")
-        print(f"{'='*70}")
-        print(f"\n{'Cell':30} {'P(hwy)':>10} {'SE':>8} "
-              f"{'z':>7} {'p-val':>8}")
-        print("-" * 65)
+        xs = {label: make_x(res, blk, sv) for label, (res, blk) in CELLS.items()}
+        predictions = {label: predict(x, beta_arr) for label, x in xs.items()}
 
-        xs    = {label: make_x(res, blk, lv)
-                 for label, (res, blk) in cells.items()}
-        preds = {label: predicted_prob(x) for label, x in xs.items()}
+        if boot_coefs is not None:
+            boot_preds = {label: [] for label in CELLS}
+            for bc in boot_coefs:
+                if np.any(np.isnan(bc)):
+                    continue
+                for label, x in xs.items():
+                    boot_preds[label].append(predict(x, bc))
+            boot_preds = {label: np.array(v) for label, v in boot_preds.items()}
+        else:
+            boot_preds = {label: None for label in CELLS}
 
-        cell_results = {}
-        for label in cells:
-            pred  = preds[label]
-            se    = delta_se(xs[label])
-            z     = pred / se if se > 0 else np.nan
-            pval  = 2 * (1 - norm.cdf(abs(z)))
-            stars = ('***' if pval < 0.01 else '**' if pval < 0.05
-                     else '*' if pval < 0.10 else '')
-            cell_results[label] = (pred, se)
-            print(f"{label:30} {pred:10.4f} {se:8.4f} "
-                  f"{z:7.2f} {pval:8.3f}{stars}")
+        cell_estimates = {}
+        for label in CELLS:
+            pred = predictions[label]
+            boot_arr = boot_preds[label]
+            if boot_arr is not None:
+                se_val = np.std(boot_arr)
+                ci_lo, ci_hi = np.percentile(boot_arr, [2.5, 97.5])
+                cell_estimates[label] = (pred, se_val, boot_arr)
+                print(f"{label:30} {pred:12.4f} {se_val:8.4f} [{ci_lo:.4f}, {ci_hi:.4f}]")
+            else:
+                cell_estimates[label] = (pred, None, None)
+                print(f"{label:30} {pred:12.4f} {'--':>8} {'(no bootstrap draws)':>20}")
 
-        print(f"\n{'Contrast':50} {'Diff':>10} {'SE':>8} "
-              f"{'z':>7} {'p-val':>8}")
-        print("-" * 80)
+        print("\n--- Key Contrasts ---")
+        print(f"\n{'Contrast':50} {'Diff':>10} {'SE':>8} {'p-val':>8}")
+        print("-" * 78)
 
-        contrasts = {
-            'Protection (White): NonRes − Res': (
-                'White Non-Residential', 'White Residential'),
-            'Protection (Black): NonRes − Res': (
-                'Black Non-Residential', 'Black Residential'),
-            'Racial gap (NonRes): White − Black': (
-                'White Non-Residential', 'Black Non-Residential'),
-            'Racial gap (Res): White − Black': (
-                'White Residential', 'Black Residential'),
-        }
+        def contrast(a_label, b_label):
+            diff = predictions[a_label] - predictions[b_label]
+            if boot_preds[a_label] is not None:
+                boot_diff = boot_preds[a_label] - boot_preds[b_label]
+                se_val = np.std(boot_diff)
+                p_val = 2 * min((boot_diff > 0).mean(), (boot_diff < 0).mean())
+            else:
+                se_val, p_val = None, None
+            return diff, se_val, p_val
 
-        for clabel, (a, b) in contrasts.items():
-            diff  = preds[a] - preds[b]
-            se    = delta_contrast_se(xs[a], xs[b])
-            z     = diff / se if se > 0 else np.nan
-            pval  = 2 * (1 - norm.cdf(abs(z)))
-            stars = ('***' if pval < 0.01 else '**' if pval < 0.05
-                     else '*' if pval < 0.10 else '')
-            print(f"{clabel:50} {diff:10.4f} {se:8.4f} "
-                  f"{z:7.2f} {pval:8.3f}{stars}")
+        for clabel, (a, b) in CONTRASTS.items():
+            diff, se_val, p_val = contrast(a, b)
+            if se_val is not None:
+                stars = '***' if p_val < 0.01 else '**' if p_val < 0.05 else '*' if p_val < 0.10 else ''
+                print(f"{clabel:50} {diff:10.4f} {se_val:8.4f} {p_val:8.3f}{stars}")
+            else:
+                print(f"{clabel:50} {diff:10.4f} {'--':>8} {'--':>8}")
 
-        did   = (preds['Black Non-Residential'] - preds['Black Residential']
-                 - preds['White Non-Residential'] + preds['White Residential'])
-        se    = delta_did_se(xs['Black Non-Residential'],
-                              xs['Black Residential'],
-                              xs['White Non-Residential'],
-                              xs['White Residential'])
-        z     = did / se if se > 0 else np.nan
-        pval  = 2 * (1 - norm.cdf(abs(z)))
-        stars = ('***' if pval < 0.01 else '**' if pval < 0.05
-                 else '*' if pval < 0.10 else '')
-        print(f"\n{'Disparate protection (DiD)':50} {did:10.4f} {se:8.4f} "
-              f"{z:7.2f} {pval:8.3f}{stars}")
-        print("  DiD = (Black NonRes − Black Res) − (White NonRes − White Res)")
-        print("  Negative = residential zoning less protective for Black areas")
+        # disparate protection: (Black Non-Res - Black Res) - (White Non-Res - White Res)
+        did = (predictions['Black Non-Residential'] - predictions['Black Residential']
+               - predictions['White Non-Residential'] + predictions['White Residential'])
+        if boot_preds['Black Non-Residential'] is not None:
+            boot_did = (boot_preds['Black Non-Residential'] - boot_preds['Black Residential']
+                        - boot_preds['White Non-Residential'] + boot_preds['White Residential'])
+            se_val = np.std(boot_did)
+            p_val = 2 * min((boot_did > 0).mean(), (boot_did < 0).mean())
+            stars = '***' if p_val < 0.01 else '**' if p_val < 0.05 else '*' if p_val < 0.10 else ''
+            print(f"{'Disparate protection (DiD)':50} {did:10.4f} {se_val:8.4f} {p_val:8.3f}{stars}")
+        else:
+            print(f"{'Disparate protection (DiD)':50} {did:10.4f} {'--':>8} {'--':>8}")
 
-        all_results[lv] = {'predictions': preds, 'xs': xs,
-                            'cell_results': cell_results}
+        print("\n  'Disparate protection (DiD)' is the difference-in-differences:")
+        print("  (Black Non-Res - Black Res) - (White Non-Res - White Res)")
+        print("  Negative = residential zoning less protective for Black neighborhoods")
 
-    # summary sweep
-    if len(logit_eval_values) > 1:
-        print(f"\n{'='*70}")
-        print("DiD ACROSS CNN LOGIT VALUES")
-        print(f"{'='*70}")
-        print(f"\n{'CNN Logit':>10} {'DiD':>10} {'SE':>8} "
-              f"{'z':>7} {'p-val':>8}")
-        print("-" * 50)
-        for lv, res in all_results.items():
-            preds_lv = res['predictions']
-            xs_lv    = res['xs']
-            did      = (preds_lv['Black Non-Residential']
-                        - preds_lv['Black Residential']
-                        - preds_lv['White Non-Residential']
-                        + preds_lv['White Residential'])
-            se       = delta_did_se(xs_lv['Black Non-Residential'],
-                                     xs_lv['Black Residential'],
-                                     xs_lv['White Non-Residential'],
-                                     xs_lv['White Residential'])
-            z        = did / se if se > 0 else np.nan
-            pval     = 2 * (1 - norm.cdf(abs(z)))
-            stars    = ('***' if pval < 0.01 else '**' if pval < 0.05
-                        else '*' if pval < 0.10 else '')
-            print(f"{lv:10.3f} {did:10.4f} {se:8.4f} "
-                  f"{z:7.2f} {pval:8.3f}{stars}")
+        all_results[sv] = cell_estimates
 
-    return all_results
+    return all_results if sweep_var is not None else all_results[None]
