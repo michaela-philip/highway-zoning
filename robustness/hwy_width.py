@@ -14,52 +14,28 @@ from analysis.lib.specs import (
     build_spec, leaveout_except,
 )
 
-# grid squares are 150m (data_code/create_sample.py: gridsize=150). Thicken each highway
-# centerline into a corridor BUFFER_SQUARES squares wide on either side of the line, i.e.
-# BUFFER_M meters on each side -- motivated by the idea that a highway's effects (noise,
-# pollution, severance) extend well past the grid square the line physically crosses.
+# grid squares are 150m (data_code/create_sample.py: gridsize=150). Buffer each hwy==1
+# square into a corridor BUFFER_SQUARES squares wide on either side, i.e. BUFFER_M meters
+# -- motivated by the idea that a highway's effects (noise, pollution, severance) extend
+# well past the grid square the line physically crosses.
 GRIDSIZE_M = 150
 BUFFER_SQUARES = 10
 BUFFER_M = BUFFER_SQUARES * GRIDSIZE_M
 
 
-### FUNCTION TO RECOMPUTE THE HWY INDICAR ###
-### mirrors data_code/create_sample.py:place_highways, but buffers each highway
-### centerline into a corridor before intersecting it with the grid ###
+### FUNCTION TO WIDEN THE HWY INDICATOR ###
+### buffers the geometry of squares already flagged hwy==1 (i.e. the discretionary,
+### newly-built-by-1959 squares -- see data_code/create_sample.py:452, hwy = clip(hwy_59 - hwy_40, 0))
+### into a corridor, then marks any grid square intersecting that corridor as widened ###
 def widen_highways(grid):
-    interstate = gpd.read_file('data/input/shapefiles/1960/interstates1959_del.shp').to_crs(grid.crs)
-    state59 = gpd.read_file('data/input/shapefiles/1960/stateHighwayPaved1959_del.shp').to_crs(grid.crs)
-    us59 = gpd.read_file('data/input/shapefiles/1960/usHighwayPaved1959_del.shp').to_crs(grid.crs)
-    state40 = gpd.read_file('data/input/shapefiles/1940/1940 completed shapefiles/stateHighwayPaved1940_del.shp').to_crs(grid.crs)
-    us40 = gpd.read_file('data/input/shapefiles/1940/1940 completed shapefiles/usHighwayPaved1940_del.shp').to_crs(grid.crs)
-
-    # fclass information from Baik et al. (2010); eliminate all local roads
-    interstate = interstate[~interstate['FCLASS'].isin([9, 19])]
-    state59 = state59[~state59['FCLASS'].isin([9, 19])]
-    us59 = us59[~us59['FCLASS'].isin([9, 19])]
-    state40 = state40[~state40['FCLASS'].isin([9, 19])]
-    us40 = us40[~us40['FCLASS'].isin([9, 19])]
-
-    built_1959 = pd.concat([state59, us59, interstate])
-    built_1940 = pd.concat([state40, us40])
-
-    # thicken each highway centerline on either side
-    corridor_1959 = gpd.GeoDataFrame(geometry=built_1959.buffer(BUFFER_M), crs=grid.crs)
-    corridor_1940 = gpd.GeoDataFrame(geometry=built_1940.buffer(BUFFER_M), crs=grid.crs)
+    hwy_squares = grid.loc[grid['hwy'] == 1, ['grid_id', 'geometry']]
+    corridor = gpd.GeoDataFrame(geometry=hwy_squares.buffer(BUFFER_M), crs=grid.crs)
 
     grid_geo = grid[['grid_id', 'geometry']]
-
-    hwy_59 = gpd.sjoin(grid_geo, corridor_1959, how='left', predicate='intersects')
-    hwy_59['hwy_59_wide'] = np.where(hwy_59['index_right'].isna(), 0, 1)
-    hwy_59 = hwy_59.groupby('grid_id').agg({'hwy_59_wide': 'max'})
-
-    hwy_40 = gpd.sjoin(grid_geo, corridor_1940, how='left', predicate='intersects')
-    hwy_40['hwy_40_wide'] = np.where(hwy_40['index_right'].isna(), 0, 1)
-    hwy_40 = hwy_40.groupby('grid_id').agg({'hwy_40_wide':'max'})
-
-    widened = hwy_59.join(hwy_40, how='outer').reset_index()
-    widened['hwy_wide'] = (widened['hwy_59_wide'] - widened['hwy_40_wide']).clip(lower=0)
-    return widened
+    hwy_wide = gpd.sjoin(grid_geo, corridor, how='left', predicate='intersects')
+    hwy_wide['hwy_wide'] = np.where(hwy_wide['index_right'].isna(), 0, 1)
+    hwy_wide = hwy_wide.groupby('grid_id').agg({'hwy_wide': 'max'}).reset_index()
+    return hwy_wide
 
 
 ### FUNCTION TO FIT THE MAIN SPECIFICATION ON A GIVEN SAMPLE ###
@@ -72,8 +48,8 @@ def fit_spec(df):
 
 df = load_sample()
 
-# recompute the hwy indicator on the widened corridor, city by city so each city's
-# highways are reprojected/buffered/intersected in its own CRS (matches place_highways)
+# widen the hwy indicator, city by city so each city's squares are buffered/intersected
+# in its own CRS
 widened = pd.concat(
     [widen_highways(df.loc[df['city'] == city]) for city in df['city'].unique()],
     ignore_index=True,
@@ -81,13 +57,10 @@ widened = pd.concat(
 
 df_wide = df.merge(widened, on='grid_id', how = 'left')
 
-n_flip_59 = ((df_wide['hwy_59'] == 0) & (df_wide['hwy_59_wide'] == 1)).sum()
-n_flip_40 = ((df_wide['hwy_40'] == 0) & (df_wide['hwy_40_wide'] == 1)).sum()
-print(f'Widening corridor by {BUFFER_M}m ({BUFFER_SQUARES} grid squares of {GRIDSIZE_M}m) on either side of each highway centerline')
-print(f'  hwy_59: {n_flip_59} additional grid squares now treated as having a highway')
-print(f'  hwy_40: {n_flip_40} additional grid squares now treated as having a highway')
+n_flip = ((df_wide['hwy'] == 0) & (df_wide['hwy_wide'] == 1)).sum()
+print(f'Widening corridor by {BUFFER_M}m ({BUFFER_SQUARES} grid squares of {GRIDSIZE_M}m) on either side of each hwy=1 square')
+print(f'  {n_flip} additional grid squares now treated as having a highway')
 
-df_wide['hwy_40'] = df_wide['hwy_40_wide']
 df_wide['hwy'] = df_wide['hwy_wide']
 print(f'  hwy=1 squares: {int(df["hwy"].sum())} (baseline) -> {int(df_wide["hwy"].sum())} (widened)')
 
