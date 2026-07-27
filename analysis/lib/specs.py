@@ -1,5 +1,3 @@
-import statsmodels.api as sm
-
 # Each spec is a list of (variable_name, display_label) pairs, kept together so the
 # two can't drift out of alignment the way separately-maintained x_vars/columns lists did.
 
@@ -96,13 +94,3 @@ def build_spec(df, *blocks):
 def leaveout_except(columns, keep):
     """Labels to drop from an exported table: everything except `keep`."""
     return [c for c in columns if c not in keep]
-
-
-def fit_ols(df, x_vars, columns, cluster_var='city'):
-    """OLS of 'hwy' on x_vars, clustered by cluster_var, with the design matrix
-    relabeled to the friendly `columns` so results.params is indexed the same way
-    bootstrap_lpm_table results are (columns[0] is 'Intercept', matching sm.add_constant)."""
-    X = df[x_vars].copy()
-    X.columns = columns[1:]
-    X = sm.add_constant(X)
-    return sm.OLS(df['hwy'], X).fit(cov_type='cluster', cov_kwds={'groups': df[cluster_var]})

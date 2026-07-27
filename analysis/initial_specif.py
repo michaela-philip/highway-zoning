@@ -2,11 +2,12 @@ import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from helpers.latex_formatting import export_single_regression, format_regression_results
+from helpers.latex_formatting import export_single_regression
 from analysis.lib.data import load_sample, restrict_to_discretionary
+from analysis.lib.bootstrap import fit_ols
 from analysis.lib.specs import (
     CORE_VARS, HOUSING_VARS, GEO_CONTROLS, LOG_DIST_HWY, HH_CONTROLS,
-    build_spec, leaveout_except, fit_ols,
+    build_spec, leaveout_except,
 )
 
 df = load_sample()
@@ -14,7 +15,7 @@ df_restricted = restrict_to_discretionary(df)
 
 x_vars, columns = build_spec(df_restricted, CORE_VARS, HOUSING_VARS, GEO_CONTROLS, LOG_DIST_HWY, HH_CONTROLS)
 
-results_wholesample = format_regression_results(fit_ols(df_restricted, x_vars, columns))
+results_wholesample, *_ = fit_ols(df_restricted, x_vars, columns)
 export_single_regression(
     results_wholesample,
     caption='Determinants of Highway Placement - Full Sample',

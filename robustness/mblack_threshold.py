@@ -28,6 +28,8 @@ df_restricted = restrict_to_discretionary(df)
 # *values* change below, not which columns exist, so the spec only needs to be built once.
 x_vars, columns = build_spec(df_restricted, CORE_VARS, HOUSING_VARS, GEO_CONTROLS, LOG_DIST_HWY, HH_CONTROLS)
 leaveout = leaveout_except(columns, keep=[label for _, label in CORE_VARS])
+# beta/se come back as pd.Series indexed by `columns` (so beta['Black'] works below), but
+# boot_coefs is a plain (n_bootstraps, k) array with no labels, so it still needs positional lookup.
 black_idx = columns.index('Black')
 resblack_idx = columns.index('Residential x Black')
 
@@ -53,8 +55,8 @@ for pct in THRESHOLDS_PCT:
 
     tag = '  (baseline)' if pct == BASELINE_PCT else ''
     print(f"{pct:>9}%  {int(df_thresh['mblack_1945def'].sum()):>10}  "
-          f"{beta[black_idx]:>11.4f}  {black_p:>8.3f}  "
-          f"{beta[resblack_idx]:>17.4f}  {resblack_p:>8.3f}{tag}")
+          f"{beta['Black']:>11.4f}  {black_p:>8.3f}  "
+          f"{beta['Residential x Black']:>17.4f}  {resblack_p:>8.3f}{tag}")
 
 export_multiple_regressions(
     threshold_results,
