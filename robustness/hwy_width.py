@@ -7,10 +7,10 @@ import numpy as np
 import pandas as pd
 
 from helpers.latex_formatting import export_multiple_regressions
-from analysis.lib.data import load_sample, restrict_to_discretionary
-from analysis.lib.bootstrap import bootstrap_lpm_table
+from analysis.lib.data import load_sample, restrict_to_discretionary, merge_cnn_probs, add_cnn_interactions
+from analysis.lib.bootstrap import bootstrap_lpm_table, bootstrap_ppml_table
 from analysis.lib.specs import (
-    CORE_VARS, HOUSING_VARS, GEO_CONTROLS, LOG_DIST_HWY, HH_CONTROLS,
+    CORE_VARS, HOUSING_VARS, GEO_CONTROLS, LOG_DIST_HWY, HH_CONTROLS, CNN_LOGIT, LOGIT_INTERACTIONS,
     build_spec, leaveout_except,
 )
 
@@ -19,7 +19,7 @@ from analysis.lib.specs import (
 # -- motivated by the idea that a highway's effects (noise, pollution, severance) extend
 # well past the grid square the line physically crosses.
 GRIDSIZE_M = 150
-BUFFER_SQUARES = 10
+BUFFER_SQUARES = 1
 BUFFER_M = BUFFER_SQUARES * GRIDSIZE_M
 
 
@@ -41,12 +41,14 @@ def widen_highways(grid):
 ### FUNCTION TO FIT THE MAIN SPECIFICATION ON A GIVEN SAMPLE ###
 def fit_spec(df):
     df_restricted = restrict_to_discretionary(df)
-    x_vars, columns = build_spec(df_restricted, CORE_VARS, HOUSING_VARS, GEO_CONTROLS, LOG_DIST_HWY, HH_CONTROLS)
-    results, *_ = bootstrap_lpm_table(df_restricted, x_vars, columns)
+    x_vars, columns = build_spec(df_restricted, CORE_VARS, HOUSING_VARS, GEO_CONTROLS, LOG_DIST_HWY, HH_CONTROLS, CNN_LOGIT, LOGIT_INTERACTIONS)
+    results, *_ = bootstrap_ppml_table(df_restricted, x_vars, columns)
     return results, columns
 
 
 df = load_sample()
+df = merge_cnn_probs(df, 'predicted_activation-model1*.csv', dataroot='cnn/')
+df = add_cnn_interactions(df)
 
 # widen the hwy indicator, city by city so each city's squares are buffered/intersected
 # in its own CRS
@@ -70,8 +72,8 @@ wide_results, _ = fit_spec(df_wide)
 export_multiple_regressions(
     {"Baseline (Line Intersection)": baseline_results, f"Widened ({BUFFER_SQUARES} Squares Each Side)": wide_results},
     caption=f'Highway Width Robustness - ({BUFFER_SQUARES} Grid Squares Each Side)',
-    label='tab:hwy_width_robustness',
+    label='tab:robustness/hwy_width',
     leaveout=leaveout_except(columns, keep=[label for _, label in CORE_VARS]),
 )
 
-print('\nsaved: tables/hwy_width_robustness.tex')
+print('\nsaved: tables/robustness/hwy_width.tex')
