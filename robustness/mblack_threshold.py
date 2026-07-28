@@ -5,12 +5,13 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import numpy as np
 
 from helpers.latex_formatting import export_multiple_regressions
-from analysis.lib.data import load_sample, restrict_to_discretionary
+from analysis.lib.data import load_sample, restrict_to_discretionary, merge_cnn_probs, split_by_candidates, add_cnn_interactions
 from analysis.lib.bootstrap import bootstrap_lpm_table
 from analysis.lib.specs import (
-    CORE_VARS, HOUSING_VARS, GEO_CONTROLS, LOG_DIST_HWY, HH_CONTROLS,
+    CORE_VARS, HOUSING_VARS, GEO_CONTROLS, LOG_DIST_HWY, HH_CONTROLS, CNN_LOGIT, LOGIT_INTERACTIONS,
     build_spec, leaveout_except,
 )
+from data_code.candidates import candidate_dict
 
 # data_code/create_sample.py:318 defines mblack_1945def as pct_black >= 0.60. Recompute
 # the indicator (and its Residential interaction) at alternative thresholds to check
@@ -22,11 +23,13 @@ BASELINE_PCT = 60
 N_BOOTSTRAPS = 1000
 
 df = load_sample()
-df_restricted = restrict_to_discretionary(df)
+df = merge_cnn_probs(df, 'predicted_activation-model1*.csv', dataroot='cnn/')
+df = add_cnn_interactions(df)
+dir_sample, ind_sample = split_by_candidates(df, candidate_dict)
 
 # x_vars/columns are shared across thresholds -- only the mblack_1945def/ResidentialxBlack
 # *values* change below, not which columns exist, so the spec only needs to be built once.
-x_vars, columns = build_spec(df_restricted, CORE_VARS, HOUSING_VARS, GEO_CONTROLS, LOG_DIST_HWY, HH_CONTROLS)
+x_vars, columns = build_spec(ind_sample, CORE_VARS, HOUSING_VARS, GEO_CONTROLS, LOG_DIST_HWY, HH_CONTROLS, CNN_LOGIT, LOGIT_INTERACTIONS)
 leaveout = leaveout_except(columns, keep=[label for _, label in CORE_VARS])
 # beta/se come back as pd.Series indexed by `columns` (so beta['Black'] works below), but
 # boot_coefs is a plain (n_bootstraps, k) array with no labels, so it still needs positional lookup.
@@ -39,9 +42,9 @@ print(f"{'Threshold':>10}  {'N (Black)':>10}  {'Black coef':>11}  {'p-value':>8}
 threshold_results = {}
 for pct in THRESHOLDS_PCT:
     if pct == BASELINE_PCT:
-        df_thresh = df_restricted
+        df_thresh = ind_sample
     else:
-        df_thresh = df_restricted.copy()
+        df_thresh = ind_sample.copy()
         df_thresh['mblack_1945def'] = np.where(df_thresh['pct_black'] >= pct / 100, 1, 0)
         df_thresh['ResidentialxBlack'] = df_thresh['Residential'] * df_thresh['mblack_1945def']
 
@@ -60,9 +63,9 @@ for pct in THRESHOLDS_PCT:
 
 export_multiple_regressions(
     threshold_results,
-    caption='Robustness to Majority-Black Threshold (\\% Black Required for mblack\\_1945def = 1)',
-    label='tab:mblack_threshold_robustness',
+    caption='Robustness to Majority-Black Threshold (\\% Black Required for Classification)',
+    label='tab:robustness/mblack_threshold',
     leaveout=leaveout,
 )
 
-print('\nsaved: tables/mblack_threshold_robustness.tex')
+print('\nsaved: tables/robustness/mblack_threshold.tex')
