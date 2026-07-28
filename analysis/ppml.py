@@ -19,21 +19,22 @@ df = restrict_to_discretionary(df)
 df = merge_cnn_probs(df, 'predicted_activation-model1*.csv', dataroot='cnn/')
 df = add_cnn_interactions(df)
 
-df = compute_demographic_access(df, 'pct_black', decay_m = 600, max_dist_m = 5000)
+df = compute_demographic_access(df, 'pct_black', decay_m = 300, max_dist_m = 5000)
 x_vars, columns = build_spec(df, CORE_VARS, HOUSING_VARS, GEO_CONTROLS, LOG_DIST_HWY, HH_CONTROLS, CNN_LOGIT, LOGIT_INTERACTIONS)
+x_vars_dem, columns_dem = build_spec(df, DEM_ACCESS, HOUSING_VARS, GEO_CONTROLS, LOG_DIST_HWY, HH_CONTROLS, CNN_LOGIT)
 
 # bootstrap_ppml_table mirrors bootstrap_lpm_table's (table, beta, se, boot_coefs) shape --
 # see analysis/lib/bootstrap.py module docstring -- so this call is a drop-in swap for
 # bootstrap_lpm_table/fit_ols if you want to try a different fit method here.
-results, beta, se, boot_coefs = bootstrap_ppml_table(df, x_vars, columns, n_bootstraps=500, seed=42)
+results, beta, se, boot_coefs = bootstrap_ppml_table(df, x_vars_dem, columns_dem, n_bootstraps=500, seed=42)
 print(results)
-export_single_regression(
-    results,
-    caption='Determinants of Highway Placement - PPML',
-    label='tab:ppml_results',
-    widthmultiplier=0.7,
-    leaveout=leaveout_except(columns, keep=[label for _, label in CORE_VARS]),
-)
+# export_single_regression(
+#     results,
+#     caption='Determinants of Highway Placement - PPML',
+#     label='tab:ppml_results',
+#     widthmultiplier=0.7,
+#     leaveout=leaveout_except(columns, keep=[label for _, label in CORE_VARS]),
+# )
 
 
 
