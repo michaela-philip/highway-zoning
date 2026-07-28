@@ -6,11 +6,13 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 from scipy import stats
+from types import SimpleNamespace
 
-from analysis.lib.data import load_sample, restrict_to_discretionary, split_by_candidates
+from analysis.lib.data import load_sample, restrict_to_discretionary, split_by_candidates, merge_cnn_probs
 from analysis.lib.bootstrap import fit_ols
-from analysis.lib.specs import CORE_VARS, HOUSING_VARS, GEO_CONTROLS, LOG_DIST_HWY, build_spec
+from analysis.lib.specs import CORE_VARS, HOUSING_VARS, GEO_CONTROLS, LOG_DIST_HWY, CNN_LOGIT, build_spec
 from data_code.candidates import candidate_dict
+from helpers.latex_formatting import export_single_regression
 
 
 def balance_test(df_direct, df_indirect, demo_vars, geo_vars, var_labels=None,
@@ -98,6 +100,52 @@ def balance_test(df_direct, df_indirect, demo_vars, geo_vars, var_labels=None,
 
     results_df = pd.DataFrame(results)
 
+    def export_balance_panels(results_df, var_labels, filename, caption, widthmultiplier=0.9):
+        panels = [('Highway', 'Panel A: Highway Squares'),
+                    ('Non-Highway', 'Panel B: Non-Highway Squares')]
+
+        def panel_rows(hwy_label, panel_title):
+            sub = results_df[results_df['sample'] == hwy_label].copy()
+            stars = np.select(
+                [sub['p_val'] < 0.01, sub['p_val'] < 0.05, sub['p_val'] < 0.10],
+                ['^{***}', '^{**}', '^{*}'], default=''
+            )
+            sub['Diff'] = [f"\\makecell[tr]{{{d:.3f}{s} \\\\ ({se:.3f})}}"
+                            for d, se, s in zip(sub['diff'], sub['boot_se'], stars)]
+            table = sub.assign(Variable=sub['variable'].map(lambda v: var_labels.get(v, v))) \
+                        .set_index('Variable')[['mean_direct', 'mean_indirect', 'Diff', 'smd']]
+            table.columns = ['Direct', 'Indirect', 'Diff', 'SMD']
+            spanner = pd.DataFrame([[''] * table.shape[1]], columns=table.columns, index=[panel_title])
+            return pd.concat([spanner, table])
+
+        combined = pd.concat([panel_rows(hwy, title) for hwy, title in panels])
+        combined.index.name = None
+    
+        num_cols = combined.shape[1]
+        col_format = '@{\\extracolsep{\\fill}}l*' + f'{{{num_cols}}}' + '{r}'
+        text = combined.style.format(precision=3).to_latex(
+            position_float='centering', caption=caption, position='h',
+            label=f'tab:{filename}', hrules=True, column_format=col_format,
+        )
+    
+        # swap each blank spanner row for a bolded, full-width panel header
+        lines = text.split('\n')
+        for i, line in enumerate(lines):
+            for _, title in panels:
+                if line.strip().startswith(title):
+                    lines[i] = f'\\multicolumn{{{num_cols + 1}}}{{l}}{{\\textbf{{{title}}}}} \\\\'
+        text = '\n'.join(lines)
+
+        text = text.replace('\\begin{tabular}', f'\\begin{{tabular*}}{{{widthmultiplier}\\textwidth}}') \
+                    .replace('\\end{tabular}', '\\end{tabular*}')
+        with open(f'tables/{filename}.tex', 'w') as f:
+            f.write(text)
+        print(f'saved: tables/{filename}.tex')
+
+    
+    export_balance_panels(results_df, var_labels, 'balance_table1',
+                            'Balance Test: Direct vs. Indirect Samples')
+
     # print formatted table
     print("="*80)
     print("BALANCE TEST: Direct vs Indirect Sample")
@@ -139,21 +187,53 @@ def balance_test(df_direct, df_indirect, demo_vars, geo_vars, var_labels=None,
 
     geo_x_vars, geo_columns = build_spec(df_pool, GEO_CONTROLS, LOG_DIST_HWY, [('indirect', 'Indirect')])
 
+    row_labels, coefs, ses, pvals = [0], [0], [0], [0]
     for demo in demo_vars:
         _, beta, se, _ = fit_ols(df_pool, geo_x_vars, geo_columns, y_var=demo, cluster_var='city')
-        coef   = beta['Indirect']
-        se_val = se['Indirect']
-        z      = coef / se_val if se_val > 0 else np.nan
-        pval   = 2 * (1 - stats.norm.cdf(abs(z)))
-
-        stars = ''
-        if pval < 0.01:   stars = '***'
-        elif pval < 0.05: stars = '**'
-        elif pval < 0.10: stars = '*'
+        coef, se_val = beta['Indirect'], se['Indirect']
+        z = coef / se_val if se_val > 0 else np.nan
+        pval = 2 * (1 - stats.norm.cdf(abs(z)))
 
         vlab = var_labels.get(demo, demo)
-        print(f"  {vlab:30}: coef={coef:+.4f}  SE={se_val:.4f}  "
-              f"p={pval:.3f}{stars}")
+        row_labels.append(vlab)
+        coefs.append(coef)
+        ses.append(se_val)
+        pvals.append(pval)
+
+        stars = '***' if pval < 0.01 else '**' if pval < 0.05 else '*' if pval < 0.10 else ''
+        print(f"  {vlab:30}: coef={coef:+.4f}  SE={se_val:.4f}  p={pval:.3f}{stars}")
+  
+    namespace = SimpleNamespace(
+      params=pd.Series(coefs, index=row_labels),
+      bse=pd.Series(ses, index=row_labels),
+      pvalues=pd.Series(pvals, index=row_labels),
+      rsquared=np.nan,   # not meaningful here -- see leaveout below
+      nobs=len(df_pool),
+  )
+    balance_table = format_regression_results(namespace)
+    export_single_regression(
+      balance_table,
+      caption='Balance Test: Effect of Demographics on Corridor Membership',
+      label='tab:balance_test',
+      widthmultiplier=0.8,
+      leaveout=['R-squared'],  
+  )
+
+    balance_results = pd.DataFrame(balance_results)
+    balance_results.set_index('Variable', inplace=True)
+    # export results to latex table
+    num_cols = len(balance_results.columns) - 1
+    caption = 'Balance Test: Effect of Demographics on Corridor Membership'
+    label = 'tab:robustness/balance_test'
+    widthmultiplier = 0.8
+    col_format = '@{\\extracolsep{\\fill}}l*' + f'{{{num_cols}}}' + '{r}'
+    text = balance_results.style.format(precision=4).to_latex(position_float = 'centering',
+                caption=caption, position = 'h', label=label, hrules=True, column_format = col_format)
+    text = text.replace('\\begin{tabular}', f'\\begin{{tabular*}}{{{widthmultiplier}\\textwidth}}').replace('\\end{tabular}', '\\end{tabular*}')
+    filename = label.split(':')[-1] + '.tex'
+    with open('tables/' + filename, 'w') as f:
+        f.write(text)
+    print(f"  Results exported to {filename}")
 
     print("\n  Interpretation: insignificant coefficients mean corridor")
     print("  membership does not predict demographics conditional on")
@@ -239,16 +319,16 @@ def balance_test(df_direct, df_indirect, demo_vars, geo_vars, var_labels=None,
 
 
 df = load_sample()
-df_restricted = restrict_to_discretionary(df)
-dir_sample, ind_sample = split_by_candidates(df_restricted, candidate_dict)
+df = merge_cnn_probs(df, 'predicted_activation-model1*.csv', dataroot='cnn/')
+dir_sample, ind_sample = split_by_candidates(df, candidate_dict)
 
 # demo_vars/geo_vars/var_labels come straight from the same spec blocks used to build the
 # main regression spec (e.g. initial_specif.py/lpm_bootstrap.py's
 # build_spec(df, CORE_VARS, HOUSING_VARS, GEO_CONTROLS, LOG_DIST_HWY, HH_CONTROLS)), so the
 # balance test checks exactly the variables/transformations the regressions condition on.
 demo_vars = [v for v, _ in CORE_VARS + HOUSING_VARS]
-geo_vars = [v for v, _ in GEO_CONTROLS + LOG_DIST_HWY]
-var_labels = dict(CORE_VARS + HOUSING_VARS + GEO_CONTROLS + LOG_DIST_HWY)
+geo_vars = [v for v, _ in GEO_CONTROLS + LOG_DIST_HWY + CNN_LOGIT]
+var_labels = dict(CORE_VARS + HOUSING_VARS + GEO_CONTROLS + LOG_DIST_HWY + CNN_LOGIT)
 
 balance_df = balance_test(
     df_direct   = dir_sample,
