@@ -263,52 +263,26 @@ def balance_test(df_direct, df_indirect,
     
     return results_df
 
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-# --- run it ---
-df = pd.read_pickle('data/output/sample.pkl')
-df['rent'] = df['rent'].replace(0, 0.00001)
-df['valueh'] = df['valueh'].replace(0, 0.00001)
+import pandas as pd
 
-# prepare variables
-df['log_valueh'] = np.log(df['valueh']) * df['valueh_avail']
-df['log_rent'] = np.log(df['rent']) * df['rent_avail']
-df['ResidentialxBlack'] = df['Residential'] * df['mblack_1945def']
-
-# identify squares adjacent to existing highways
-hwy_40_squares = df[df['hwy_40'] == 1][['grid_id', 'geometry']].copy()
-all_squares = df[['grid_id', 'geometry']].copy()
-touches_result = gpd.sjoin(
-    all_squares,
-    hwy_40_squares[['geometry']],
-    how='left',
-    predicate='touches'
+from helpers.latex_formatting import export_multiple_regressions
+from analysis.lib.data import load_sample, restrict_to_discretionary, merge_cnn_probs, split_by_candidates, add_cnn_interactions
+from analysis.lib.bootstrap import bootstrap_lpm_table
+from analysis.lib.marginal_effects import marginal_effects_table
+from analysis.lib.specs import (
+    CORE_VARS, HOUSING_VARS, GEO_CONTROLS, LOG_DIST_HWY, HH_CONTROLS, CNN_LOGIT, LOGIT_INTERACTIONS,
+    build_spec, leaveout_except,
 )
-
-# squares that got a match are adjacent to the 1940 network
-adjacent_ids = set(
-    touches_result[touches_result['index_right'].notna()]['grid_id']
-)
-df_restricted = df[~df['grid_id'].isin(adjacent_ids)].copy()
-df_restricted = df[df['hwy_40'] == 0].copy() # drop any remaining 1940 highways that are not adjacent to others
-
 from data_code.candidates import candidate_dict
 
-# direct sample
-out_frames = []
-for city in df_restricted['city'].unique():
-    candidates = candidate_dict[city]
-    controls = df_restricted.loc[(df_restricted['city'] == city) & (df_restricted['grid_id'].isin(candidates))].copy()
-    out_frames.append(controls)
-dir_sample = pd.concat(out_frames, ignore_index=True)
-
-# indirect sample
-out_frames = []
-for city in df_restricted['city'].unique():
-    candidates = candidate_dict[city]
-    controls = df_restricted.loc[(df_restricted['city'] == city) & (~df_restricted['grid_id'].isin(candidates))].copy()
-    out_frames.append(controls)
-ind_sample = pd.concat(out_frames, ignore_index=True)
-
+df = load_sample()
+df = merge_cnn_probs(df, 'predicted_activation-model1*.csv', dataroot='cnn/')
+df = add_cnn_interactions(df)
+dir_sample, ind_sample = split_by_candidates(df, candidate_dict)
 
 demo_vars = ['mblack_1945def', 'Residential', 'ResidentialxBlack',
              'log_valueh', 'log_rent']
