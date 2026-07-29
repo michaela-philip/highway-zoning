@@ -1,6 +1,7 @@
 import numpy as np
 import pandas as pd
 import statsmodels.api as sm
+from types import SimpleNamespace
 
 from helpers.latex_formatting import bootstrap_results_to_namespace, format_regression_results
 
@@ -51,6 +52,36 @@ def bootstrap_lpm(sample, x_vars, n_bootstraps=1000, seed=42, y_var='hwy'):
     ci_lower = np.percentile(boot_coefs, 2.5, axis=0)
     ci_upper = np.percentile(boot_coefs, 97.5, axis=0)
     return beta_hat, boot_coefs, se, ci_lower, ci_upper, y, X
+
+# wrapper to convert bootstrap output into a SimpleNamespace that mimics a statsmodels results object
+def bootstrap_results_to_namespace(beta_hat, boot_coefs, y, X, col_names):
+    """Convert bootstrap output into a SimpleNamespace that mimics a statsmodels results object, so it can be passed to 
+    format_regression_results() for LaTeX export. Returns a SimpleNamespace with attributes: params, bse, pvalues, rsquared, nobs."""
+    n, k = X.shape
+
+    # Standard errors from bootstrap empirical distribution
+    bse = boot_coefs.std(axis=0)
+
+    # Z-scores and two-tailed p-values using normal approximation
+    # (standard in bootstrap inference)
+    z_scores = beta_hat / bse
+    from scipy.stats import norm
+    pvalues = 2 * (1 - norm.cdf(np.abs(z_scores)))
+
+    # R-squared
+    y_hat = X @ beta_hat
+    ss_res = np.sum((y - y_hat) ** 2)
+    ss_tot = np.sum((y - y.mean()) ** 2)
+    rsquared = 1 - ss_res / ss_tot
+
+    results = SimpleNamespace(
+        params=pd.Series(beta_hat, index=col_names),
+        bse=pd.Series(bse, index=col_names),
+        pvalues=pd.Series(pvalues, index=col_names),
+        rsquared=rsquared,
+        nobs=float(n)
+    )
+    return results
 
 
 def bootstrap_lpm_table(sample, x_vars, columns, y_var='hwy', n_bootstraps=1000, seed=42):

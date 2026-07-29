@@ -76,32 +76,3 @@ def export_multiple_regressions(df_dict, caption, label, leaveout = None, widthm
     df = pd.concat(renamed_list, axis = 1)
     df = df.drop(index=leaveout, errors='ignore') if leaveout is not None else df
     _write_latex_table(df, caption, label, widthmultiplier, notes)
-
-
-# wrapper to convert bootstrap output into a SimpleNamespace that mimics a statsmodels results object
-def bootstrap_results_to_namespace(beta_hat, boot_coefs, y, X, col_names):
-    n, k = X.shape
-
-    # Standard errors from bootstrap empirical distribution
-    bse = boot_coefs.std(axis=0)
-
-    # Z-scores and two-tailed p-values using normal approximation
-    # (standard in bootstrap inference)
-    z_scores = beta_hat / bse
-    from scipy.stats import norm
-    pvalues = 2 * (1 - norm.cdf(np.abs(z_scores)))
-
-    # R-squared
-    y_hat = X @ beta_hat
-    ss_res = np.sum((y - y_hat) ** 2)
-    ss_tot = np.sum((y - y.mean()) ** 2)
-    rsquared = 1 - ss_res / ss_tot
-
-    results = SimpleNamespace(
-        params=pd.Series(beta_hat, index=col_names),
-        bse=pd.Series(bse, index=col_names),
-        pvalues=pd.Series(pvalues, index=col_names),
-        rsquared=rsquared,
-        nobs=float(n)
-    )
-    return results
