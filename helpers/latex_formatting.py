@@ -3,22 +3,14 @@ import re
 from types import SimpleNamespace
 import numpy as np
 
-# dictionary of preferred index/variable names
-rename_dict = {
-    'np.log(rent)': '(log) Rent',
-    'np.log(valueh)': '(log) Home Value',
-    'hwy': 'Highway',
-    'mblack_1945def': 'Black',
-    'mblack_1945def:Residential': 'Black x Residential',
-    'mblack_mean_pct': 'Black',
-    'mblack_mean_pct:Residential': 'Black x Residential',
-    'mblack_mean_share': 'Black',
-    'mblack_mean_share:Residential': 'Black x Residential',
-    'distance_to_cbd': 'Distance to CBD',
-    'dist_to_hwy': 'Distance to Nearest Highway (1940)'}
 
-# function to export df as latex table with full page width and add'l formatting
 def format_regression_results(results):
+    """Format a fitted results object (a raw statsmodels result, or the SimpleNamespace
+    produced by bootstrap_results_to_namespace) into a LaTeX-ready single-column
+    DataFrame: one row per coefficient (stacked coef^{stars} over (SE)), plus
+    R-squared/Observations rows. Assumes results.params/.bse/.pvalues are already indexed
+    by friendly display labels (true for everything produced via analysis.lib.specs.build_spec
+    and analysis.lib.bootstrap's fit functions)."""
     df = pd.DataFrame({'coef':results.params, 'stderror': results.bse, 'pvalue': results.pvalues})[1:]
     def sig_coef(row):
         if row['pvalue'] < 0.001:
@@ -36,62 +28,75 @@ def format_regression_results(results):
     df.loc['Observations'] = [f"{int(results.nobs)}"]
     return df
 
-# table with one regression - no concatenating
-def export_single_regression(df, caption, label, widthmultiplier = 1.0, leaveout = None):
-    df = df.rename(rename_dict, axis = 'index')
-    df = df.drop(index=leaveout, errors='ignore') if leaveout is not None else df
-    df = df[~df.index.str.contains(r'^C\(city\)\[.*\]$', na=False, flags=re.IGNORECASE)]
-    
-    # format for latex output
+
+def _wrap_threeparttable(text, widthmultiplier, notes=None):
+    """Swap the Styler-generated `tabular` for a fixed-width `tabular*`, wrapped in
+    `threeparttable` so the notes box is sized to the table's own width rather than the
+    full text width. `notes` is an optional string or list of strings, each rendered as
+    an \\item line in a \\begin{tablenotes} block just below the table.
+
+    Requires \\usepackage{threeparttable} (and \\usepackage{makecell}, already needed for
+    the coefficient cells) in the including document's preamble -- this function only
+    emits the table fragment, not the preamble.
+    """
+    text = text.replace('\\begin{tabular}', f'\\begin{{tabular*}}{{{widthmultiplier}\\textwidth}}')
+    text = text.replace('\\end{tabular}', '\\end{tabular*}')
+    text = text.replace('\\begin{tabular*}', '\\begin{threeparttable}\n\\begin{tabular*}')
+
+    notes_block = ''
+    if notes:
+        if isinstance(notes, str):
+            notes = [notes]
+        items = '\n'.join(f'\\item {note}' for note in notes)
+        notes_block = f'\\begin{{tablenotes}}\n\\small\n{items}\n\\end{{tablenotes}}\n'
+    text = text.replace('\\end{tabular*}', f'\\end{{tabular*}}\n{notes_block}\\end{{threeparttable}}')
+    return text
+
+
+def _write_latex_table(df, caption, label, widthmultiplier, notes):
     num_cols = df.shape[1]
     col_format = '@{\\extracolsep{\\fill}}l*' + f'{{{num_cols}}}' + '{r}'
     text = df.style.format(precision=2).to_latex(position_float = 'centering',
                 caption=caption, position = 'h', label=label, hrules=True, column_format = col_format)
-    text = text.replace('\\begin{tabular}', f'\\begin{{tabular*}}{{{widthmultiplier}\\textwidth}}').replace('\\end{tabular}', '\\end{tabular*}')
+    text = _wrap_threeparttable(text, widthmultiplier, notes)
     filename = label.split(':')[-1] + '.tex'
     with open('tables/' + filename, 'w') as f:
         f.write(text)
 
+
+# table with one regression - no concatenating
+def export_single_regression(df, caption, label, widthmultiplier = 1.0, leaveout = None, notes = None):
+    df = df.drop(index=leaveout, errors='ignore') if leaveout is not None else df
+    _write_latex_table(df, caption, label, widthmultiplier, notes)
+
+
 # table with multiple regressions - definition of 'Black' as column title
-def export_multiple_regressions(df_dict, caption, label, leaveout = None):
-    def standardize_index(df):
-        return df.rename(rename_dict, axis = 'index')
-    renamed_list = [
-        standardize_index(df.rename(columns = {'Coefficient': title}))
-                                    for title, df in df_dict.items()]    
+def export_multiple_regressions(df_dict, caption, label, leaveout = None, widthmultiplier = 1.0, notes = None):
+    renamed_list = [df.rename(columns = {'Coefficient': title}) for title, df in df_dict.items()]
     df = pd.concat(renamed_list, axis = 1)
     df = df.drop(index=leaveout, errors='ignore') if leaveout is not None else df
-    df = df[~df.index.str.contains(r'^C\(city\)\[.*\]$', na=False, flags=re.IGNORECASE)]
-    
-    # format for latex output
-    num_cols = df.shape[1]
-    col_format = '@{\\extracolsep{\\fill}}l*' + f'{{{num_cols}}}' + '{r}'
-    text = df.style.format(precision=2).to_latex(position_float = 'centering',
-                caption=caption, position = 'h', label=label, hrules=True, column_format = col_format)
-    text = text.replace('\\begin{tabular}', f'\\begin{{tabular*}}{{\\textwidth}}').replace('\\end{tabular}', '\\end{tabular*}')
-    filename = label.split(':')[-1] + '.tex'
-    with open('tables/' + filename, 'w') as f:
-        f.write(text)
+    _write_latex_table(df, caption, label, widthmultiplier, notes)
+
 
 # wrapper to convert bootstrap output into a SimpleNamespace that mimics a statsmodels results object
 def bootstrap_results_to_namespace(beta_hat, boot_coefs, y, X, col_names):
     n, k = X.shape
-    
+
     # Standard errors from bootstrap empirical distribution
     bse = boot_coefs.std(axis=0)
-    
+
     # Z-scores and two-tailed p-values using normal approximation
     # (standard in bootstrap inference)
     z_scores = beta_hat / bse
     from scipy.stats import norm
     pvalues = 2 * (1 - norm.cdf(np.abs(z_scores)))
-    
+
     # R-squared
     y_hat = X @ beta_hat
     ss_res = np.sum((y - y_hat) ** 2)
     ss_tot = np.sum((y - y.mean()) ** 2)
     rsquared = 1 - ss_res / ss_tot
-    
+
     results = SimpleNamespace(
         params=pd.Series(beta_hat, index=col_names),
         bse=pd.Series(bse, index=col_names),
