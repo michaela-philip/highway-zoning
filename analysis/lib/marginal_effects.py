@@ -168,3 +168,77 @@ def marginal_effects_table(df, x_vars, columns, beta, boot_coefs=None,
         all_results[sv] = cell_estimates
 
     return all_results if sweep_var is not None else all_results[None]
+
+def export_marginal_effects_table(results, caption, label, widthmultiplier=0.6, column_labels=None):
+      """
+      Export marginal_effects_table() output as a LaTeX table of contrasts (protection
+      effects, racial gap, disparate protection), each cell shown as diff^{stars} over (SE),
+      recomputed from the paired bootstrap draws already stored per cell.
+
+      Works uniformly whether `results` is:
+        - a single {cell_label: (point, se, boot_draws)} dict (no sweep) -> one column, or
+        - a {sweep_value: {cell_label: (point, se, boot_draws)}} dict (sweep_var set)
+          -> one column per sweep value.
+
+      column_labels optionally renames sweep-value keys to column headers
+      (e.g. {v: f'{v:.2f}' for v in sweep_values}); ignored in the single-spec case.
+      """
+      def stars(p):
+          return '^{***}' if p < 0.01 else '^{**}' if p < 0.05 else '^{*}' if p < 0.10 else ''
+
+      def diff_cell(cell_estimates, a, b):
+          pa, _, boota = cell_estimates[a]
+          pb, _, bootb = cell_estimates[b]
+          diff = pa - pb
+          if boota is None or bootb is None:
+              return f"{diff:.3f}"
+          boot_diff = boota - bootb
+          se_val = np.std(boot_diff)
+          p_val = 2 * min((boot_diff > 0).mean(), (boot_diff < 0).mean())
+          return f"\\makecell[tr]{{{diff:.3f}{stars(p_val)} \\\\ ({se_val:.3f})}}"
+
+      def build_column(cell_estimates):
+          rows = {}
+          for label, (point, se, _) in cell_estimates.items():
+              rows[label] = f"{point:.3f}" if se is None else f"\\makecell[tr]{{{point:.3f} \\\\ ({se:.3f})}}"
+          for clabel, (a, b) in CONTRASTS.items():
+              rows[clabel] = diff_cell(cell_estimates, a, b)
+
+          p_bnr, _, b_bnr = cell_estimates['Black Non-Residential']
+          p_br,  _, b_br  = cell_estimates['Black Residential']
+          p_wnr, _, b_wnr = cell_estimates['White Non-Residential']
+          p_wr,  _, b_wr  = cell_estimates['White Residential']
+          did = p_bnr - p_br - p_wnr + p_wr
+          if b_bnr is not None:
+              boot_did = b_bnr - b_br - b_wnr + b_wr
+              se_val = np.std(boot_did)
+              p_val = 2 * min((boot_did > 0).mean(), (boot_did < 0).mean())
+              rows['Disparate Protection (DiD)'] = f"\\makecell[tr]{{{did:.3f}{stars(p_val)} \\\\ ({se_val:.3f})}}"
+          else:
+              rows['Disparate Protection (DiD)'] = f"{did:.3f}"
+          return rows
+
+      # single-spec values are 3-tuples; sweep values are themselves dicts -- normalize both
+      # to "one column per key" so the rest of the function doesn't need to branch again
+      is_sweep = all(isinstance(v, dict) for v in results.values())
+      if is_sweep:
+          columns = {(column_labels or {}).get(k, k): build_column(v) for k, v in results.items()}
+      else:
+          columns = {'Estimate': build_column(results)}
+
+      row_order = list(next(iter(columns.values())).keys())
+      table = pd.DataFrame(columns).reindex(row_order)
+      table.index.name = None
+
+      num_cols = table.shape[1]
+      col_format = '@{\\extracolsep{\\fill}}l*' + f'{{{num_cols}}}' + '{r}'
+      text = table.style.format(precision=3).to_latex(
+          position_float='centering', caption=caption, position='h',
+          label=label, hrules=True, column_format=col_format,
+      )
+      text = text.replace('\\begin{tabular}', f'\\begin{{tabular*}}{{{widthmultiplier}\\textwidth}}') \
+                 .replace('\\end{tabular}', '\\end{tabular*}')
+      filename = label.split(':')[-1] + '.tex'
+      with open(f'tables/' + filename, 'w') as f:
+          f.write(text)
+      print(f'saved: {filename}')
