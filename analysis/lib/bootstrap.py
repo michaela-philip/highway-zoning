@@ -194,15 +194,17 @@ def bootstrap_ppml_table(df, x_vars, columns, y_var='hwy', n_bootstraps=500, see
     """Bootstrap a PPML fit and return the shared (table, beta, se, boot_coefs) shape --
     see module docstring. Mirrors bootstrap_lpm_table's call signature exactly (just add
     strata_var), so a script can switch between the two by changing only the function name.
-    Note: the exported table's R-squared is the linear R^2 of the PPML linear index against
-    y_var (via bootstrap_results_to_namespace), not a Poisson deviance R^2 -- a rough
-    diagnostic only, consistent with how the LPM table's R-squared is computed."""
+    The exported table's R-squared row is a deviance-based pseudo R^2
+    (1 - deviance/null_deviance) from the analytic GLM fit, labeled 'Pseudo R-squared' --
+    not the crude linear R^2 that bootstrap_results_to_namespace computes by default (that
+    one assumes an identity link, wrong for PPML's log link)."""
     beta_hat, boot_coefs, se, ci_lower, ci_upper, y, X, full_model = bootstrap_ppml(
         df, x_vars, y_var=y_var, n_bootstraps=n_bootstraps, seed=seed, strata_var=strata_var
     )
     valid = ~np.isnan(boot_coefs).any(axis=1)
     namespace = bootstrap_results_to_namespace(beta_hat, boot_coefs[valid], y, X, col_names=columns)
-    table = format_regression_results(namespace)
+    namespace.rsquared = 1 - full_model.deviance / full_model.null_deviance
+    table = format_regression_results(namespace, r2_label='Pseudo R-squared')
     beta = pd.Series(beta_hat, index=columns)
     se = pd.Series(se, index=columns)
     return table, beta, se, boot_coefs
