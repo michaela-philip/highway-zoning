@@ -148,7 +148,7 @@ def balance_test(df_direct, df_indirect, demo_vars, geo_vars, var_labels=None,
     "Panel A contains this comparison for grid squares that are intersected by a highway, while Panel B contains this comparison for grid squares that are not intersected by a highway." \
     " *p<0.10, ** p<0.05, *** p<0.01"
     export_balance_panels(results_df, var_labels, 'balance_test',
-                            'Balance Test: Direct vs. Indirect Samples')
+                            'Balance Test: Direct vs. Indirect Samples', notes = notes)
 
     # print formatted table
     print("="*80)
