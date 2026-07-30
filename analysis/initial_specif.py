@@ -11,15 +11,20 @@ from analysis.lib.specs import (
 )
 
 df = load_sample()
-df_restricted = restrict_to_discretionary(df)
 
-x_vars, columns = build_spec(df_restricted, CORE_VARS, HOUSING_VARS, GEO_CONTROLS, LOG_DIST_HWY, HH_CONTROLS)
+x_vars, columns = build_spec(df, CORE_VARS, HOUSING_VARS, GEO_CONTROLS, LOG_DIST_HWY, HH_CONTROLS)
 
-results_wholesample, *_ = fit_ols(df_restricted, x_vars, columns)
+results_wholesample, *_ = fit_ols(df, x_vars, columns)
+notes = "This table contains estimates of the impact of residential zoning and majority-Black status on the likelihood of highway placement using a linear probability model on the full sample of grid squares. " \
+"Standard errors are reported in parenthesis and estimated using OLS. The model includes controls for housing, geographic, and demographic characteristics, as well as city fixed effects." \
+
+keep = [label for _, label in CORE_VARS + HOUSING_VARS + GEO_CONTROLS + LOG_DIST_HWY + HH_CONTROLS]
+
 export_single_regression(
     results_wholesample,
-    caption='Determinants of Highway Placement - Full Sample',
-    label='tab:wholesample_results',
+    caption='Determinants of Highway Placement - Control Variables Only',
+    label='tab:wholesample_results_no_cnn',
     widthmultiplier=0.7,
     leaveout=leaveout_except(columns, keep=[label for _, label in CORE_VARS]),
+    notes = notes
 )
