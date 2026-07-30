@@ -4,13 +4,15 @@ from types import SimpleNamespace
 import numpy as np
 
 
-def format_regression_results(results):
+def format_regression_results(results, r2_label='R-squared'):
     """Format a fitted results object (a raw statsmodels result, or the SimpleNamespace
     produced by bootstrap_results_to_namespace) into a LaTeX-ready single-column
     DataFrame: one row per coefficient (stacked coef^{stars} over (SE)), plus
-    R-squared/Observations rows. Assumes results.params/.bse/.pvalues are already indexed
+    r2_label/Observations rows. Assumes results.params/.bse/.pvalues are already indexed
     by friendly display labels (true for everything produced via analysis.lib.specs.build_spec
-    and analysis.lib.bootstrap's fit functions)."""
+    and analysis.lib.bootstrap's fit functions). Pass r2_label='Pseudo R-squared' (or similar)
+    when results.rsquared isn't an OLS-style R^2 -- e.g. bootstrap_ppml_table overrides
+    results.rsquared with a deviance-based pseudo R^2 and labels it accordingly."""
     df = pd.DataFrame({'coef':results.params, 'stderror': results.bse, 'pvalue': results.pvalues})[1:]
     def sig_coef(row):
         if row['pvalue'] < 0.001:
@@ -24,7 +26,7 @@ def format_regression_results(results):
     df['Coefficient'] = df.apply(
         lambda row: f"\\makecell[tr]{{{sig_coef(row)} \\\\ ({row['stderror']:.3f})}}", axis=1)
     df = df[['Coefficient']]
-    df.loc['R-squared'] = [f"{results.rsquared:.3f}"]
+    df.loc[r2_label] = [f"{results.rsquared:.3f}"]
     df.loc['Observations'] = [f"{int(results.nobs)}"]
     return df
 
@@ -56,7 +58,7 @@ def _wrap_threeparttable(text, widthmultiplier, notes=None):
 def _write_latex_table(df, caption, label, widthmultiplier, notes):
     num_cols = df.shape[1]
     col_format = '@{\\extracolsep{\\fill}}l*' + f'{{{num_cols}}}' + '{r}'
-    text = df.style.format(precision=2).to_latex(position_float = 'centering',
+    text = df.style.format(precision=2, na_rep = '').to_latex(position_float = 'centering',
                 caption=caption, position = 'h', label=label, hrules=True, column_format = col_format)
     text = _wrap_threeparttable(text, widthmultiplier, notes)
     filename = label.split(':')[-1] + '.tex'
@@ -74,5 +76,6 @@ def export_single_regression(df, caption, label, widthmultiplier = 1.0, leaveout
 def export_multiple_regressions(df_dict, caption, label, leaveout = None, widthmultiplier = 1.0, notes = None):
     renamed_list = [df.rename(columns = {'Coefficient': title}) for title, df in df_dict.items()]
     df = pd.concat(renamed_list, axis = 1)
+    df = df.reindex([i for i in df.index if i not in ('R-squared', 'Observations')] + ['R-squared', 'Observations'])
     df = df.drop(index=leaveout, errors='ignore') if leaveout is not None else df
     _write_latex_table(df, caption, label, widthmultiplier, notes)
