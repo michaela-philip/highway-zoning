@@ -3,7 +3,7 @@ import pandas as pd
 import statsmodels.api as sm
 from types import SimpleNamespace
 
-from helpers.latex_formatting import bootstrap_results_to_namespace, format_regression_results
+from helpers.latex_formatting import format_regression_results
 
 # All three "table" fit functions below (fit_ols, bootstrap_lpm_table, bootstrap_ppml_table)
 # share one call signature and return shape:
