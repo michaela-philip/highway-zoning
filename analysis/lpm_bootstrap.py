@@ -29,6 +29,20 @@ x_vars, columns = build_spec(df, CORE_VARS, CNN_LOGIT, LOGIT_INTERACTIONS, HOUSI
 whole_int_results, *_ = bootstrap_lpm_table(df, x_vars, columns)
 print('whole sample with interactions:', whole_int_results)
 
+keep = [label for _, label in CORE_VARS + CNN_LOGIT + LOGIT_INTERACTIONS]
+
+notes = "This table contains estimates of the impact of residential zoning and majority-Black status on the likelihood of highway placement using a linear probability model on the full sample of grid squares." \
+"Standard errors are reported in parenthesis and estimated using a bootstrap procedure with 1,000 draws. The model includes controls for housing, geographic, and demographic characteristics, as well as city fixed effects and a measure of geographic suitability for highway placement, estimated as a logit by a Convolutional Neural Network (CNN)." \
+"Column 2 also includes the interaction between the CNN logit and the variables of interest." \
+"* p<0.10, ** p<0.05, *** p<0.01"
+
+export_multiple_regressions(
+    {"Full Sample": whole_results, "Full Sample with Interacted CNN Logit": whole_int_results},
+    caption="Determinants of Highway Placement - Full Sample",
+    label='tab:full_sample_results',
+    leaveout=leaveout_except(columns, keep=keep)
+)
+
 # discretionary sample - no interaction with hwy_logit
 discretionary_results, *_ = bootstrap_lpm_table(df_restricted, x_vars_no_int, columns_no_int)
 print('discretionary sample without interactions:', discretionary_results)
@@ -36,6 +50,20 @@ print('discretionary sample without interactions:', discretionary_results)
 # discretionary sample - interaction with hwy_logit
 discretionary_int_results, beta, se, boot_coefs = bootstrap_lpm_table(df_restricted, x_vars, columns)
 print('discretionary sample with interactions:', discretionary_int_results)
+
+notes = "This table contains estimates of the impact of residential zoning and majority-Black status on the likelihood of highway placement using a linear probability model on a subset of grid squares designated as discretionary." \
+"The discretionary sample excludes grid squares that are intersected by a highway in 1940 or are directly adjacent to a highway in 1940. " \
+"Standard errors are reported in parenthesis and estimated using a bootstrap procedure with 1,000 draws. The model includes controls for housing, geographic, and demographic characteristics, as well as city fixed effects and a measure of geographic suitability for highway placement, estimated as a logit by a Convolutional Neural Network (CNN)." \
+"Column 2 also includes the interaction between the CNN logit and the variables of interest." \
+"* p<0.10, ** p<0.05, *** p<0.01"
+
+export_multiple_regressions(
+    {"Discretionary Sample": discretionary_results, "Discretionary Sample with Interacted CNN Logit": discretionary_int_results},
+    caption="Determinants of Highway Placement - Discretionary Sample",
+    label='tab:discretionary_sample_results',
+    leaveout=leaveout_except(columns, keep=keep),
+    notes = notes   
+)
 
 # marginal effects 
 sweep_values = df_restricted['logit_hwy'].quantile([0.10, 0.25, 0.50, 0.75, 0.90]).tolist()
