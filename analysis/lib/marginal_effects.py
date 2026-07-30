@@ -2,6 +2,7 @@ import numpy as np
 import pandas as pd
 
 from analysis.lib.specs import CORE_VARS
+from helpers.latex_formatting import _wrap_threeparttable, _write_latex_table
 
 CELLS = {
     'White Non-Residential': (0, 0),
@@ -169,7 +170,7 @@ def marginal_effects_table(df, x_vars, columns, beta, boot_coefs=None,
 
     return all_results if sweep_var is not None else all_results[None]
 
-def export_marginal_effects_table(results, caption, label, widthmultiplier=0.6, column_labels=None):
+def export_marginal_effects_table(results, caption, label, widthmultiplier=0.6, notes=None, column_labels=None):
       """
       Export marginal_effects_table() output as a LaTeX table of contrasts (protection
       effects, racial gap, disparate protection), each cell shown as diff^{stars} over (SE),
@@ -230,15 +231,4 @@ def export_marginal_effects_table(results, caption, label, widthmultiplier=0.6, 
       table = pd.DataFrame(columns).reindex(row_order)
       table.index.name = None
 
-      num_cols = table.shape[1]
-      col_format = '@{\\extracolsep{\\fill}}l*' + f'{{{num_cols}}}' + '{r}'
-      text = table.style.format(precision=3).to_latex(
-          position_float='centering', caption=caption, position='h',
-          label=label, hrules=True, column_format=col_format,
-      )
-      text = text.replace('\\begin{tabular}', f'\\begin{{tabular*}}{{{widthmultiplier}\\textwidth}}') \
-                 .replace('\\end{tabular}', '\\end{tabular*}')
-      filename = label.split(':')[-1] + '.tex'
-      with open(f'tables/' + filename, 'w') as f:
-          f.write(text)
-      print(f'saved: {filename}')
+      _write_latex_table(table, caption, label, widthmultiplier, notes)
