@@ -36,7 +36,7 @@ GEO_CONTROLS = [
 ]
 
 HH_CONTROLS = [
-    ('owner', 'Owner'),
+    ('owner', 'Percent Owner-Occupied'),
     ('numprec', 'Number of Residents'),
 ]
 
