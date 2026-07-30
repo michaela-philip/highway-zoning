@@ -34,6 +34,7 @@ def group_summary_table(df, group_var, group_labels, rows):
         for val, col_label in group_labels.items()
     }, index=rows)
     table.loc['Total Households'] = [f"{totals.loc[val]:.0f}" for val in group_labels]
+    table.loc['Total Squares'] = [f"{len(df.loc[df[group_var] == val]):.0f}" for val in group_labels]
     return table
 
 
@@ -49,18 +50,21 @@ sum_stats = pd.DataFrame({
     'Std': sample[whole_sample_rows].std(),
     'N': sample[whole_sample_rows].count(),
 })
-export_table(sum_stats, caption='Sample Grid Summary Statistics', label='tab:summary_stats')
+notes = "This table contains summary statistics for the full sample of grid squares. The table reports the mean, standard deviation, and number of observations for each variable."
+export_table(sum_stats, caption='Sample Grid Summary Statistics', label='tab:summary_stats', notes = notes)
 
 # --- summary statistics by zoning designation ---
 zoning_rows = ['Residents', 'Households', 'Median Rent', 'Median Home Value', 'Percent Black',
                'Highway Present (1940)', 'Highway Present (1959)', 'Highway Constructed (1940-1959)']
 zoning_table = group_summary_table(sample, 'Residential', {0: 'Industrial', 1: 'Residential'}, zoning_rows)
-export_table(zoning_table, caption='Summary Statistics by Zoning Designation', label='tab:summary_stats_zone')
+notes = "This table contains summary statistics for the full sample of grid squares, split by zoning designation. The table reports the mean and standard deviation (in parentheses) for each variable, as well as the total number of households in each zoning category."
+export_table(zoning_table, caption='Summary Statistics by Zoning Designation', label='tab:summary_stats_zone', notes = notes)
 
 # --- summary statistics by racial designation ---
 race_rows = ['Residents', 'Households', 'Median Rent', 'Median Home Value', 'Residential',
              'Highway Present (1940)', 'Highway Present (1959)', 'Highway Constructed (1940-1959)']
 race_table = group_summary_table(sample, 'mblack_1945def', {0: 'White', 1: 'Black'}, race_rows)
-export_table(race_table, caption='Summary Statistics by Racial Designation', label='tab:summary_stats_race')
+notes = "This table contains summary statistics for the full sample of grid squares, split by racial designation. The table reports the mean and standard deviation (in parentheses) for each variable, as well as the total number of households in each racial category."
+export_table(race_table, caption='Summary Statistics by Racial Designation', label='tab:summary_stats_race', notes = notes)
 
 print('saved: tables/summary_stats.tex, tables/summary_stats_zone.tex, tables/summary_stats_race.tex')
