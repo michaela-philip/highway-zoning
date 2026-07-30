@@ -2,7 +2,7 @@ import numpy as np
 import pandas as pd
 
 from analysis.lib.specs import CORE_VARS
-from helpers.latex_formatting import _wrap_threeparttable, _write_latex_table
+from helpers.latex_formatting import _wrap_threeparttable, export_table
 
 CELLS = {
     'White Non-Residential': (0, 0),
@@ -231,4 +231,4 @@ def export_marginal_effects_table(results, caption, label, widthmultiplier=0.6, 
       table = pd.DataFrame(columns).reindex(row_order)
       table.index.name = None
 
-      _write_latex_table(table, caption, label, widthmultiplier, notes)
+      export_table(table, caption, label, widthmultiplier, notes)

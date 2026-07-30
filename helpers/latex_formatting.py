@@ -55,7 +55,12 @@ def _wrap_threeparttable(text, widthmultiplier, notes=None):
     return text
 
 
-def _write_latex_table(df, caption, label, widthmultiplier, notes):
+def export_table(df, caption, label, widthmultiplier = 1.0, notes = None):
+    """Export an arbitrary already-formatted DataFrame (any columns, not just regression
+    results) as a threeparttable/tabular* LaTeX table -- the same formatting/export
+    machinery export_single_regression/export_multiple_regressions use internally, exposed
+    directly for tables that aren't per-variable regression coefficients (e.g. descriptive
+    summary statistics)."""
     num_cols = df.shape[1]
     col_format = '@{\\extracolsep{\\fill}}l*' + f'{{{num_cols}}}' + '{r}'
     text = df.style.format(precision=2, na_rep = '').to_latex(position_float = 'centering',
@@ -69,7 +74,7 @@ def _write_latex_table(df, caption, label, widthmultiplier, notes):
 # table with one regression - no concatenating
 def export_single_regression(df, caption, label, widthmultiplier = 1.0, leaveout = None, notes = None):
     df = df.drop(index=leaveout, errors='ignore') if leaveout is not None else df
-    _write_latex_table(df, caption, label, widthmultiplier, notes)
+    export_table(df, caption, label, widthmultiplier, notes)
 
 
 # table with multiple regressions - definition of 'Black' as column title
@@ -78,4 +83,4 @@ def export_multiple_regressions(df_dict, caption, label, leaveout = None, widthm
     df = pd.concat(renamed_list, axis = 1)
     df = df.reindex([i for i in df.index if i not in ('R-squared', 'Observations')] + ['R-squared', 'Observations'])
     df = df.drop(index=leaveout, errors='ignore') if leaveout is not None else df
-    _write_latex_table(df, caption, label, widthmultiplier, notes)
+    export_table(df, caption, label, widthmultiplier, notes)

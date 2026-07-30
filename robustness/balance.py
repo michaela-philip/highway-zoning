@@ -12,7 +12,7 @@ from analysis.lib.data import load_sample, restrict_to_discretionary, split_by_c
 from analysis.lib.bootstrap import fit_ols, bootstrap_lpm_table
 from analysis.lib.specs import CORE_VARS, HH_CONTROLS, HOUSING_VARS, GEO_CONTROLS, LOG_DIST_HWY, CNN_LOGIT, build_spec
 from data_code.candidates import candidate_dict
-from helpers.latex_formatting import export_single_regression, _write_latex_table, _wrap_threeparttable, format_regression_results
+from helpers.latex_formatting import export_single_regression, export_table, _wrap_threeparttable, format_regression_results
 
 
 def balance_test(df_direct, df_indirect, demo_vars, geo_vars, var_labels=None,
