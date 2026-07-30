@@ -1,8 +1,9 @@
 \begin{table}[h]
 \centering
-\caption{Robustness to Majority-Black Threshold (\% Black Required for mblack\_1945def = 1)}
+\caption{Robustness to Majority-Black Threshold (\% Black Required for Classification)}
 \label{tab:robustness/mblack_threshold}
-\begin{tabular*}{\textwidth}{@{\extracolsep{\fill}}l*{9}{r}}
+\begin{threeparttable}
+\begin{tabular*}{1.0\textwidth}{@{\extracolsep{\fill}}l*{9}{r}}
 \toprule
  & 30\% & 35\% & 40\% & 45\% & 50\% & 55\% & 60\% & 65\% & 70\% \\
 \midrule
@@ -13,4 +14,9 @@ R-squared & 0.048 & 0.048 & 0.050 & 0.050 & 0.051 & 0.052 & 0.055 & 0.050 & 0.04
 Observations & 3141 & 3141 & 3141 & 3141 & 3141 & 3141 & 3141 & 3141 & 3141 \\
 \bottomrule
 \end{tabular*}
+\begin{tablenotes}
+\small
+\item This table shows a collection of results testing the impact that different definitions of `Majority Black' have on the estimated impact of Residential zoning and Majority Black status for grid squares outside of the highway corridor.Black is an indicator variable equal to 1 if the grid square has a population where the percentage of Black residents is greater than or equal to the threshold indicated in the column header. Each column represents a separate regression where the definition of `Majority Black' is varied from 30% to 70%. Standard errors are reported in parenthesis and estimated using a bootstrap procedure with 1,000 draws. The model includes all controls included in the main analysis:variables related to housing, geographic, and demographic characteristics, as well as city fixed effects. The model also includes the logit values produced by the CNN and its interactions with the other variables.
+\end{tablenotes}
+\end{threeparttable}
 \end{table}

@@ -1,0 +1,26 @@
+\begin{table}[h]
+\centering
+\caption{Determinants of Highway Placement - Discretionary Sample}
+\label{tab:discretionary_sample_results}
+\begin{threeparttable}
+\begin{tabular*}{1.0\textwidth}{@{\extracolsep{\fill}}l*{2}{r}}
+\toprule
+ & Discretionary Sample & Discretionary Sample with Interacted CNN Logit \\
+\midrule
+Residential & \makecell[tr]{-0.013^{*} \\ (0.006)} & \makecell[tr]{-0.200^{**} \\ (0.066)} \\
+Black & \makecell[tr]{0.001 \\ (0.010)} & \makecell[tr]{0.053 \\ (0.119)} \\
+Residential x Black & \makecell[tr]{-0.015 \\ (0.011)} & \makecell[tr]{-0.139 \\ (0.124)} \\
+CNN Logit & \makecell[tr]{0.033^{***} \\ (0.004)} & \makecell[tr]{0.061^{***} \\ (0.012)} \\
+Black x CNN Logit &  & \makecell[tr]{0.010 \\ (0.022)} \\
+Residential x CNN Logit &  & \makecell[tr]{-0.038^{**} \\ (0.012)} \\
+Residential x Black x CNN Logit &  & \makecell[tr]{-0.025 \\ (0.023)} \\
+R-squared & 0.076 & 0.096 \\
+Observations & 5301 & 5301 \\
+\bottomrule
+\end{tabular*}
+\begin{tablenotes}
+\small
+\item This table contains estimates of the impact of residential zoning and majority-Black status on the likelihood of highway placement using a sample of grid squares that are discretionary for highway placement.The discretionary sample excludes grid squares that are intersected by a highway in 1940 or are directly adjacent to a highway in 1940. Standard errors are reported in parenthesis and estimated using a bootstrap procedure with 1,000 draws. The model includes controls for housing, geographic, and demographic characteristics, as well as city fixed effects and a measure of geographic suitability for highway placement, estimated as a logit by a Convolutional Neural Network (CNN).Column 2 also includes the interaction between the CNN logit and the variables of interest.* p<0.10, ** p<0.05, *** p<0.01
+\end{tablenotes}
+\end{threeparttable}
+\end{table}

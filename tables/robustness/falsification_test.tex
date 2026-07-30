@@ -1,0 +1,23 @@
+\begin{table}[h]
+\centering
+\caption{Falsification Test: Effect of Corridor Membership on Demographics}
+\label{tab:robustness/falsification_test}
+\begin{threeparttable}
+\begin{tabular*}{0.8\textwidth}{@{\extracolsep{\fill}}l*{1}{r}}
+\toprule
+ & Coefficient \\
+\midrule
+Residential & \makecell[tr]{-0.002 \\ (0.009)} \\
+Black & \makecell[tr]{0.010 \\ (0.009)} \\
+Residential x Black & \makecell[tr]{0.004 \\ (0.008)} \\
+Log(Value) & \makecell[tr]{-0.106 \\ (0.066)} \\
+Log(Rent) & \makecell[tr]{0.011 \\ (0.029)} \\
+Observations & 6750 \\
+\bottomrule
+\end{tabular*}
+\begin{tablenotes}
+\small
+\item This table shows the results of a falsification test to assess whether location outside of the highway corridor predicts demographic characteristics, conditional on geographic controls. Each row corresponds to a separate regression of a demographic variable on the corridor indicator and geographic controls. Standard errors are estimated using a bootstrap procedure with 1,000 draws. Insignificant results suggest that, conditional on geographic characteristics, location inside or outside the highway corridor does not predict demographic characteristics.* p<0.10, ** p<0.05, *** p<0.01
+\end{tablenotes}
+\end{threeparttable}
+\end{table}

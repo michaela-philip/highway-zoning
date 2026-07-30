@@ -1,0 +1,26 @@
+\begin{table}[h]
+\centering
+\caption{Marginal Effects of Residential Zoning and Majority-Black Status on Highway Placement - Outside Highway Corridor}
+\label{tab:marginal_effects_indir}
+\begin{threeparttable}
+\begin{tabular*}{0.6\textwidth}{@{\extracolsep{\fill}}l*{1}{r}}
+\toprule
+ & -5.044192 \\
+\midrule
+White Non-Residential & \makecell[tr]{0.032 \\ (0.009)} \\
+White Residential & \makecell[tr]{0.004 \\ (0.002)} \\
+Black Non-Residential & \makecell[tr]{0.008 \\ (0.004)} \\
+Black Residential & \makecell[tr]{0.002 \\ (0.003)} \\
+Protection effect (White): Non-Res vs Res & \makecell[tr]{0.028^{***} \\ (0.010)} \\
+Protection effect (Black): Non-Res vs Res & \makecell[tr]{0.007 \\ (0.004)} \\
+Racial gap (Non-Residential): White vs Black & \makecell[tr]{0.024^{***} \\ (0.007)} \\
+Racial gap (Residential): White vs Black & \makecell[tr]{0.003 \\ (0.004)} \\
+Disparate Protection (DiD) & \makecell[tr]{-0.021^{***} \\ (0.008)} \\
+\bottomrule
+\end{tabular*}
+\begin{tablenotes}
+\small
+\item This table contains predicted outcomes for each square in the sample based on their residential and majority-Black status, holding all other variables at their mean. The marginal effect of residential zoning and majority-Black statusis calculated as the difference in predicted outcomes between squares with and without these characteristics. These marginal effects are calculated based on the coefficients reported in Table \ref{tab:indirect_results}. * p<0.10, ** p<0.05, *** p<0.01
+\end{tablenotes}
+\end{threeparttable}
+\end{table}

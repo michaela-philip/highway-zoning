@@ -1,0 +1,22 @@
+\begin{table}[h]
+\centering
+\caption{Determinants of Highway Placement - Full Sample}
+\label{tab:full_sample_results}
+\begin{threeparttable}
+\begin{tabular*}{1.0\textwidth}{@{\extracolsep{\fill}}l*{2}{r}}
+\toprule
+ & Full Sample & Full Sample with Interacted CNN Logit \\
+\midrule
+Residential & \makecell[tr]{-0.004 \\ (0.005)} & \makecell[tr]{-0.147^{*} \\ (0.058)} \\
+Black & \makecell[tr]{0.002 \\ (0.008)} & \makecell[tr]{0.019 \\ (0.103)} \\
+Residential x Black & \makecell[tr]{-0.009 \\ (0.009)} & \makecell[tr]{0.019 \\ (0.126)} \\
+CNN Logit & \makecell[tr]{0.037^{***} \\ (0.004)} & \makecell[tr]{0.057^{***} \\ (0.010)} \\
+Black x CNN Logit &  & \makecell[tr]{0.003 \\ (0.019)} \\
+Residential x CNN Logit &  & \makecell[tr]{-0.029^{**} \\ (0.011)} \\
+Residential x Black x CNN Logit &  & \makecell[tr]{0.005 \\ (0.024)} \\
+R-squared & 0.078 & 0.086 \\
+Observations & 6750 & 6750 \\
+\bottomrule
+\end{tabular*}
+\end{threeparttable}
+\end{table}
