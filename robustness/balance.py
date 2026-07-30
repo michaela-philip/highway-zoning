@@ -9,10 +9,10 @@ from scipy import stats
 from types import SimpleNamespace
 
 from analysis.lib.data import load_sample, restrict_to_discretionary, split_by_candidates, merge_cnn_probs
-from analysis.lib.bootstrap import fit_ols
-from analysis.lib.specs import CORE_VARS, HOUSING_VARS, GEO_CONTROLS, LOG_DIST_HWY, CNN_LOGIT, build_spec
+from analysis.lib.bootstrap import fit_ols, bootstrap_lpm_table
+from analysis.lib.specs import CORE_VARS, HH_CONTROLS, HOUSING_VARS, GEO_CONTROLS, LOG_DIST_HWY, CNN_LOGIT, build_spec
 from data_code.candidates import candidate_dict
-from helpers.latex_formatting import export_single_regression
+from helpers.latex_formatting import export_single_regression, _write_latex_table, _wrap_threeparttable, format_regression_results
 
 
 def balance_test(df_direct, df_indirect, demo_vars, geo_vars, var_labels=None,
@@ -100,7 +100,7 @@ def balance_test(df_direct, df_indirect, demo_vars, geo_vars, var_labels=None,
 
     results_df = pd.DataFrame(results)
 
-    def export_balance_panels(results_df, var_labels, filename, caption, widthmultiplier=0.9):
+    def export_balance_panels(results_df, var_labels, label, caption, widthmultiplier=0.9, notes=None):
         panels = [('Highway', 'Panel A: Highway Squares'),
                     ('Non-Highway', 'Panel B: Non-Highway Squares')]
 
@@ -114,7 +114,7 @@ def balance_test(df_direct, df_indirect, demo_vars, geo_vars, var_labels=None,
                             for d, se, s in zip(sub['diff'], sub['boot_se'], stars)]
             table = sub.assign(Variable=sub['variable'].map(lambda v: var_labels.get(v, v))) \
                         .set_index('Variable')[['mean_direct', 'mean_indirect', 'Diff', 'smd']]
-            table.columns = ['Direct', 'Indirect', 'Diff', 'SMD']
+            table.columns = ['Inside Corridor', 'Outside Corridor', 'Diff', 'SMD']
             spanner = pd.DataFrame([[''] * table.shape[1]], columns=table.columns, index=[panel_title])
             return pd.concat([spanner, table])
 
@@ -125,7 +125,7 @@ def balance_test(df_direct, df_indirect, demo_vars, geo_vars, var_labels=None,
         col_format = '@{\\extracolsep{\\fill}}l*' + f'{{{num_cols}}}' + '{r}'
         text = combined.style.format(precision=3).to_latex(
             position_float='centering', caption=caption, position='h',
-            label=f'tab:{filename}', hrules=True, column_format=col_format,
+            label=f'tab:{label}', hrules=True, column_format=col_format,
         )
     
         # swap each blank spanner row for a bolded, full-width panel header
@@ -135,15 +135,19 @@ def balance_test(df_direct, df_indirect, demo_vars, geo_vars, var_labels=None,
                 if line.strip().startswith(title):
                     lines[i] = f'\\multicolumn{{{num_cols + 1}}}{{l}}{{\\textbf{{{title}}}}} \\\\'
         text = '\n'.join(lines)
-
-        text = text.replace('\\begin{tabular}', f'\\begin{{tabular*}}{{{widthmultiplier}\\textwidth}}') \
-                    .replace('\\end{tabular}', '\\end{tabular*}')
-        with open(f'tables/{filename}.tex', 'w') as f:
+        text = _wrap_threeparttable(text, widthmultiplier, notes)
+        # text = text.replace('\\begin{tabular}', f'\\begin{{tabular*}}{{{widthmultiplier}\\textwidth}}') \
+        #             .replace('\\end{tabular}', '\\end{tabular*}')
+        with open(f'tables/robustness/{label}.tex', 'w') as f:
             f.write(text)
-        print(f'saved: tables/{filename}.tex')
+        print(f'saved: tables/robustness/{label}.tex')
 
-    
-    export_balance_panels(results_df, var_labels, 'balance_table1',
+    notes = "This table shows a comparison of mean demographic and geographic characteristics for grid squares inside the highway corridor (Column 1) and outside the highway corridor (Column 2)." \
+    "Column 3 shows the difference in means between the two samples, with standard errors reported in parenthesis and estimated using a bootstrap procedure with 1,000 draws." \
+    "Column 4 shows the standardized mean difference (SMD) between the two samples, calculated as the difference in means divided by the pooled standard deviation." \
+    "Panel A contains this comparison for grid squares that are intersected by a highway, while Panel B contains this comparison for grid squares that are not intersected by a highway." \
+    " *p<0.10, ** p<0.05, *** p<0.01"
+    export_balance_panels(results_df, var_labels, 'balance_test',
                             'Balance Test: Direct vs. Indirect Samples')
 
     # print formatted table
@@ -156,7 +160,7 @@ def balance_test(df_direct, df_indirect, demo_vars, geo_vars, var_labels=None,
         print(f"\n--- {hwy_label} Squares ---")
         print(f"  Direct n={sub['n_direct'].iloc[0] if len(sub)>0 else 'N/A'}, "
               f"Indirect n={sub['n_indirect'].iloc[0] if len(sub)>0 else 'N/A'}")
-        print(f"\n  {'Variable':30} {'Direct':>10} {'Indirect':>10} "
+        print(f"\n  {'Variable':30} {'Inside Corridor':>10} {'Outside Corridor':>10} "
               f"{'Diff':>10} {'SE':>8} {'p-val':>8} {'SMD':>8}")
         print(f"  {'-'*84}")
 
@@ -189,7 +193,8 @@ def balance_test(df_direct, df_indirect, demo_vars, geo_vars, var_labels=None,
 
     row_labels, coefs, ses, pvals = [0], [0], [0], [0]
     for demo in demo_vars:
-        _, beta, se, _ = fit_ols(df_pool, geo_x_vars, geo_columns, y_var=demo, cluster_var='city')
+        # _, beta, se, _ = fit_ols(df_pool, geo_x_vars, geo_columns, y_var=demo, cluster_var='city')
+        _, beta, se, *_ = bootstrap_lpm_table(df_pool, geo_x_vars, geo_columns,y_var = demo)
         coef, se_val = beta['Indirect'], se['Indirect']
         z = coef / se_val if se_val > 0 else np.nan
         pval = 2 * (1 - stats.norm.cdf(abs(z)))
@@ -211,29 +216,34 @@ def balance_test(df_direct, df_indirect, demo_vars, geo_vars, var_labels=None,
       nobs=len(df_pool),
   )
     balance_table = format_regression_results(namespace)
+    notes = "This table shows the results of a falsification test to assess whether location outside of the highway corridor predicts demographic characteristics, conditional on geographic controls. " \
+        "Each row corresponds to a separate regression of a demographic variable on the corridor indicator and geographic controls. Standard errors are estimated using a bootstrap procedure with 1,000 draws. " \
+        "Insignificant results suggest that, conditional on geographic characteristics, location inside or outside the highway corridor does not predict demographic characteristics.* p<0.10, ** p<0.05, *** p<0.01"
     export_single_regression(
       balance_table,
-      caption='Balance Test: Effect of Demographics on Corridor Membership',
-      label='tab:balance_test',
+      caption='Falsification Test: Effect of Corridor Membership on Demographics',
+      label='tab:robustness/falsification_test',
       widthmultiplier=0.8,
-      leaveout=['R-squared'],  
+      leaveout=['R-squared'],
+      notes = notes  
   )
 
-    balance_results = pd.DataFrame(balance_results)
-    balance_results.set_index('Variable', inplace=True)
+    # balance_results = pd.DataFrame(balance_results)
+    # balance_results.set_index('Variable', inplace=True)
     # export results to latex table
-    num_cols = len(balance_results.columns) - 1
-    caption = 'Balance Test: Effect of Demographics on Corridor Membership'
-    label = 'tab:robustness/balance_test'
-    widthmultiplier = 0.8
-    col_format = '@{\\extracolsep{\\fill}}l*' + f'{{{num_cols}}}' + '{r}'
-    text = balance_results.style.format(precision=4).to_latex(position_float = 'centering',
-                caption=caption, position = 'h', label=label, hrules=True, column_format = col_format)
-    text = text.replace('\\begin{tabular}', f'\\begin{{tabular*}}{{{widthmultiplier}\\textwidth}}').replace('\\end{tabular}', '\\end{tabular*}')
-    filename = label.split(':')[-1] + '.tex'
-    with open('tables/' + filename, 'w') as f:
-        f.write(text)
-    print(f"  Results exported to {filename}")
+    
+    # num_cols = len(balance_results.columns) - 1
+    # caption = 'Balance Test: Effect of Demographics on Corridor Membership'
+    # label = 'tab:robustness/balance_test'
+    # widthmultiplier = 0.8
+    # col_format = '@{\\extracolsep{\\fill}}l*' + f'{{{num_cols}}}' + '{r}'
+    # text = balance_results.style.format(precision=4).to_latex(position_float = 'centering',
+    #             caption=caption, position = 'h', label=label, hrules=True, column_format = col_format)
+    # text = text.replace('\\begin{tabular}', f'\\begin{{tabular*}}{{{widthmultiplier}\\textwidth}}').replace('\\end{tabular}', '\\end{tabular*}')
+    # filename = label.split(':')[-1] + '.tex'
+    # with open('tables/' + filename, 'w') as f:
+    #     f.write(text)
+    # print(f"  Results exported to {filename}")
 
     print("\n  Interpretation: insignificant coefficients mean corridor")
     print("  membership does not predict demographics conditional on")
@@ -326,9 +336,9 @@ dir_sample, ind_sample = split_by_candidates(df, candidate_dict)
 # main regression spec (e.g. initial_specif.py/lpm_bootstrap.py's
 # build_spec(df, CORE_VARS, HOUSING_VARS, GEO_CONTROLS, LOG_DIST_HWY, HH_CONTROLS)), so the
 # balance test checks exactly the variables/transformations the regressions condition on.
-demo_vars = [v for v, _ in CORE_VARS + HOUSING_VARS]
-geo_vars = [v for v, _ in GEO_CONTROLS + LOG_DIST_HWY + CNN_LOGIT]
-var_labels = dict(CORE_VARS + HOUSING_VARS + GEO_CONTROLS + LOG_DIST_HWY + CNN_LOGIT)
+demo_vars = [v for v, _ in CORE_VARS + HOUSING_VARS ]
+geo_vars = [v for v, _ in GEO_CONTROLS + LOG_DIST_HWY + CNN_LOGIT + HH_CONTROLS]
+var_labels = dict(CORE_VARS + HOUSING_VARS + HH_CONTROLS + GEO_CONTROLS + LOG_DIST_HWY + CNN_LOGIT)
 
 balance_df = balance_test(
     df_direct   = dir_sample,
