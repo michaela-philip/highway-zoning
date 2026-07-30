@@ -61,11 +61,17 @@ for pct in THRESHOLDS_PCT:
           f"{beta['Black']:>11.4f}  {black_p:>8.3f}  "
           f"{beta['Residential x Black']:>17.4f}  {resblack_p:>8.3f}{tag}")
 
+notes = "This table shows a collection of results testing the impact that different definitions of `Majority Black' have on the estimated impact of Residential zoning and Majority Black status for grid squares outside of the highway corridor." \
+"Black is an indicator variable equal to 1 if the grid square has a population where the percentage of Black residents is greater than or equal to the threshold indicated in the column header. " \
+"Each column represents a separate regression where the definition of `Majority Black' is varied from 30% to 70%. Standard errors are reported in parenthesis and estimated using a bootstrap procedure with 1,000 draws. " \
+"The model includes all controls included in the main analysis:variables related to housing, geographic, and demographic characteristics, as well as city fixed effects. The model also includes the logit values produced by the CNN and its interactions with the other variables." \
+
 export_multiple_regressions(
     threshold_results,
     caption='Robustness to Majority-Black Threshold (\\% Black Required for Classification)',
     label='tab:robustness/mblack_threshold',
     leaveout=leaveout,
+    notes = notes
 )
 
 print('\nsaved: tables/robustness/mblack_threshold.tex')
