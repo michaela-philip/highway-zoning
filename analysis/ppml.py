@@ -26,15 +26,19 @@ x_vars_dem, columns_dem = build_spec(df, DEM_ACCESS, HOUSING_VARS, GEO_CONTROLS,
 # bootstrap_ppml_table mirrors bootstrap_lpm_table's (table, beta, se, boot_coefs) shape --
 # see analysis/lib/bootstrap.py module docstring -- so this call is a drop-in swap for
 # bootstrap_lpm_table/fit_ols if you want to try a different fit method here.
-results, beta, se, boot_coefs = bootstrap_ppml_table(df, x_vars_dem, columns_dem, n_bootstraps=500, seed=42)
+results, beta, se, boot_coefs = bootstrap_ppml_table(df, x_vars, columns, n_bootstraps=500, seed=42)
+notes = "This table contains estimates of the impact of residential zoning and majority-Black status on the likelihood of highway placement, estimated using a Poisson Pseudo-Log-Linear model. The sample is restricted to a subset of grid squares designated as discretionary. " \
+"The discretionary sample excludes grid squares that are intersected by a highway in 1940 or are directly adjacent to a highway in 1940. Standard errors are reported in parenthesis and estimated using a bootstrap procedure with 500 draws. The model includes controls for housing, geographic, and demographic characteristics, as well as city fixed effects. " \
+"This model also includes a measure of a square's geographic suitability for highway placement, as estimated by a CNN model. * p<0.10, ** p<0.05, *** p<0.01"
 print(results)
-# export_single_regression(
-#     results,
-#     caption='Determinants of Highway Placement - PPML',
-#     label='tab:ppml_results',
-#     widthmultiplier=0.7,
-#     leaveout=leaveout_except(columns, keep=[label for _, label in CORE_VARS]),
-# )
+export_single_regression(
+    results,
+    caption='Determinants of Highway Placement - PPML on Discretionary Sample',
+    label='tab:ppml_results',
+    widthmultiplier=0.7,
+    leaveout=leaveout_except(columns, keep=[label for _, label in CORE_VARS]),
+    notes=notes
+)
 
 
 
