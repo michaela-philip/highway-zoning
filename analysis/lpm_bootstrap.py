@@ -7,7 +7,7 @@ import pandas as pd
 from helpers.latex_formatting import export_multiple_regressions
 from analysis.lib.data import load_sample, restrict_to_discretionary, merge_cnn_probs, split_by_candidates, add_cnn_interactions
 from analysis.lib.bootstrap import bootstrap_lpm_table
-from analysis.lib.marginal_effects import marginal_effects_table
+from analysis.lib.marginal_effects import marginal_effects_table, export_marginal_effects_table
 from analysis.lib.specs import (
     CORE_VARS, HOUSING_VARS, GEO_CONTROLS, LOG_DIST_HWY, HH_CONTROLS, CNN_LOGIT, LOGIT_INTERACTIONS,
     build_spec, leaveout_except,
@@ -40,7 +40,8 @@ export_multiple_regressions(
     {"Full Sample": whole_results, "Full Sample with Interacted CNN Logit": whole_int_results},
     caption="Determinants of Highway Placement - Full Sample",
     label='tab:full_sample_results',
-    leaveout=leaveout_except(columns, keep=keep)
+    leaveout=leaveout_except(columns, keep=keep),
+    notes = notes
 )
 
 # discretionary sample - no interaction with hwy_logit
