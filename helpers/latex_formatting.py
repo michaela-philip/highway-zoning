@@ -31,7 +31,7 @@ def format_regression_results(results, r2_label='R-squared'):
     return df
 
 
-def _wrap_threeparttable(text, widthmultiplier, notes=None):
+def _wrap_threeparttable(text, widthmultiplier, notes=None, long=False):
     """Swap the Styler-generated `tabular` for a fixed-width `tabular*`, wrapped in
     `threeparttable` so the notes box is sized to the table's own width rather than the
     full text width. `notes` is an optional string or list of strings, each rendered as
@@ -40,7 +40,27 @@ def _wrap_threeparttable(text, widthmultiplier, notes=None):
     Requires \\usepackage{threeparttable} (and \\usepackage{makecell}, already needed for
     the coefficient cells) in the including document's preamble -- this function only
     emits the table fragment, not the preamble.
+
+    Pass long=True when `text` was generated with to_latex(environment='longtable', ...)
+    -- for tables too tall for one page. Wraps it in threeparttablex's ThreePartTable/
+    TableNotes instead, which (unlike plain threeparttable) is longtable-compatible.
+    Requires \\usepackage{longtable} and \\usepackage{threeparttablex} in the preamble;
+    widthmultiplier is ignored on this path since longtable's width is already fixed by
+    its own column_format.
     """
+    if long:
+        notes_block = ''
+        if notes:
+            if isinstance(notes, str):
+                notes = [notes]
+            items = '\n'.join(f'\\item {note}' for note in notes)
+            notes_block = f'\\begin{{TableNotes}}[flushleft]\n\\footnotesize\n{items}\n\\end{{TableNotes}}\n'
+        text = text.replace('\\begin{longtable}',
+                             f'\\begin{{ThreePartTable}}\n{notes_block}\\begin{{longtable}}')
+        text = text.replace('\\end{longtable}',
+                             '\\insertTableNotes\n\\end{longtable}\n\\end{ThreePartTable}')
+        return text
+
     text = text.replace('\\begin{tabular}', f'\\begin{{tabular*}}{{{widthmultiplier}\\textwidth}}')
     text = text.replace('\\end{tabular}', '\\end{tabular*}')
     text = text.replace('\\begin{tabular*}', '\\begin{threeparttable}\n\\begin{tabular*}')
