@@ -2,12 +2,9 @@ import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-import itertools
 import geopandas as gpd
 import numpy as np
 import pandas as pd
-from shapely.geometry import LineString
-from scipy import stats
 
 from helpers.latex_formatting import export_multiple_regressions
 from analysis.lib.data import load_sample, merge_cnn_probs, add_cnn_interactions
@@ -16,6 +13,7 @@ from analysis.lib.specs import (
     CORE_VARS, HOUSING_VARS, GEO_CONTROLS, LOG_DIST_HWY, HH_CONTROLS, CNN_LOGIT, LOGIT_INTERACTIONS,
     build_spec, leaveout_except,
 )
+from data_code.candidates import create_candidate_list
 
 # robustness check: the direct/indirect split is defined by whether a grid square falls
 # inside a corridor drawn between 1940 highway squares and the city's CBD (rays, optionally
@@ -25,37 +23,6 @@ from analysis.lib.specs import (
 BUFFER_WIDTHS_M = [0, 100, 150, 200, 250, 300]
 MIN_HWY_INDIRECT = 5
 N_BOOTSTRAPS = 500
-
-
-### FUNCTION TO BUILD THE CANDIDATE (DIRECT) LIST AT A GIVEN CORRIDOR BUFFER WIDTH ###
-### rays between each pair of 1940 highway squares, and between each 1940 highway square
-### and the city's CBD, buffered into a corridor of the given width before intersecting
-### the grid (buffer_width_m=0 replicates plain line intersection) ###
-def candidate_list_at_width(city_data, city_cbd, buffer_width_m):
-    pts = city_data.loc[city_data['hwy_40'] == 1]
-    if pts.empty:
-        return []
-
-    centroids = pts.geometry.centroid.reset_index(drop=True)
-    n = len(centroids)
-    lines = [
-        LineString([(centroids.iloc[i].x, centroids.iloc[i].y), (centroids.iloc[j].x, centroids.iloc[j].y)])
-        for i, j in itertools.combinations(range(n), 2)
-    ]
-    cbd_point = city_cbd.geometry.iloc[0]
-    lines += [LineString([(p.x, p.y), (cbd_point.x, cbd_point.y)]) for p in centroids]
-
-    if buffer_width_m > 0:
-        lines = [line.buffer(buffer_width_m) for line in lines]
-    rays = gpd.GeoDataFrame(geometry=gpd.GeoSeries(lines, crs=city_data.crs))
-
-    candidates = gpd.sjoin(city_data, rays, how='inner', predicate='intersects').drop_duplicates('grid_id')
-
-    # restrict to squares near the city's typical elevation, and drop 1940 highway squares
-    # themselves (they're not discretionary placements)
-    elev_z = stats.zscore(candidates['dm_elevation'])
-    candidates = candidates.loc[(elev_z > -1) & (elev_z < 1) & (candidates['hwy_40'] == 0)]
-    return candidates['grid_id'].unique().tolist()
 
 
 ### FUNCTION TO FIT THE MAIN SPECIFICATION ON THE INDIRECT (OUTSIDE-CORRIDOR) SAMPLE ###
@@ -85,7 +52,7 @@ for bw in BUFFER_WIDTHS_M:
     for city in df['city'].unique():
         city_data = df.loc[df['city'] == city]
         city_mask = centroids['place'].str.lower().str.replace(' ', '') == city.lower().replace(' ', '')
-        candidate_ids.update(candidate_list_at_width(city_data, centroids[city_mask], bw))
+        candidate_ids.update(create_candidate_list(city_data, centroids[city_mask], buffer_width_m=bw))
 
     df_direct = df.loc[df['grid_id'].isin(candidate_ids)]
     df_indirect = df.loc[~df['grid_id'].isin(candidate_ids)]
