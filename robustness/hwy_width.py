@@ -39,10 +39,13 @@ def widen_highways(grid):
 
 
 ### FUNCTION TO FIT THE MAIN SPECIFICATION ON A GIVEN SAMPLE ###
-def fit_spec(df):
+def fit_spec(df, model):
     df_restricted = restrict_to_discretionary(df)
     x_vars, columns = build_spec(df_restricted, CORE_VARS, HOUSING_VARS, GEO_CONTROLS, LOG_DIST_HWY, HH_CONTROLS, CNN_LOGIT, LOGIT_INTERACTIONS)
-    results, *_ = bootstrap_ppml_table(df_restricted, x_vars, columns)
+    if model == 'ppml':
+        results, *_ = bootstrap_ppml_table(df_restricted, x_vars, columns)
+    elif model == 'lpm':
+        results, *_ = bootstrap_lpm_table(df_restricted, x_vars, columns)
     return results, columns
 
 
@@ -66,14 +69,28 @@ print(f'  {n_flip} additional grid squares now treated as having a highway')
 df_wide['hwy'] = df_wide['hwy_wide']
 print(f'  hwy=1 squares: {int(df["hwy"].sum())} (baseline) -> {int(df_wide["hwy"].sum())} (widened)')
 
-baseline_results, columns = fit_spec(df)
-wide_results, _ = fit_spec(df_wide)
-
+baseline_results, columns = fit_spec(df, 'ppml')
+wide_results, _ = fit_spec(df_wide, 'ppml')
+notes = "This table shows the impact of widening the area identified as having a highway by one square on each side. The first column shows the results for the original sample, and the second column shows the results for the widened sample. " \
+"This model is calculated as a Poisson Pseudo-Log-Linear model with standard errors estimated using a bootstrap procedure with 500 draws. " \
+" * p<0.10, ** p<0.05, *** p<0.01"
 export_multiple_regressions(
     {"Baseline (Line Intersection)": baseline_results, f"Widened ({BUFFER_SQUARES} Squares Each Side)": wide_results},
-    caption=f'Highway Width Robustness - ({BUFFER_SQUARES} Grid Squares Each Side)',
-    label='tab:robustness/hwy_width',
+    caption=f'Highway Width Robustness - PPML with ({BUFFER_SQUARES} Squares Each Side)',
+    label='tab:robustness/hwy_width_ppml',
     leaveout=leaveout_except(columns, keep=[label for _, label in CORE_VARS]),
+    notes = notes
 )
 
-print('\nsaved: tables/robustness/hwy_width.tex')
+baseline_results, columns = fit_spec(df, 'lpm')
+wide_results, _ = fit_spec(df_wide, 'lpm')
+notes = "This table shows the impact of widening the area identified as having a highway by one square on each side. The first column shows the results for the original sample, and the second column shows the results for the widened sample. " \
+"This model is calculated as a Linear Probability Model with standard errors estimated using a bootstrap procedure with 500 draws. " \
+" * p<0.10, ** p<0.05, *** p<0.01"
+export_multiple_regressions(
+    {"Baseline (Line Intersection)": baseline_results, f"Widened ({BUFFER_SQUARES} Squares Each Side)": wide_results},
+    caption=f'Highway Width Robustness - LPM with ({BUFFER_SQUARES} Squares Each Side)',
+    label='tab:robustness/hwy_width_lpm',
+    leaveout=leaveout_except(columns, keep=[label for _, label in CORE_VARS]),
+    notes = notes
+)
