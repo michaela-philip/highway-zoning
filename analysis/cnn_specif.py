@@ -31,7 +31,8 @@ indir_results_interaction, ind_beta_i, ind_se_i, ind_boot_coefs_i = bootstrap_lp
 indir_results, ind_beta, ind_se, ind_boot_coefs = bootstrap_lpm_table(ind_sample, x_vars_no_int, columns_no_int)
 
 # --- run for both specs ---
-cells = marginal_effects_table(ind_sample, x_vars, columns, ind_beta_i, ind_boot_coefs_i, sweep_var='logit_hwy', sweep_label='CNN Logit', sweep_values = [ind_sample['logit_hwy'].mean()], sweep_interactions=LOGIT_INTERACTIONS)
+sweep_values = [ind_sample['logit_hwy'].mean()]
+cells = marginal_effects_table(ind_sample, x_vars, columns, ind_beta_i, ind_boot_coefs_i, sweep_var='logit_hwy', sweep_label='CNN Logit', sweep_values = sweep_values, sweep_interactions=LOGIT_INTERACTIONS)
 
 keep = [label for _, label in CORE_VARS + CNN_LOGIT + LOGIT_INTERACTIONS]
 
@@ -52,11 +53,15 @@ export_single_regression(indir_results_interaction, caption= 'Determinants of Hi
 
 notes = "This table contains predicted outcomes for each square in the sample based on their residential and majority-Black status, holding all other variables at their mean. The marginal effect of residential zoning and majority-Black status " \
 "is calculated as the difference in predicted outcomes between squares with and without these characteristics. These marginal effects are calculated based on the coefficients reported in Table \\ref{tab:indirect_results}. * p<0.10, ** p<0.05, *** p<0.01"
-export_marginal_effects_table(cells, caption = 'Marginal Effects of Residential Zoning and Majority-Black Status on Highway Placement - Outside Highway Corridor', label = 'tab:marginal_effects_indir', widthmultiplier=0.6, notes = notes)
+col_name = ['Mean Logit Value']
+column_labels = dict(zip(sweep_values, col_name))
+export_marginal_effects_table(cells, caption = 'Marginal Effects of Residential Zoning and Majority-Black Status on Highway Placement - Outside Highway Corridor', label = 'tab:marginal_effects_indir', column_labels = column_labels, widthmultiplier=0.6, notes = notes)
 
 sweep_values = ind_sample['logit_hwy'].quantile([0.10, 0.25, 0.50, 0.75, 0.90]).tolist()
+col_name = ['10th Percentile', '25th Percentile', '50th Percentile', '75th Percentile', '90th Percentile']
+column_labels = dict(zip(sweep_values, col_name))
 cells = marginal_effects_table(ind_sample, x_vars, columns, ind_beta_i, ind_boot_coefs_i, sweep_var='logit_hwy', sweep_label='CNN Logit', sweep_values = sweep_values, sweep_interactions=LOGIT_INTERACTIONS)
 notes = "This table contains predicted outcomes for each square in the sample based on their residential and majority-Black status, holding all variables except for the CNN Logit at their mean. Each column contains " \
 "the results of a different prediction where the CNN logit is varied across its quantiles. The marginal effect of residential zoning and majority-Black status " \
 "is calculated as the difference in predicted outcomes between squares with and without these characteristics. These marginal effects are calculated based on the coefficients reported in Table \\ref{tab:indirect_results}. * p<0.10, ** p<0.05, *** p<0.01"
-export_marginal_effects_table(cells, caption="Marginal Effects of Residential Zoning and Majority-Black Status - CNN Quantiles", label='tab:marginal_effects_sweep', notes=notes)
+export_marginal_effects_table(cells, caption="Marginal Effects of Residential Zoning and Majority-Black Status - CNN Quantiles", label='tab:marginal_effects_sweep', column_labels = column_labels, widthmultiplier = 1, notes=notes)
