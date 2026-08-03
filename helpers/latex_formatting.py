@@ -50,7 +50,7 @@ def _wrap_threeparttable(text, widthmultiplier, notes=None):
         if isinstance(notes, str):
             notes = [notes]
         items = '\n'.join(f'\\item {note}' for note in notes)
-        notes_block = f'\\begin{{tablenotes}}[flushleft]\n\\footnotesize\n{{items}}\n\\end{{tablenotes}}\n'
+        notes_block = f'\\begin{{tablenotes}}[flushleft]\n\\footnotesize\n{items}\n\\end{{tablenotes}}\n'
     text = text.replace('\\end{tabular*}', f'\\end{{tabular*}}\n{notes_block}\\end{{threeparttable}}')
     return text
 
