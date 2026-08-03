@@ -57,8 +57,8 @@ LOG_CNN = [
 ]
 
 PROB_INTERACTIONS = [
-    ('BlackxProbHwy', 'Black x Probability of Highway'),
     ('ResidentialxProbHwy', 'Residential x Probability of Highway'),
+    ('BlackxProbHwy', 'Black x Probability of Highway'),
     ('ResidentialxBlackxProbHwy', 'Residential x Black x Probability of Highway'),
 ]
 
