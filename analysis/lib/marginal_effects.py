@@ -74,11 +74,18 @@ def marginal_effects_table(df, x_vars, columns, beta, boot_coefs=None,
         for raw, friendly in other_pairs:
             x[friendly] = eval_vals[raw]
         if sweep_var is not None and sweep_value is not None:
-            col_x_label, row_x_label, both_x_label = [lbl for _, lbl in sweep_interactions]
             x[sweep_label] = sweep_value
-            x[col_x_label] = black * sweep_value
-            x[row_x_label] = residential * sweep_value
-            x[both_x_label] = residential * black * sweep_value
+            for _, lbl in sweep_interactions:
+                tokens = lbl.split(' x ')
+                has_row, has_col = row_label in tokens, col_label in tokens
+                if has_row and has_col:
+                    x[lbl] = residential * black * sweep_value
+                elif has_row:
+                    x[lbl] = residential * sweep_value
+                elif has_col:
+                    x[lbl] = black * sweep_value
+                else:
+                    raise ValueError(f"{lbl!r} in sweep_interactions doesn't reference {row_label!r} or {col_label!r}")
         return x
 
     def predict(x, coef_vec):
