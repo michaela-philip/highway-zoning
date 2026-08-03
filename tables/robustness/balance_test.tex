@@ -1,24 +1,37 @@
-\begin{table}[h]
-\centering
-\caption{Balance Test: Direct vs. Indirect Samples}
-\label{tab:balance_test}
-\begin{threeparttable}
-\begin{tabular*}{0.9\textwidth}{@{\extracolsep{\fill}}l*{4}{r}}
+\begin{ThreePartTable}
+\begin{TableNotes}[flushleft]
+\footnotesize
+\item This table shows a comparison of mean demographic and geographic characteristics for grid squares inside the highway corridor (Column 1) and outside the highway corridor (Column 2).Column 3 shows the difference in means between the two samples, with standard errors reported in parenthesis and estimated using a bootstrap procedure with 1,000 draws.Column 4 shows the standardized mean difference (SMD) between the two samples, calculated as the difference in means divided by the pooled standard deviation.Panel A contains this comparison for grid squares that are intersected by a highway, while Panel B contains this comparison for grid squares that are not intersected by a highway. *p<0.10, ** p<0.05, *** p<0.01
+\end{TableNotes}
+\begin{longtable}{@{\extracolsep{\fill}}l*{4}{r}}
+\caption{Balance Test: Direct vs. Indirect Samples} \label{tab:balance_test} \\
 \toprule
  & Inside Corridor & Outside Corridor & Diff & SMD \\
 \midrule
+\endfirsthead
+\caption[]{Balance Test: Direct vs. Indirect Samples} \\
+\toprule
+ & Inside Corridor & Outside Corridor & Diff & SMD \\
+\midrule
+\endhead
+\midrule
+\multicolumn{5}{r}{Continued on next page} \\
+\midrule
+\endfoot
+\bottomrule
+\endlastfoot
 \multicolumn{5}{l}{\textbf{Panel A: Highway Squares}} \\
 Residential & 0.667 & 0.571 & \makecell[tr]{-0.095 \\ (0.110)} & -0.195 \\
-Black & 0.202 & 0.036 & \makecell[tr]{-0.167^{***} \\ (0.055)} & -0.528 \\
+Black & 0.202 & 0.036 & \makecell[tr]{-0.167{***} \\ (0.055)} & -0.528 \\
 Residential x Black & 0.083 & 0.036 & \makecell[tr]{-0.048 \\ (0.046)} & -0.200 \\
 Log(Value) & 6.861 & 7.398 & \makecell[tr]{0.537 \\ (0.527)} & 0.215 \\
 Log(Rent) & 2.718 & 2.837 & \makecell[tr]{0.119 \\ (0.188)} & 0.142 \\
 dist(RR) & 6.588 & 6.322 & \makecell[tr]{-0.267 \\ (0.199)} & -0.295 \\
-dist(RR^2) & 44.285 & 40.685 & \makecell[tr]{-3.599^{*} \\ (2.212)} & -0.334 \\
-dist(CBD) & 3292.569 & 5462.900 & \makecell[tr]{2170.332^{***} \\ (411.292)} & 1.150 \\
-dist(CBD^2) & 13518215.683 & 34098353.326 & \makecell[tr]{20580137.643^{***} \\ (5338681.969)} & 0.981 \\
-Flood Risk & 0.024 & 0.000 & \makecell[tr]{-0.024^{***} \\ (0.017)} & -0.220 \\
-dist(Water) & 140826.817 & 317670.241 & \makecell[tr]{176843.424^{***} \\ (65786.177)} & 0.619 \\
+dist(RR^2) & 44.285 & 40.685 & \makecell[tr]{-3.599{*} \\ (2.212)} & -0.334 \\
+dist(CBD) & 3292.569 & 5462.900 & \makecell[tr]{2170.332{***} \\ (411.292)} & 1.150 \\
+dist(CBD^2) & 13518215.683 & 34098353.326 & \makecell[tr]{20580137.643{***} \\ (5338681.969)} & 0.981 \\
+Flood Risk & 0.024 & 0.000 & \makecell[tr]{-0.024{***} \\ (0.017)} & -0.220 \\
+dist(Water) & 140826.817 & 317670.241 & \makecell[tr]{176843.424{***} \\ (65786.177)} & 0.619 \\
 Slope & 0.054 & 0.062 & \makecell[tr]{0.007 \\ (0.007)} & 0.205 \\
 Elevation & 0.267 & -0.800 & \makecell[tr]{-1.067 \\ (2.585)} & -0.111 \\
 Log(Distance to Highway) & 6.348 & 6.303 & \makecell[tr]{-0.045 \\ (0.224)} & -0.044 \\
@@ -26,28 +39,23 @@ CNN Logit & -3.183 & -3.404 & \makecell[tr]{-0.221 \\ (0.236)} & -0.213 \\
 Percent Owner-Occupied & 0.333 & 0.397 & \makecell[tr]{0.064 \\ (0.059)} & 0.245 \\
 Number of Residents & 53.286 & 51.107 & \makecell[tr]{-2.179 \\ (10.328)} & -0.048 \\
 \multicolumn{5}{l}{\textbf{Panel B: Non-Highway Squares}} \\
-Residential & 0.690 & 0.787 & \makecell[tr]{0.097^{***} \\ (0.011)} & 0.222 \\
-Black & 0.182 & 0.132 & \makecell[tr]{-0.050^{***} \\ (0.009)} & -0.139 \\
-Residential x Black & 0.103 & 0.087 & \makecell[tr]{-0.016^{**} \\ (0.007)} & -0.055 \\
-Log(Value) & 6.636 & 6.914 & \makecell[tr]{0.279^{***} \\ (0.069)} & 0.099 \\
+Residential & 0.690 & 0.787 & \makecell[tr]{0.097{***} \\ (0.011)} & 0.222 \\
+Black & 0.182 & 0.132 & \makecell[tr]{-0.050{***} \\ (0.009)} & -0.139 \\
+Residential x Black & 0.103 & 0.087 & \makecell[tr]{-0.016{**} \\ (0.007)} & -0.055 \\
+Log(Value) & 6.636 & 6.914 & \makecell[tr]{0.279{***} \\ (0.069)} & 0.099 \\
 Log(Rent) & 2.641 & 2.680 & \makecell[tr]{0.039 \\ (0.026)} & 0.036 \\
-dist(RR) & 6.436 & 6.494 & \makecell[tr]{0.058^{**} \\ (0.027)} & 0.054 \\
-dist(RR^2) & 42.603 & 43.364 & \makecell[tr]{0.761^{**} \\ (0.301)} & 0.063 \\
-dist(CBD) & 4215.565 & 5186.125 & \makecell[tr]{970.560^{***} \\ (54.567)} & 0.426 \\
-dist(CBD^2) & 23351921.122 & 31669014.776 & \makecell[tr]{8317093.654^{***} \\ (630574.443)} & 0.333 \\
-Flood Risk & 0.032 & 0.043 & \makecell[tr]{0.012^{**} \\ (0.005)} & 0.061 \\
-dist(Water) & 272738.883 & 311520.273 & \makecell[tr]{38781.390^{***} \\ (7321.923)} & 0.126 \\
-Slope & 0.051 & 0.058 & \makecell[tr]{0.007^{***} \\ (0.001)} & 0.196 \\
-Elevation & 0.123 & -2.175 & \makecell[tr]{-2.297^{***} \\ (0.358)} & -0.161 \\
-Log(Distance to Highway) & 6.391 & 6.105 & \makecell[tr]{-0.286^{***} \\ (0.032)} & -0.222 \\
+dist(RR) & 6.436 & 6.494 & \makecell[tr]{0.058{**} \\ (0.027)} & 0.054 \\
+dist(RR^2) & 42.603 & 43.364 & \makecell[tr]{0.761{**} \\ (0.301)} & 0.063 \\
+dist(CBD) & 4215.565 & 5186.125 & \makecell[tr]{970.560{***} \\ (54.567)} & 0.426 \\
+dist(CBD^2) & 23351921.122 & 31669014.776 & \makecell[tr]{8317093.654{***} \\ (630574.443)} & 0.333 \\
+Flood Risk & 0.032 & 0.043 & \makecell[tr]{0.012{**} \\ (0.005)} & 0.061 \\
+dist(Water) & 272738.883 & 311520.273 & \makecell[tr]{38781.390{***} \\ (7321.923)} & 0.126 \\
+Slope & 0.051 & 0.058 & \makecell[tr]{0.007{***} \\ (0.001)} & 0.196 \\
+Elevation & 0.123 & -2.175 & \makecell[tr]{-2.297{***} \\ (0.358)} & -0.161 \\
+Log(Distance to Highway) & 6.391 & 6.105 & \makecell[tr]{-0.286{***} \\ (0.032)} & -0.222 \\
 CNN Logit & -5.062 & -5.059 & \makecell[tr]{0.003 \\ (0.021)} & 0.003 \\
-Percent Owner-Occupied & 0.362 & 0.464 & \makecell[tr]{0.103^{***} \\ (0.007)} & 0.351 \\
-Number of Residents & 58.565 & 47.303 & \makecell[tr]{-11.262^{***} \\ (1.208)} & -0.222 \\
-\bottomrule
-\end{tabular*}
-\begin{tablenotes}
-\small
-\item This table shows a comparison of mean demographic and geographic characteristics for grid squares inside the highway corridor (Column 1) and outside the highway corridor (Column 2).Column 3 shows the difference in means between the two samples, with standard errors reported in parenthesis and estimated using a bootstrap procedure with 1,000 draws.Column 4 shows the standardized mean difference (SMD) between the two samples, calculated as the difference in means divided by the pooled standard deviation.Panel A contains this comparison for grid squares that are intersected by a highway, while Panel B contains this comparison for grid squares that are not intersected by a highway. *p<0.10, ** p<0.05, *** p<0.01
-\end{tablenotes}
-\end{threeparttable}
-\end{table}
+Percent Owner-Occupied & 0.362 & 0.464 & \makecell[tr]{0.103{***} \\ (0.007)} & 0.351 \\
+Number of Residents & 58.565 & 47.303 & \makecell[tr]{-11.262{***} \\ (1.208)} & -0.222 \\
+\insertTableNotes
+\end{longtable}
+\end{ThreePartTable}

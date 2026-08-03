@@ -7,16 +7,20 @@
 \toprule
  & Full Sample & Full Sample with Interacted CNN Logit \\
 \midrule
-Residential & \makecell[tr]{-0.004 \\ (0.005)} & \makecell[tr]{-0.147^{*} \\ (0.058)} \\
+Residential & \makecell[tr]{-0.004 \\ (0.005)} & \makecell[tr]{-0.147{*} \\ (0.058)} \\
 Black & \makecell[tr]{0.002 \\ (0.008)} & \makecell[tr]{0.019 \\ (0.103)} \\
 Residential x Black & \makecell[tr]{-0.009 \\ (0.009)} & \makecell[tr]{0.019 \\ (0.126)} \\
-CNN Logit & \makecell[tr]{0.037^{***} \\ (0.004)} & \makecell[tr]{0.057^{***} \\ (0.010)} \\
+CNN Logit & \makecell[tr]{0.037{***} \\ (0.004)} & \makecell[tr]{0.057{***} \\ (0.010)} \\
+Residential x CNN Logit &  & \makecell[tr]{-0.029{**} \\ (0.011)} \\
 Black x CNN Logit &  & \makecell[tr]{0.003 \\ (0.019)} \\
-Residential x CNN Logit &  & \makecell[tr]{-0.029^{**} \\ (0.011)} \\
 Residential x Black x CNN Logit &  & \makecell[tr]{0.005 \\ (0.024)} \\
 R-squared & 0.078 & 0.086 \\
 Observations & 6750 & 6750 \\
 \bottomrule
 \end{tabular*}
+\begin{tablenotes}[flushleft]
+\footnotesize
+\item This table contains estimates of the impact of residential zoning and majority-Black status on the likelihood of highway placement using a linear probability model on the full sample of grid squares. Standard errors are reported in parenthesis and estimated using a bootstrap procedure with 1,000 draws. The model includes controls for housing, geographic, and demographic characteristics, as well as city fixed effects and a measure of geographic suitability for highway placement, estimated as a logit by a Convolutional Neural Network (CNN). Column 2 also includes the interaction between the CNN logit and the variables of interest.* p<0.10, ** p<0.05, *** p<0.01
+\end{tablenotes}
 \end{threeparttable}
 \end{table}

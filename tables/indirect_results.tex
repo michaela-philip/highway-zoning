@@ -7,20 +7,20 @@
 \toprule
  & Coefficient \\
 \midrule
-Residential & \makecell[tr]{-0.156^{*} \\ (0.079)} \\
-Black & \makecell[tr]{-0.223^{**} \\ (0.076)} \\
-Residential x Black & \makecell[tr]{0.227^{*} \\ (0.107)} \\
-CNN Logit & \makecell[tr]{0.040^{**} \\ (0.014)} \\
-Black x CNN Logit & \makecell[tr]{-0.039^{**} \\ (0.014)} \\
+Residential & \makecell[tr]{-0.156{*} \\ (0.079)} \\
+Black & \makecell[tr]{-0.223{**} \\ (0.076)} \\
+Residential x Black & \makecell[tr]{0.227{*} \\ (0.107)} \\
+CNN Logit & \makecell[tr]{0.040{**} \\ (0.014)} \\
 Residential x CNN Logit & \makecell[tr]{-0.025 \\ (0.015)} \\
-Residential x Black x CNN Logit & \makecell[tr]{0.041^{*} \\ (0.020)} \\
+Black x CNN Logit & \makecell[tr]{-0.039{**} \\ (0.014)} \\
+Residential x Black x CNN Logit & \makecell[tr]{0.041{*} \\ (0.020)} \\
 R-squared & 0.055 \\
 Observations & 3141 \\
 \bottomrule
 \end{tabular*}
-\begin{tablenotes}
-\small
-\item This table contains estimates of the impact of residential zoning and majority-Black status on the likelihood of highway placement. The sample is restricted to grid squares that are outside ofthe existing highway corridor. Standard errors are reported in parenthesis and estimated using a bootstrap procedure with 1,000 draws. The model includes controls for housing, geographic, and demographic characteristics, as well as city fixed effects. This model also includes a measure of a square's geographic suitability for highway placement, as estimated by a CNN model, as well as the interaction between this estimated logit and the variables of interest. * p<0.10, ** p<0.05, *** p<0.01
+\begin{tablenotes}[flushleft]
+\footnotesize
+\item This table contains estimates of the impact of residential zoning and majority-Black status on the likelihood of highway placement. The sample is restricted to grid squares that are outside of the existing highway corridor. Standard errors are reported in parenthesis and estimated using a bootstrap procedure with 1,000 draws. The model includes controls for housing, geographic, and demographic characteristics, as well as city fixed effects. This model also includes a measure of a square's geographic suitability for highway placement, as estimated by a CNN model, as well as the interaction between this estimated logit and the variables of interest. * p<0.10, ** p<0.05, *** p<0.01
 \end{tablenotes}
 \end{threeparttable}
 \end{table}

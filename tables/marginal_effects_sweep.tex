@@ -1,0 +1,24 @@
+\begin{table}[h]
+\centering
+\caption{Marginal Effects of Residential Zoning and Majority-Black Status - CNN Quantiles}
+\label{tab:marginal_effects_sweep}
+\begin{threeparttable}
+\begin{tabular*}{0.6\textwidth}{@{\extracolsep{\fill}}l*{5}{r}}
+\toprule
+ & -6.180114 & -5.642441 & -5.057970 & -4.473622 & -3.905645 \\
+\midrule
+White Non-Residential & \makecell[tr]{-0.013 \\ (0.013)} & \makecell[tr]{0.008 \\ (0.008)} & \makecell[tr]{0.031 \\ (0.009)} & \makecell[tr]{0.054 \\ (0.015)} & \makecell[tr]{0.077 \\ (0.022)} \\
+White Residential & \makecell[tr]{-0.012 \\ (0.003)} & \makecell[tr]{-0.004 \\ (0.001)} & \makecell[tr]{0.004 \\ (0.002)} & \makecell[tr]{0.012 \\ (0.004)} & \makecell[tr]{0.020 \\ (0.006)} \\
+Black Non-Residential & \makecell[tr]{0.008 \\ (0.004)} & \makecell[tr]{0.008 \\ (0.004)} & \makecell[tr]{0.008 \\ (0.004)} & \makecell[tr]{0.008 \\ (0.004)} & \makecell[tr]{0.008 \\ (0.004)} \\
+Black Residential & \makecell[tr]{-0.016 \\ (0.015)} & \makecell[tr]{-0.008 \\ (0.007)} & \makecell[tr]{0.001 \\ (0.003)} & \makecell[tr]{0.010 \\ (0.012)} & \makecell[tr]{0.019 \\ (0.020)} \\
+White Protection effect & \makecell[tr]{-0.001 \\ (0.014)} & \makecell[tr]{0.012 \\ (0.009)} & \makecell[tr]{0.027^{***} \\ (0.010)} & \makecell[tr]{0.042^{***} \\ (0.016)} & \makecell[tr]{0.057^{**} \\ (0.023)} \\
+Black Protection effect & \makecell[tr]{0.024^{**} \\ (0.015)} & \makecell[tr]{0.016^{**} \\ (0.008)} & \makecell[tr]{0.007^{*} \\ (0.004)} & \makecell[tr]{-0.002 \\ (0.011)} & \makecell[tr]{-0.011 \\ (0.020)} \\
+Disparate Protection (Black Protection - White Protection) & \makecell[tr]{0.026 \\ (0.019)} & \makecell[tr]{0.004 \\ (0.010)} & \makecell[tr]{-0.020^{***} \\ (0.008)} & \makecell[tr]{-0.044^{***} \\ (0.017)} & \makecell[tr]{-0.067^{**} \\ (0.029)} \\
+\bottomrule
+\end{tabular*}
+\begin{tablenotes}[flushleft]
+\footnotesize
+\item This table contains predicted outcomes for each square in the sample based on their residential and majority-Black status, holding all variables except for the CNN Logit at their mean. Each column contains the results of a different prediction where the CNN logit is varied across its quantiles. The marginal effect of residential zoning and majority-Black status is calculated as the difference in predicted outcomes between squares with and without these characteristics. These marginal effects are calculated based on the coefficients reported in Table \ref{tab:indirect_results}. * p<0.10, ** p<0.05, *** p<0.01
+\end{tablenotes}
+\end{threeparttable}
+\end{table}

@@ -1,0 +1,22 @@
+\begin{table}[h]
+\centering
+\caption{Highway Width Robustness - LPM with (1 Squares Each Side)}
+\label{tab:robustness/hwy_width_lpm}
+\begin{threeparttable}
+\begin{tabular*}{1.0\textwidth}{@{\extracolsep{\fill}}l*{2}{r}}
+\toprule
+ & Baseline (Line Intersection) & Widened (1 Squares Each Side) \\
+\midrule
+Residential & \makecell[tr]{-0.200{**} \\ (0.066)} & \makecell[tr]{-0.262{***} \\ (0.071)} \\
+Black & \makecell[tr]{0.053 \\ (0.119)} & \makecell[tr]{0.130 \\ (0.127)} \\
+Residential x Black & \makecell[tr]{-0.139 \\ (0.124)} & \makecell[tr]{-0.033 \\ (0.152)} \\
+R-squared & 0.096 & 0.104 \\
+Observations & 5301 & 5301 \\
+\bottomrule
+\end{tabular*}
+\begin{tablenotes}[flushleft]
+\footnotesize
+\item This table shows the impact of widening the area identified as having a highway by one square on each side. The first column shows the results for the original sample, and the second column shows the results for the widened sample. This model is calculated as a Linear Probability Model with standard errors estimated using a bootstrap procedure with 500 draws.  * p<0.10, ** p<0.05, *** p<0.01
+\end{tablenotes}
+\end{threeparttable}
+\end{table}

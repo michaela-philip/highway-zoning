@@ -1,0 +1,26 @@
+\begin{table}[h]
+\centering
+\caption{Determinants of Highway Placement - Inside Highway Corridor with Interacted CNN Logit}
+\label{tab:direct_results}
+\begin{threeparttable}
+\begin{tabular*}{0.6\textwidth}{@{\extracolsep{\fill}}l*{1}{r}}
+\toprule
+ & Coefficient \\
+\midrule
+Residential & \makecell[tr]{-0.111 \\ (0.076)} \\
+Black & \makecell[tr]{0.153 \\ (0.142)} \\
+Residential x Black & \makecell[tr]{-0.110 \\ (0.175)} \\
+CNN Logit & \makecell[tr]{0.068{***} \\ (0.013)} \\
+Residential x CNN Logit & \makecell[tr]{-0.024 \\ (0.014)} \\
+Black x CNN Logit & \makecell[tr]{0.027 \\ (0.026)} \\
+Residential x Black x CNN Logit & \makecell[tr]{-0.016 \\ (0.033)} \\
+R-squared & 0.130 \\
+Observations & 3609 \\
+\bottomrule
+\end{tabular*}
+\begin{tablenotes}[flushleft]
+\footnotesize
+\item This table contains estimates of the imapct of residential zoning and majority-Black status on the likelihood of highway placement. The sample is restricted to grid squares that are inside of the existing highway corridor. Standard errors are reported in parenthesis and estimated using a bootstrap procedure with 1,000 draws. The model includes controls for housing, geographic, and demographic characteristics, as well as city fixed effects. This model also includes a measure of a square's geographic suitability for highway placement, as estimated by a CNN model, as well as the interaction between this estimated logit and the variables of interest. * p<0.10, ** p<0.05, *** p<0.01
+\end{tablenotes}
+\end{threeparttable}
+\end{table}

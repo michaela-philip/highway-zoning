@@ -1,0 +1,22 @@
+\begin{table}[h]
+\centering
+\caption{Determinants of Highway Placement - PPML on Discretionary Sample}
+\label{tab:ppml_results}
+\begin{threeparttable}
+\begin{tabular*}{0.7\textwidth}{@{\extracolsep{\fill}}l*{1}{r}}
+\toprule
+ & Coefficient \\
+\midrule
+Residential & \makecell[tr]{-0.744 \\ (1.159)} \\
+Black & \makecell[tr]{1.123 \\ (1.186)} \\
+Residential x Black & \makecell[tr]{1.282 \\ (7.446)} \\
+Pseudo R-squared & 0.435 \\
+Observations & 5301 \\
+\bottomrule
+\end{tabular*}
+\begin{tablenotes}[flushleft]
+\footnotesize
+\item This table contains estimates of the impact of residential zoning and majority-Black status on the likelihood of highway placement, estimated using a Poisson Pseudo-Log-Linear model. The sample is restricted to a subset of grid squares designated as discretionary. The discretionary sample excludes grid squares that are intersected by a highway in 1940 or are directly adjacent to a highway in 1940. Standard errors are reported in parenthesis and estimated using a bootstrap procedure with 500 draws. The model includes controls for housing, geographic, and demographic characteristics, as well as city fixed effects. This model also includes a measure of a square's geographic suitability for highway placement, as estimated by a CNN model. * p<0.10, ** p<0.05, *** p<0.01
+\end{tablenotes}
+\end{threeparttable}
+\end{table}
