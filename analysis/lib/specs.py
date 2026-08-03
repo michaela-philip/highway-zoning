@@ -63,8 +63,8 @@ PROB_INTERACTIONS = [
 ]
 
 LOGIT_INTERACTIONS = [
-    ('BlackxLogHwy', 'Black x CNN Logit'),
     ('ResidentialxLogHwy', 'Residential x CNN Logit'),
+    ('BlackxLogHwy', 'Black x CNN Logit'),
     ('ResidentialxBlackxLogHwy', 'Residential x Black x CNN Logit'),
 ]
 
