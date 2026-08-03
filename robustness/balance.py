@@ -108,7 +108,7 @@ def balance_test(df_direct, df_indirect, demo_vars, geo_vars, var_labels=None,
             sub = results_df[results_df['sample'] == hwy_label].copy()
             stars = np.select(
                 [sub['p_val'] < 0.01, sub['p_val'] < 0.05, sub['p_val'] < 0.10],
-                ['^{***}', '^{**}', '^{*}'], default=''
+                ['{***}', '{**}', '{*}'], default=''
             )
             sub['Diff'] = [f"\\makecell[tr]{{{d:.3f}{s} \\\\ ({se:.3f})}}"
                             for d, se, s in zip(sub['diff'], sub['boot_se'], stars)]
