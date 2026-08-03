@@ -190,7 +190,7 @@ def export_marginal_effects_table(results, caption, label, widthmultiplier=0.6, 
       (e.g. {v: f'{v:.2f}' for v in sweep_values}); ignored in the single-spec case.
       """
       def stars(p):
-          return '^{***}' if p < 0.01 else '^{**}' if p < 0.05 else '^{*}' if p < 0.10 else ''
+          return '{***}' if p < 0.01 else '{**}' if p < 0.05 else '{*}' if p < 0.10 else ''
 
       def diff_cell(cell_estimates, a, b):
           pa, _, boota = cell_estimates[a]
