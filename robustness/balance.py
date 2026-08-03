@@ -124,10 +124,10 @@ def balance_test(df_direct, df_indirect, demo_vars, geo_vars, var_labels=None,
         num_cols = combined.shape[1]
         col_format = '@{\\extracolsep{\\fill}}l*' + f'{{{num_cols}}}' + '{r}'
         text = combined.style.format(precision=3).to_latex(
-            position_float='centering', caption=caption, position='h',
+            environment='longtable', caption=caption,
             label=f'tab:{label}', hrules=True, column_format=col_format,
         )
-    
+
         # swap each blank spanner row for a bolded, full-width panel header
         lines = text.split('\n')
         for i, line in enumerate(lines):
@@ -135,7 +135,7 @@ def balance_test(df_direct, df_indirect, demo_vars, geo_vars, var_labels=None,
                 if line.strip().startswith(title):
                     lines[i] = f'\\multicolumn{{{num_cols + 1}}}{{l}}{{\\textbf{{{title}}}}} \\\\'
         text = '\n'.join(lines)
-        text = _wrap_threeparttable(text, widthmultiplier, notes)
+        text = _wrap_threeparttable(text, widthmultiplier, notes, long=True)
         # text = text.replace('\\begin{tabular}', f'\\begin{{tabular*}}{{{widthmultiplier}\\textwidth}}') \
         #             .replace('\\end{tabular}', '\\end{tabular*}')
         with open(f'tables/robustness/{label}.tex', 'w') as f:
