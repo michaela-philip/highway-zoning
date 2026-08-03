@@ -31,8 +31,8 @@ print('whole sample with interactions:', whole_int_results)
 
 keep = [label for _, label in CORE_VARS + CNN_LOGIT + LOGIT_INTERACTIONS]
 
-notes = "This table contains estimates of the impact of residential zoning and majority-Black status on the likelihood of highway placement using a linear probability model on the full sample of grid squares." \
-"Standard errors are reported in parenthesis and estimated using a bootstrap procedure with 1,000 draws. The model includes controls for housing, geographic, and demographic characteristics, as well as city fixed effects and a measure of geographic suitability for highway placement, estimated as a logit by a Convolutional Neural Network (CNN)." \
+notes = "This table contains estimates of the impact of residential zoning and majority-Black status on the likelihood of highway placement using a linear probability model on the full sample of grid squares. " \
+"Standard errors are reported in parenthesis and estimated using a bootstrap procedure with 1,000 draws. The model includes controls for housing, geographic, and demographic characteristics, as well as city fixed effects and a measure of geographic suitability for highway placement, estimated as a logit by a Convolutional Neural Network (CNN). " \
 "Column 2 also includes the interaction between the CNN logit and the variables of interest." \
 "* p<0.10, ** p<0.05, *** p<0.01"
 
@@ -51,9 +51,9 @@ print('discretionary sample without interactions:', discretionary_results)
 discretionary_int_results, beta, se, boot_coefs = bootstrap_lpm_table(df_restricted, x_vars, columns)
 print('discretionary sample with interactions:', discretionary_int_results)
 
-notes = "This table contains estimates of the impact of residential zoning and majority-Black status on the likelihood of highway placement using a linear probability model on a subset of grid squares designated as discretionary." \
+notes = "This table contains estimates of the impact of residential zoning and majority-Black status on the likelihood of highway placement using a linear probability model on a subset of grid squares designated as discretionary. " \
 "The discretionary sample excludes grid squares that are intersected by a highway in 1940 or are directly adjacent to a highway in 1940. " \
-"Standard errors are reported in parenthesis and estimated using a bootstrap procedure with 1,000 draws. The model includes controls for housing, geographic, and demographic characteristics, as well as city fixed effects and a measure of geographic suitability for highway placement, estimated as a logit by a Convolutional Neural Network (CNN)." \
+"Standard errors are reported in parenthesis and estimated using a bootstrap procedure with 1,000 draws. The model includes controls for housing, geographic, and demographic characteristics, as well as city fixed effects and a measure of geographic suitability for highway placement, estimated as a logit by a Convolutional Neural Network (CNN). " \
 "Column 2 also includes the interaction between the CNN logit and the variables of interest." \
 "* p<0.10, ** p<0.05, *** p<0.01"
 
