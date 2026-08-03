@@ -3,20 +3,20 @@
 \caption{Robustness to Majority-Black Threshold (\% Black Required for Classification)}
 \label{tab:robustness/mblack_threshold}
 \begin{threeparttable}
-\begin{tabular*}{1.0\textwidth}{@{\extracolsep{\fill}}l*{5}{r}}
+\begin{tabular*}{1.0\textwidth}{@{\extracolsep{\fill}}l*{7}{r}}
 \toprule
- & 30\% & 40\% & 50\% & 60\% & 70\% \\
+ & 40\% & 45\% & 50\% & 55\% & 60\% & 65\% & 70\% \\
 \midrule
-Residential & \makecell[tr]{-0.103 \\ (0.065)} & \makecell[tr]{-0.115 \\ (0.067)} & \makecell[tr]{-0.121 \\ (0.069)} & \makecell[tr]{-0.156{*} \\ (0.079)} & \makecell[tr]{-0.113 \\ (0.067)} \\
-Black & \makecell[tr]{-0.017 \\ (0.030)} & \makecell[tr]{-0.058{**} \\ (0.021)} & \makecell[tr]{-0.079{*} \\ (0.033)} & \makecell[tr]{-0.223{**} \\ (0.076)} & \makecell[tr]{-0.068{*} \\ (0.031)} \\
-Residential x Black & \makecell[tr]{0.008 \\ (0.032)} & \makecell[tr]{0.052{*} \\ (0.025)} & \makecell[tr]{0.073 \\ (0.041)} & \makecell[tr]{0.227{*} \\ (0.107)} & \makecell[tr]{0.071 \\ (0.047)} \\
-R-squared & 0.048 & 0.050 & 0.051 & 0.055 & 0.049 \\
-Observations & 3141 & 3141 & 3141 & 3141 & 3141 \\
+Residential & \makecell[tr]{-0.115 \\ (0.067)} & \makecell[tr]{-0.117 \\ (0.068)} & \makecell[tr]{-0.121 \\ (0.069)} & \makecell[tr]{-0.130 \\ (0.072)} & \makecell[tr]{-0.156{*} \\ (0.079)} & \makecell[tr]{-0.122 \\ (0.070)} & \makecell[tr]{-0.113 \\ (0.067)} \\
+Black & \makecell[tr]{-0.058{**} \\ (0.021)} & \makecell[tr]{-0.062{**} \\ (0.023)} & \makecell[tr]{-0.079{*} \\ (0.033)} & \makecell[tr]{-0.117{*} \\ (0.048)} & \makecell[tr]{-0.223{**} \\ (0.076)} & \makecell[tr]{-0.105{*} \\ (0.048)} & \makecell[tr]{-0.068{*} \\ (0.031)} \\
+Residential x Black & \makecell[tr]{0.052{*} \\ (0.025)} & \makecell[tr]{0.057 \\ (0.030)} & \makecell[tr]{0.073 \\ (0.041)} & \makecell[tr]{0.113 \\ (0.061)} & \makecell[tr]{0.227{*} \\ (0.107)} & \makecell[tr]{0.108 \\ (0.066)} & \makecell[tr]{0.071 \\ (0.047)} \\
+R-squared & 0.050 & 0.050 & 0.051 & 0.052 & 0.055 & 0.050 & 0.049 \\
+Observations & 3141 & 3141 & 3141 & 3141 & 3141 & 3141 & 3141 \\
 \bottomrule
 \end{tabular*}
 \begin{tablenotes}[flushleft]
 \footnotesize
-\item This table shows a collection of results testing the impact that different definitions of `Majority Black' have on the estimated impact of Residential zoning and Majority Black status for grid squares outside of the highway corridor.Black is an indicator variable equal to 1 if the grid square has a population where the percentage of Black residents is greater than or equal to the threshold indicated in the column header. Each column represents a separate regression where the definition of `Majority Black' is varied from 30% to 70%. Standard errors are reported in parenthesis and estimated using a bootstrap procedure with 1,000 draws. The model includes all controls included in the main analysis:variables related to housing, geographic, and demographic characteristics, as well as city fixed effects. The model also includes the logit values produced by the CNN and its interactions with the other variables.
+\item This table shows a collection of results testing the impact that different definitions of `Majority Black' have on the estimated impact of Residential zoning and Majority Black status for grid squares outside of the highway corridor.Black is an indicator variable equal to 1 if the grid square has a population where the percentage of Black residents is greater than or equal to the threshold indicated in the column header. Each column represents a separate regression where the definition of `Majority Black' is varied from 40% to 70%. Standard errors are reported in parenthesis and estimated using a bootstrap procedure with 1,000 draws. The model includes all controls included in the main analysis:variables related to housing, geographic, and demographic characteristics, as well as city fixed effects. The model also includes the logit values produced by the CNN and its interactions with the other variables.
 \end{tablenotes}
 \end{threeparttable}
 \end{table}
