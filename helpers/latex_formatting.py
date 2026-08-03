@@ -16,11 +16,11 @@ def format_regression_results(results, r2_label='R-squared'):
     df = pd.DataFrame({'coef':results.params, 'stderror': results.bse, 'pvalue': results.pvalues})[1:]
     def sig_coef(row):
         if row['pvalue'] < 0.001:
-            return f"{row['coef']:.3f}^{{***}}"
+            return f"{row['coef']:.3f}{{***}}"
         elif row['pvalue'] < 0.01:
-            return f"{row['coef']:.3f}^{{**}}"
+            return f"{row['coef']:.3f}{{**}}"
         elif row['pvalue'] < 0.05:
-            return f"{row['coef']:.3f}^{{*}}"
+            return f"{row['coef']:.3f}{{*}}"
         else:
             return f"{row['coef']:.3f}"
     df['Coefficient'] = df.apply(
@@ -50,7 +50,7 @@ def _wrap_threeparttable(text, widthmultiplier, notes=None):
         if isinstance(notes, str):
             notes = [notes]
         items = '\n'.join(f'\\item {note}' for note in notes)
-        notes_block = f'\\begin{{tablenotes}}\n\\small\n{items}\n\\end{{tablenotes}}\n'
+        notes_block = f'\\begin{{tablenotes}}[flushleft]\n\\footnotesize\n{{items}}\n\\end{{tablenotes}}\n'
     text = text.replace('\\end{tabular*}', f'\\end{{tabular*}}\n{notes_block}\\end{{threeparttable}}')
     return text
 
