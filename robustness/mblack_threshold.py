@@ -18,7 +18,7 @@ from data_code.candidates import candidate_dict
 # whether the CORE_VARS results are an artifact of that particular cutoff. pct_black is
 # carried in sample.pkl as a fraction in [0, 1], so THRESHOLDS_PCT / 100 mirrors the >= 0.60
 # comparison in create_sample.py.
-THRESHOLDS_PCT = range(30, 71, 5)
+THRESHOLDS_PCT = range(30, 71, 10)
 BASELINE_PCT = 60
 N_BOOTSTRAPS = 1000
 
