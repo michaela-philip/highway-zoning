@@ -57,7 +57,12 @@ def get_mlcandidates(data, centroids, sample):
     return candidate_list
 
 # create a candidate list for non-ML based sample selection - include location and elevation
-def create_candidate_list(data, cbd):
+def create_candidate_list(data, cbd, buffer_width_m=0):
+    """buffer_width_m widens each ray into a corridor of that width before intersecting
+    the grid (buffer_width_m=0, the default, replicates plain line intersection) -- used
+    by robustness/corridor_width.py to sweep corridor width while sharing this exact
+    construction, so buffer_width_m=0 there is guaranteed identical to the candidate_dict
+    built here rather than relying on a separately-maintained copy staying in sync."""
     # get rays between each existing highway point
     pts = data.loc[data['hwy_40'] == 1].copy()
     if pts.empty:
@@ -80,15 +85,18 @@ def create_candidate_list(data, cbd):
     for p in centroids:
         lines.append(LineString([(p.x, p.y), (cbd_point.x, cbd_point.y)]))
 
+    if buffer_width_m > 0:
+        lines = [line.buffer(buffer_width_m) for line in lines]
+
     rays = gpd.GeoDataFrame(geometry = gpd.GeoSeries(lines, crs = data.crs))
-    
+
     # get list of grid_ids that the rays intersect
     candidates = gpd.sjoin(data, rays, how = 'inner', predicate = 'intersects')
 
-    # keep candidates within 1 z-score of demeaned elevation 
+    # keep candidates within 1 z-score of demeaned elevation
     elev_z = stats.zscore(candidates['dm_elevation'])
     candidates = candidates.loc[(elev_z > -1) & (elev_z < 1)].copy()
-    
+
     # drop candidates that already have highways
     candidates = candidates.loc[candidates['hwy_40'] == 0].copy()
     return candidates['grid_id'].unique().tolist()
