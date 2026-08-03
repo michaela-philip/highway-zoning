@@ -12,10 +12,8 @@ CELLS = {
 }
 
 CONTRASTS = {
-    'Protection effect (White): Non-Res vs Res': ('White Non-Residential', 'White Residential'),
-    'Protection effect (Black): Non-Res vs Res': ('Black Non-Residential', 'Black Residential'),
-    'Racial gap (Non-Residential): White vs Black': ('White Non-Residential', 'Black Non-Residential'),
-    'Racial gap (Residential): White vs Black': ('White Residential', 'Black Residential'),
+    'White Protection effect': ('White Non-Residential', 'White Residential'),
+    'Black Protection effect': ('Black Non-Residential', 'Black Residential')
 }
 
 
@@ -214,9 +212,9 @@ def export_marginal_effects_table(results, caption, label, widthmultiplier=0.6, 
               boot_did = b_bnr - b_br - b_wnr + b_wr
               se_val = np.std(boot_did)
               p_val = 2 * min((boot_did > 0).mean(), (boot_did < 0).mean())
-              rows['Disparate Protection (DiD)'] = f"\\makecell[tr]{{{did:.3f}{stars(p_val)} \\\\ ({se_val:.3f})}}"
+              rows['Disparate Protection (Black Protection - White Protection)'] = f"\\makecell[tr]{{{did:.3f}{stars(p_val)} \\\\ ({se_val:.3f})}}"
           else:
-              rows['Disparate Protection (DiD)'] = f"{did:.3f}"
+              rows['Disparate Protection (Black Protection - White Protection)'] = f"{did:.3f}"
           return rows
 
       # single-spec values are 3-tuples; sweep values are themselves dicts -- normalize both
