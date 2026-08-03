@@ -53,3 +53,10 @@ export_single_regression(indir_results_interaction, caption= 'Determinants of Hi
 notes = "This table contains predicted outcomes for each square in the sample based on their residential and majority-Black status, holding all other variables at their mean. The marginal effect of residential zoning and majority-Black status " \
 "is calculated as the difference in predicted outcomes between squares with and without these characteristics. These marginal effects are calculated based on the coefficients reported in Table \\ref{tab:indirect_results}. * p<0.10, ** p<0.05, *** p<0.01"
 export_marginal_effects_table(cells, caption = 'Marginal Effects of Residential Zoning and Majority-Black Status on Highway Placement - Outside Highway Corridor', label = 'tab:marginal_effects_indir', widthmultiplier=0.6, notes = notes)
+
+sweep_values = ind_sample['logit_hwy'].quantile([0.10, 0.25, 0.50, 0.75, 0.90]).tolist()
+cells = marginal_effects_table(ind_sample, x_vars, columns, ind_beta_i, ind_boot_coefs_i, sweep_var='logit_hwy', sweep_label='CNN Logit', sweep_values = sweep_values, sweep_interactions=LOGIT_INTERACTIONS)
+notes = "This table contains predicted outcomes for each square in the sample based on their residential and majority-Black status, holding all variables except for the CNN Logit at their mean. Each column contains " \
+"the results of a different prediction where the CNN logit is varied across its quantiles. The marginal effect of residential zoning and majority-Black status " \
+"is calculated as the difference in predicted outcomes between squares with and without these characteristics. These marginal effects are calculated based on the coefficients reported in Table \\ref{tab:indirect_results}. * p<0.10, ** p<0.05, *** p<0.01"
+export_marginal_effects_table(cells, caption="Marginal Effects of Residential Zoning and Majority-Black Status - CNN Quantiles", label='tab:marginal_effects_sweep', notes=notes)
