@@ -92,7 +92,9 @@ def classify_grid(zoning1, grid, centroids, city_sample, zoning2 = None):
 def place_geology(geology, grid):
     geology = geology.to_crs(grid.crs)
     geology_grid = gpd.sjoin(grid, geology, how = 'left', predicate = 'contains')
-    geology_grid = geology_grid.dissolve(by='grid_id', aggfunc={'dist_water':'mean'})
+    # groupby instead of dissolve -- callers only use dist_water, so there's no need
+    # to pay for unioning the (duplicated, identical) grid polygons per grid_id
+    geology_grid = geology_grid.drop(columns='geometry').groupby('grid_id').agg({'dist_water':'mean'})
     return geology_grid
 
 ### FUNCTION TO ADD ELEVATION AND SLOPE FROM USGS 3DEP WCS ###
@@ -258,7 +260,7 @@ def place_railroads(grid):
     rr_union = rr_gdf.union_all()
 
     output = grid[['grid_id', 'geometry']].copy()
-    output['dist_to_rr'] = output.geometry.centroid.apply(lambda x: x.distance(rr_union))
+    output['dist_to_rr'] = output.geometry.centroid.distance(rr_union)
     return output[['grid_id', 'dist_to_rr']]
 
 ### FUNCTION TO PLACE CENSUS INFO INTO GRID ###
@@ -307,8 +309,10 @@ def place_census(census, grid):
         'serial': 'count',
         'owner':'mean'
     }
-    census_grid = census_grid.dissolve(by='grid_id', aggfunc=agg_funcs)
-    print('census data dissolved to grid')
+    # groupby instead of dissolve -- the caller only keeps the aggregated columns, so
+    # there's no need to pay for unioning the (duplicated) grid polygon per census record
+    census_grid = census_grid.drop(columns='geometry').groupby('grid_id').agg(agg_funcs)
+    print('census data aggregated to grid')
 
     # calculate a few different definitions of 'majority black'
     census_grid['pct_black'] = census_grid['black_pop'] / census_grid['numprec']
@@ -322,37 +326,21 @@ def place_census(census, grid):
 
 ### FUNCTION TO INTERPOLATE MISSING RENT AND HOME VALUES ###
 def impute_values(df):
-    df = df.copy()
-    sindex = df.sindex
+    df = df.copy().reset_index(drop=True)
 
-    # imputed variable
-    df['imputed_rent'] = np.nan
-    df['imputed_valueh'] = np.nan
+    # touching pairs, vectorized (replaces a per-row sindex.intersection + touches() loop)
+    touches = gpd.sjoin(df[['geometry']], df[['geometry']], how='inner', predicate='touches')
 
-    neighbors_dict = {}
-    for idx, geom in df['geometry'].items():
-        possible_matches_index = list(sindex.intersection(geom.bounds))
-        possible_matches = df.iloc[possible_matches_index]
-        neighbors = possible_matches[possible_matches['geometry'].touches(geom)]
-        neighbors_dict[idx] = neighbors.index.tolist()
+    def neighbor_median(col):
+        neighbor_vals = df[col].to_numpy()[touches['index_right'].to_numpy()]
+        medians = pd.Series(neighbor_vals, index=touches.index).groupby(level=0).median()
+        result = pd.Series(np.nan, index=df.index)
+        result.loc[medians.index] = medians.to_numpy()
+        return result
 
-    for idx in df.index:
-        neighbor_idxs = neighbors_dict[idx]
-        neighbor_rents = df.loc[neighbor_idxs, 'rent'].dropna()
-        if not neighbor_rents.empty:
-            df.at[idx, 'imputed_rent'] = neighbor_rents.median()
-    
-    for idx in df.index:
-        neighbor_idxs = neighbors_dict[idx]
-        neighbor_values = df.loc[neighbor_idxs, 'valueh'].dropna()
-        if not neighbor_values.empty:
-            df.at[idx, 'imputed_valueh'] = neighbor_values.median()
-
-    for idx in df.index:
-        neighbor_idxs = neighbors_dict[idx]
-        neighbor_race = df.loc[neighbor_idxs, 'pct_black'].dropna()
-        if not neighbor_race.empty:
-            df.at[idx, 'imputed_pct_black'] = neighbor_race.median()
+    df['imputed_rent'] = neighbor_median('rent')
+    df['imputed_valueh'] = neighbor_median('valueh')
+    df['imputed_pct_black'] = neighbor_median('pct_black')
 
     df['rent_avail'] = np.where(df['rent'].notna(), 1, 0)
     df['valueh_avail'] = np.where(df['valueh'].notna(), 1, 0)
@@ -398,7 +386,7 @@ def place_highways(grid, state59, state40, us59, us40, interstate):
     # merge in hwy indicator
     output = grid.merge(hwys, left_on='grid_id', right_index=True)
     built_1940_union = built_1940.union_all()
-    output['dist_to_hwy'] = output.geometry.centroid.apply(lambda x: x.distance(built_1940_union))
+    output['dist_to_hwy'] = output.geometry.centroid.distance(built_1940_union)
     return output
 
 ### FUNCTION TO CREATE THE SAMPLE GRID ### 
