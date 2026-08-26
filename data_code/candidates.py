@@ -169,7 +169,7 @@ def find_segment_endpoints(df):
     return endpoint_ids
 
 # create a candidate list for non-ML based sample selection - include location and elevation
-def create_candidate_list(data, cbd, buffer_width_m=0, k=2):
+def create_candidate_list(data, buffer_width_m=75, k=2):
     """buffer_width_m widens each ray into a corridor of that width before intersecting
     the grid (buffer_width_m=0, the default, replicates plain line intersection) -- used
     by robustness/corridor_width.py to sweep corridor width while sharing this exact
