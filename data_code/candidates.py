@@ -7,7 +7,7 @@ import pickle
 import scipy.stats as stats
 from scipy.sparse import coo_matrix
 from scipy.sparse.csgraph import connected_components
-from scipy.spatial import cKDTree
+from scipy.spatial import KDTree
 from pathlib import Path
 
 # candidate list for CNN - only based on location
@@ -120,7 +120,7 @@ def create_candidate_list(data, cbd, buffer_width_m=0, k=2):
 
     pairs = set()
     if n >= 2:
-        tree = cKDTree(coords)
+        tree = KDTree(coords)
         _, idxs = tree.query(coords, k=n)  # full ranking of neighbors, nearest first
         for i, neighbor_idxs in enumerate(idxs):
             kept = 0
