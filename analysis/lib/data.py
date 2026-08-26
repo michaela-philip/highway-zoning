@@ -10,11 +10,11 @@ from scipy.spatial.distance import cdist
 def load_sample(path='data/output/sample.pkl'):
     """Load the grid-square sample and construct the variables used across specifications."""
     df = pd.read_pickle(path)
-    df['rent'] = df['rent'].replace(0, 0.00001)
-    df['valueh'] = df['valueh'].replace(0, 0.00001)
+    # df['rent'] = df['rent'].replace(0, 0.00001)
+    # df['valueh'] = df['valueh'].replace(0, 0.00001)
 
-    df['log_valueh'] = np.log(df['valueh']) * df['valueh_avail']
-    df['log_rent'] = np.log(df['rent']) * df['rent_avail']
+    df['log_valueh'] = np.log(df['valueh'] + 0.00001) * df['valueh_avail']
+    df['log_rent'] = np.log(df['rent'] + 0.00001) * df['rent_avail']
     df['city_louisville'] = (df['city'] == 'louisville').astype(int)
     df['city_littlerock'] = (df['city'] == 'littlerock').astype(int)
     df['distance_to_cbd_sq'] = df['distance_to_cbd'] ** 2
@@ -23,7 +23,11 @@ def load_sample(path='data/output/sample.pkl'):
     df['log_dist_to_hwy'] = np.log(df['dist_to_hwy'])
     df['ResidentialxBlack'] = df['Residential'] * df['mblack_1945def']
     df['ResidentialxPctBlack'] = df['Residential'] * df['pct_black']
-    df['ResidentialxShareBlack'] = df['Residential'] * df['share_black']
+    df['log_black'] = np.log(df['pct_black'] + 0.000001)
+    df['ResidentialxLogBlack'] = df['Residential'] * df['log_black']
+    df['any_black'] = np.where(df['black_pop'] != 0, 1, 0)
+    df['ResidentialxAnyBlack'] = df['Residential'] * df['any_black']
+    df['BlackxPctOwners'] = df['mblack_1945def'] * df['owner']
     return df
 
 
@@ -73,6 +77,7 @@ def add_cnn_interactions(df):
     df['BlackxLogHwy'] = df['mblack_1945def'] * df['logit_hwy']
     df['ResidentialxLogHwy'] = df['Residential'] * df['logit_hwy']
     df['ResidentialxBlackxLogHwy'] = df['Residential'] * df['mblack_1945def'] * df['logit_hwy']
+    df['ResidentialxPredProb'] = df['Residential'] * df['logit_hwy']
     return df
 
 
