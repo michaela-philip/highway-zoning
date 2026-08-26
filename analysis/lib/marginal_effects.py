@@ -17,7 +17,7 @@ CONTRASTS = {
 }
 
 
-def marginal_effects_table(df, x_vars, columns, beta, boot_coefs=None,
+def predicted_outcomes_bootstrapped(df, x_vars, columns, beta, boot_coefs=None,
                             link='identity', eval_at='mean',
                             sweep_var=None, sweep_label=None, sweep_values=None,
                             sweep_interactions=None):
@@ -154,86 +154,279 @@ def marginal_effects_table(df, x_vars, columns, beta, boot_coefs=None,
             else:
                 print(f"{clabel:50} {diff:10.4f} {'--':>8} {'--':>8}")
 
-        # disparate protection: (Black Non-Res - Black Res) - (White Non-Res - White Res)
-        did = (predictions['Black Non-Residential'] - predictions['Black Residential']
-               - predictions['White Non-Residential'] + predictions['White Residential'])
+        contrast_results = {}
+        for clabel, (a, b) in CONTRASTS.items():
+            diff, se_val, p_val = contrast(a, b)
+            contrast_results[clabel] = (diff, se_val, p_val)
+
+        did = (predictions['Black Non-Residential'] 
+                   - predictions['Black Residential']
+                   - predictions['White Non-Residential']
+                   + predictions['White Residential'])
+
+        did_se_val, did_p_val = None, None  # initialize before conditional
+
         if boot_preds['Black Non-Residential'] is not None:
             boot_did = (boot_preds['Black Non-Residential'] - boot_preds['Black Residential']
                         - boot_preds['White Non-Residential'] + boot_preds['White Residential'])
-            se_val = np.std(boot_did)
-            p_val = 2 * min((boot_did > 0).mean(), (boot_did < 0).mean())
-            stars = '***' if p_val < 0.01 else '**' if p_val < 0.05 else '*' if p_val < 0.10 else ''
-            print(f"{'Disparate protection (DiD)':50} {did:10.4f} {se_val:8.4f} {p_val:8.3f}{stars}")
+            did_se_val = np.std(boot_did)
+            did_p_val  = 2 * min((boot_did > 0).mean(), (boot_did < 0).mean())
+            stars = '***' if did_p_val < 0.01 else '**' if did_p_val < 0.05 else '*' if did_p_val < 0.10 else ''
+            print(f"{'Disparate protection (DiD)':50} {did:10.4f} {did_se_val:8.4f} {did_p_val:8.3f}{stars}")
         else:
             print(f"{'Disparate protection (DiD)':50} {did:10.4f} {'--':>8} {'--':>8}")
 
-        print("\n  'Disparate protection (DiD)' is the difference-in-differences:")
-        print("  (Black Non-Res - Black Res) - (White Non-Res - White Res)")
-        print("  Negative = residential zoning less protective for Black neighborhoods")
-
-        all_results[sv] = cell_estimates
+        all_results[sv] = {
+            'cells'     : cell_estimates,
+            'contrasts' : contrast_results,
+            'did'       : (did, did_se_val, did_p_val)   # None, None when no bootstrap
+        }
 
     return all_results if sweep_var is not None else all_results[None]
 
-def export_marginal_effects_table(results, caption, label, widthmultiplier=0.6, notes=None, column_labels=None):
-      """
-      Export marginal_effects_table() output as a LaTeX table of contrasts (protection
-      effects, racial gap, disparate protection), each cell shown as diff^{stars} over (SE),
-      recomputed from the paired bootstrap draws already stored per cell.
+def export_predicted_outcomes_table(results, caption, label,
+                                   widthmultiplier=0.6,
+                                   notes=None, column_labels=None):
+    """
+    Export output from either predicted_outcomes_bootstrapped() or
+    predicted_outcomes_conley() — both now return the same
+    {'cells': ..., 'contrasts': ..., 'did': ...} structure.
+    """
+    def stars(p):
+        if p is None: return ''
+        return ('{***}' if p < 0.01 else '{**}' if p < 0.05
+                else '{*}' if p < 0.10 else '')
 
-      Works uniformly whether `results` is:
-        - a single {cell_label: (point, se, boot_draws)} dict (no sweep) -> one column, or
-        - a {sweep_value: {cell_label: (point, se, boot_draws)}} dict (sweep_var set)
-          -> one column per sweep value.
+    def fmt(point, se, p):
+        if se is None:
+            return f"{point:.3f}"
+        return (f"\\makecell[tr]{{{point:.3f}{stars(p)} "
+                f"\\\\ ({se:.3f})}}")
 
-      column_labels optionally renames sweep-value keys to column headers
-      (e.g. {v: f'{v:.2f}' for v in sweep_values}); ignored in the single-spec case.
-      """
-      def stars(p):
-          return '{***}' if p < 0.01 else '{**}' if p < 0.05 else '{*}' if p < 0.10 else ''
+    def build_column(sv_results):
+        rows = {}
 
-      def diff_cell(cell_estimates, a, b):
-          pa, _, boota = cell_estimates[a]
-          pb, _, bootb = cell_estimates[b]
-          diff = pa - pb
-          if boota is None or bootb is None:
-              return f"{diff:.3f}"
-          boot_diff = boota - bootb
-          se_val = np.std(boot_diff)
-          p_val = 2 * min((boot_diff > 0).mean(), (boot_diff < 0).mean())
-          return f"\\makecell[tr]{{{diff:.3f}{stars(p_val)} \\\\ ({se_val:.3f})}}"
+        for lbl, (point, se, _) in sv_results['cells'].items():
+            rows[lbl] = fmt(point, se, None)
 
-      def build_column(cell_estimates):
-          rows = {}
-          for label, (point, se, _) in cell_estimates.items():
-              rows[label] = f"{point:.3f}" if se is None else f"\\makecell[tr]{{{point:.3f} \\\\ ({se:.3f})}}"
-          for clabel, (a, b) in CONTRASTS.items():
-              rows[clabel] = diff_cell(cell_estimates, a, b)
+        for clabel, (diff, se, p) in sv_results['contrasts'].items():
+            rows[clabel] = fmt(diff, se, p)
 
-          p_bnr, _, b_bnr = cell_estimates['Black Non-Residential']
-          p_br,  _, b_br  = cell_estimates['Black Residential']
-          p_wnr, _, b_wnr = cell_estimates['White Non-Residential']
-          p_wr,  _, b_wr  = cell_estimates['White Residential']
-          did = p_bnr - p_br - p_wnr + p_wr
-          if b_bnr is not None:
-              boot_did = b_bnr - b_br - b_wnr + b_wr
-              se_val = np.std(boot_did)
-              p_val = 2 * min((boot_did > 0).mean(), (boot_did < 0).mean())
-              rows['Disparate Protection (Black Protection - White Protection)'] = f"\\makecell[tr]{{{did:.3f}{stars(p_val)} \\\\ ({se_val:.3f})}}"
-          else:
-              rows['Disparate Protection (Black Protection - White Protection)'] = f"{did:.3f}"
-          return rows
+        did_val, did_se, did_p = sv_results['did']
+        did_key = 'Disparate Protection (Black Protection - White Protection)'
+        rows[did_key] = fmt(did_val, did_se, did_p)
 
-      # single-spec values are 3-tuples; sweep values are themselves dicts -- normalize both
-      # to "one column per key" so the rest of the function doesn't need to branch again
-      is_sweep = all(isinstance(v, dict) for v in results.values())
-      if is_sweep:
-          columns = {(column_labels or {}).get(k, k): build_column(v) for k, v in results.items()}
-      else:
-          columns = {'Estimate': build_column(results)}
+        return rows
 
-      row_order = list(next(iter(columns.values())).keys())
-      table = pd.DataFrame(columns).reindex(row_order)
-      table.index.name = None
+    is_sweep = all(
+        isinstance(v, dict) and 'cells' in v
+        for v in results.values()
+    )
+    if is_sweep:
+        cols = {
+            (column_labels or {}).get(k, k): build_column(v)
+            for k, v in results.items()
+        }
+    else:
+        cols = {'Estimate': build_column(results)}
 
-      export_table(table, caption, label, widthmultiplier, notes)
+    row_order = list(next(iter(cols.values())).keys())
+    table = pd.DataFrame(cols).reindex(row_order)
+    table.index.name = None
+    export_table(table, caption, label, widthmultiplier, notes)
+
+def predicted_outcomes_conley(df, x_vars, columns, beta_full, V_full,
+                                   link='identity', eval_at='mean',
+                                   sweep_var=None, sweep_label=None,
+                                   sweep_values=None, sweep_interactions=None):
+    """
+    Predicted outcome for the four Residential x Black cells with Conley
+    spatial HAC standard errors via the delta method.
+
+    Mirrors predicted_outcomes_bootstrapped() exactly in interface and output format,
+    but replaces bootstrap-based SEs with delta method SEs computed from the
+    Conley sandwich covariance matrix V_full.
+
+    Parameters
+    ----------
+    beta_full : full coefficient vector including intercept (length = len(columns))
+    V_full    : full Conley sandwich covariance matrix (len(columns) x len(columns))
+                including the intercept row/column -- as returned by fit_ppml_conley
+                via res.V_full, or _conley_meat() directly
+    All other parameters identical to marginal_effects_table().
+    """
+    from scipy.stats import norm as _norm
+    assert link in ('identity', 'log')
+
+    row_var,   row_label   = CORE_VARS[0]
+    col_var,   col_label   = CORE_VARS[1]
+    inter_var, inter_label = CORE_VARS[2]
+
+    varying_labels = {row_label, col_label, inter_label}
+    if sweep_var is not None:
+        varying_labels.add(sweep_label)
+        varying_labels.update(lbl for _, lbl in sweep_interactions)
+
+    other_pairs = [(v, c) for v, c in zip(x_vars, columns[1:])
+                   if c not in varying_labels]
+    other_raw  = [v for v, _ in other_pairs]
+    eval_vals  = (df[other_raw].mean() if eval_at == 'mean'
+                  else df[other_raw].median())
+
+    beta_arr = np.asarray(beta_full)
+    V        = np.asarray(V_full)
+
+    def make_x(residential, black, sweep_value=None):
+        x = pd.Series(0.0, index=columns)
+        x['Intercept'] = 1.0
+        x[row_label]   = residential
+        x[col_label]   = black
+        x[inter_label] = residential * black
+        for raw, friendly in other_pairs:
+            x[friendly] = eval_vals[raw]
+        if sweep_var is not None and sweep_value is not None:
+            x[sweep_label] = sweep_value
+            for _, lbl in sweep_interactions:
+                tokens  = lbl.split(' x ')
+                has_row = row_label in tokens
+                has_col = col_label in tokens
+                if has_row and has_col:
+                    x[lbl] = residential * black * sweep_value
+                elif has_row:
+                    x[lbl] = residential * sweep_value
+                elif has_col:
+                    x[lbl] = black * sweep_value
+                else:
+                    raise ValueError(
+                        f"{lbl!r} in sweep_interactions doesn't reference "
+                        f"{row_label!r} or {col_label!r}"
+                    )
+        return x
+
+    def predict(x_vec):
+        """Point prediction."""
+        z = float(np.asarray(x_vec) @ beta_arr)
+        return np.exp(z) if link == 'log' else z
+
+    # add this diagnostic
+    for label, (res, blk) in CELLS.items():
+        x = make_x(res, blk, sweep_values[0])
+        print(f"{label}: Residential={x[row_label]}, Black={x[col_label]}, "
+            f"pred={predict(x):.6f}")
+
+    def cell_se(x_vec):
+        """
+        Delta method SE for a single predicted value.
+        LPM:  SE = sqrt(x'Vx)
+        PPML: SE = exp(x'b) * sqrt(x'Vx)   [gradient of exp is exp * x]
+        """
+        xv  = np.asarray(x_vec)
+        var = xv @ V @ xv
+        se  = np.sqrt(max(var, 0.0))
+        if link == 'log':
+            se = predict(x_vec) * se
+        return se
+
+    def contrast_se(x_a, x_b):
+        """
+        Delta method SE for predict(x_a) - predict(x_b).
+        LPM:  gradient = x_a - x_b
+        PPML: gradient = exp(x_a'b)*x_a - exp(x_b'b)*x_b
+        """
+        xa, xb = np.asarray(x_a), np.asarray(x_b)
+        if link == 'log':
+            grad = predict(xa) * xa - predict(xb) * xb
+        else:
+            grad = xa - xb
+        var = grad @ V @ grad
+        return np.sqrt(max(var, 0.0))
+
+    def did_se(x_bnr, x_br, x_wnr, x_wr):
+        """
+        Delta method SE for
+        (predict(x_bnr) - predict(x_br)) - (predict(x_wnr) - predict(x_wr)).
+        """
+        if link == 'log':
+            grad = (predict(x_bnr) * np.asarray(x_bnr)
+                    - predict(x_br)  * np.asarray(x_br)
+                    - predict(x_wnr) * np.asarray(x_wnr)
+                    + predict(x_wr)  * np.asarray(x_wr))
+        else:
+            grad = (np.asarray(x_bnr) - np.asarray(x_br)
+                    - np.asarray(x_wnr) + np.asarray(x_wr))
+        var = grad @ V @ grad
+        return np.sqrt(max(var, 0.0))
+
+    def fmt_pval(p):
+        stars = ('***' if p < 0.01 else '**' if p < 0.05
+                 else '*' if p < 0.10 else '')
+        return p, stars
+
+    sweep_grid  = sweep_values if sweep_var is not None else [None]
+    all_results = {}
+
+    for sv in sweep_grid:
+        sv_str = f" | {sweep_label} = {sv:.3f}" if sv is not None else ""
+        print("\n" + "=" * 70)
+        print(f"PREDICTED OUTCOMES (Conley SEs){sv_str}")
+        print(f"(Other variables held at "
+              f"{'mean' if eval_at == 'mean' else 'median'})")
+        print("=" * 70)
+        print(f"\n{'Neighborhood Type':30} {'Predicted':>12} {'SE':>8} "
+              f"{'z':>7} {'p-val':>8} {'95% CI':>20}")
+        print("-" * 85)
+
+        xs          = {lbl: make_x(res, blk, sv)
+                       for lbl, (res, blk) in CELLS.items()}
+        predictions = {lbl: predict(x) for lbl, x in xs.items()}
+
+        cell_estimates = {}
+        for lbl in CELLS:
+            pred   = predictions[lbl]
+            se_val = cell_se(xs[lbl])
+            z_val  = pred / se_val if se_val > 0 else np.nan
+            p_val  = 2 * (1 - _norm.cdf(abs(z_val)))
+            ci_lo  = pred - 1.96 * se_val
+            ci_hi  = pred + 1.96 * se_val
+            p_str, stars = fmt_pval(p_val)
+            # store as (point, se, None) — no bootstrap draws
+            cell_estimates[lbl] = (pred, se_val, None)
+            print(f"{lbl:30} {pred:12.4f} {se_val:8.4f} "
+                  f"{z_val:7.2f} {p_str:8.3f}{stars:3} "
+                  f"[{ci_lo:.4f}, {ci_hi:.4f}]")
+
+        print("\n--- Key Contrasts ---")
+        print(f"\n{'Contrast':50} {'Diff':>10} {'SE':>8} "
+              f"{'z':>7} {'p-val':>8}")
+        print("-" * 85)
+
+        contrast_results = {}
+        for clabel, (a, b) in CONTRASTS.items():
+            diff   = predictions[a] - predictions[b]
+            se_val = contrast_se(xs[a], xs[b])
+            z_val  = diff / se_val if se_val > 0 else np.nan
+            p_val  = 2 * (1 - _norm.cdf(abs(z_val)))
+            contrast_results[clabel] = (diff, se_val, p_val)
+            print(f"{clabel:50} {diff:10.4f} {se_val:8.4f} {z_val:7.2f} {p_val:8.3f}")
+
+        did_val = (predictions['Black Non-Residential']
+                - predictions['Black Residential']
+                - predictions['White Non-Residential']
+                + predictions['White Residential'])
+        did_se_val = did_se(xs['Black Non-Residential'],
+                            xs['Black Residential'],
+                            xs['White Non-Residential'],
+                            xs['White Residential'])
+        did_z   = did_val / did_se_val if did_se_val > 0 else np.nan
+        did_p   = 2 * (1 - _norm.cdf(abs(did_z)))
+        print(f"{'Disparate Protection':50} "
+              f"{did_val:10.4f} {did_se_val:8.4f} {did_z:7.2f} {did_p:8.3f}")
+
+        all_results[sv] = {
+            'cells'     : cell_estimates,      # {label: (point, se, None)}
+            'contrasts' : contrast_results,    # {label: (diff, se, p_val)}
+            'did'       : (did_val, did_se_val, did_p),
+        }
+    print(f"Contrast results: {contrast_results}")
+    print(f"DID: {did_val:.4f} ({did_se_val:.4f})")
+    return all_results if sweep_var is not None else all_results[None]
