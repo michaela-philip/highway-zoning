@@ -4,19 +4,27 @@
 CORE_VARS = [
     ('Residential', 'Residential'),
     ('mblack_1945def', 'Black'),
-    ('ResidentialxBlack', 'Residential x Black'),
+    ('ResidentialxBlack', 'Residential x Black')
+]
+
+NO_RACE = [
+    ('Residential', 'Residential')
 ]
 
 PCT_BLACK = [
-    ('pct_black', 'Percent Black'),
     ('Residential', 'Residential'),
-    ('ResidentialxPctBlack', 'Residential x Percent Black')
+    ('log_black', '(Log) Percent Black'),
+    ('ResidentialxLogBlack', 'Residential x Percent Black')
 ]
 
-SHARE_BLACK = [
-    ('share_black', 'Share Black'),
+ANY_BLACK = [
     ('Residential', 'Residential'),
-    ('ResidentialxShareBlack', 'Residential x Share Black')
+    ('any_black', 'Any Black Residents'),
+    ('ResidentialxAnyBlack', 'Residential x Any Black')
+]
+
+RACE_OWNERSHIP = [
+    ('BlackxPctOwners', 'Black x Percent Owners')
 ]
 
 HOUSING_VARS = [
