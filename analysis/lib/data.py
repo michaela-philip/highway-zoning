@@ -21,10 +21,15 @@ def load_sample(path='data/output/sample.pkl'):
     df['log_dist_to_rr'] = np.log(df['dist_to_rr'])
     df['log_dist_to_rr_sq'] = df['log_dist_to_rr'] ** 2
     df['log_dist_to_hwy'] = np.log(df['dist_to_hwy'])
+
     df['ResidentialxBlack'] = df['Residential'] * df['mblack_1945def']
-    df['ResidentialxPctBlack'] = df['Residential'] * df['pct_black']
+    df['ResidentialxBlack_pct'] = df['Residential'] * df['mblack_mean_pct']
+    df['ResidentialxBlack_share'] = df['Residential'] * df['mblack_mean_share']
+
     df['log_black'] = np.log(df['pct_black'] + 0.000001)
     df['ResidentialxLogBlack'] = df['Residential'] * df['log_black']
+    df['ResidentialxPctBlack'] = df['Residential'] * df['pct_black']
+
     df['any_black'] = np.where(df['black_pop'] != 0, 1, 0)
     df['ResidentialxAnyBlack'] = df['Residential'] * df['any_black']
     df['BlackxPctOwners'] = df['mblack_1945def'] * df['owner']
