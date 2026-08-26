@@ -53,6 +53,52 @@ def restrict_to_discretionary(df):
     return df[~df['grid_id'].isin(adjacent_ids) & (df['hwy_40'] == 0)].copy()
 
 
+def compute_hwy_degree(df):
+    """For each hwy_40 square, count how many other hwy_40 squares it touches
+    (queen contiguity: shared edge or corner). Degree 0/1 squares are segment
+    endpoints (0 = an isolated single-square segment), degree 2 squares are
+    segment interiors, and degree >= 3 squares are junctions where multiple
+    segments meet."""
+    hwy_40_squares = df[df['hwy_40'] == 1][['grid_id', 'geometry']].copy()
+    touches_result = gpd.sjoin(
+        hwy_40_squares,
+        hwy_40_squares[['geometry']],
+        how='left',
+        predicate='touches',
+    )
+    matched = touches_result[touches_result['index_right'].notna()]
+    degree = matched.groupby('grid_id').size()
+
+    out = hwy_40_squares[['grid_id']].copy()
+    out['hwy_degree'] = out['grid_id'].map(degree).fillna(0).astype(int)
+    return out
+
+
+def diagonal_touch_share(df):
+    """Among touching pairs of hwy_40 squares, report the share whose only
+    shared geometry is a single point (a corner-only/diagonal touch) rather
+    than a shared edge."""
+    hwy_40_squares = df[df['hwy_40'] == 1][['grid_id', 'geometry']].copy()
+    touches_result = gpd.sjoin(
+        hwy_40_squares,
+        hwy_40_squares[['geometry']],
+        how='inner',
+        predicate='touches',
+    )
+    # each unordered pair appears twice (A->B and B->A); keep one direction
+    touches_result = touches_result[touches_result.index < touches_result['index_right']]
+
+    left_geom = hwy_40_squares.loc[touches_result.index, 'geometry'].reset_index(drop=True)
+    right_geom = hwy_40_squares.loc[touches_result['index_right'], 'geometry'].reset_index(drop=True)
+    intersections = gpd.GeoSeries(left_geom).intersection(gpd.GeoSeries(right_geom))
+    is_corner_only = intersections.geom_type.isin(['Point', 'MultiPoint'])
+
+    n_pairs = len(is_corner_only)
+    n_corner_only = int(is_corner_only.sum())
+    share = n_corner_only / n_pairs if n_pairs else float('nan')
+    return share, n_corner_only, n_pairs
+
+
 def merge_cnn_probs(df, model_pattern, dataroot='cnn/'):
     """Merge in predicted P(highway) from the most recently modified CNN output file
     matching model_pattern (e.g. 'predicted_activation-model1*.csv')."""
