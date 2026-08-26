@@ -13,8 +13,14 @@ NO_RACE = [
 
 PCT_BLACK = [
     ('Residential', 'Residential'),
-    ('log_black', '(Log) Percent Black'),
-    ('ResidentialxLogBlack', 'Residential x Percent Black')
+    ('mblack_mean_pct', 'Black'),
+    ('ResidentialxBlack_pct', 'Residential x Black')
+]
+
+SHARE_BLACK = [
+    ('Residential', 'Residential'),
+    ('mblack_mean_share', 'Black'),
+    ('ResidentialxBlack_share', 'Residential x Black')
 ]
 
 ANY_BLACK = [
