@@ -80,10 +80,10 @@ def create_candidate_list(data, cbd, buffer_width_m=0):
         p2 = centroids.iloc[j]
         lines.append(LineString([(p1.x, p1.y), (p2.x, p2.y)]))
 
-    # get rays between each existing highway ray and the CBD
-    cbd_point = cbd.geometry.iloc[0]
-    for p in centroids:
-        lines.append(LineString([(p.x, p.y), (cbd_point.x, cbd_point.y)]))
+    # # get rays between each existing highway ray and the CBD
+    # cbd_point = cbd.geometry.iloc[0]
+    # for p in centroids:
+    #     lines.append(LineString([(p.x, p.y), (cbd_point.x, cbd_point.y)]))
 
     if buffer_width_m > 0:
         lines = [line.buffer(buffer_width_m) for line in lines]
@@ -93,9 +93,9 @@ def create_candidate_list(data, cbd, buffer_width_m=0):
     # get list of grid_ids that the rays intersect
     candidates = gpd.sjoin(data, rays, how = 'inner', predicate = 'intersects')
 
-    # keep candidates within 1 z-score of demeaned elevation
-    elev_z = stats.zscore(candidates['dm_elevation'])
-    candidates = candidates.loc[(elev_z > -1) & (elev_z < 1)].copy()
+    # # keep candidates within 1 z-score of demeaned elevation
+    # elev_z = stats.zscore(candidates['dm_elevation'])
+    # candidates = candidates.loc[(elev_z > -1) & (elev_z < 1)].copy()
 
     # drop candidates that already have highways
     candidates = candidates.loc[candidates['hwy_40'] == 0].copy()
