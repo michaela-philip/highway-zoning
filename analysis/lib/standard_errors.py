@@ -46,18 +46,13 @@ def fit_ppml_conley(df, x_vars, columns, y_var='hwy',
             df.geometry.centroid.y.values
         ])
     
-    se_full = _conley_inner(X, mu, resid, coords, cutoff_m)
-    # se_full[0] = intercept SE, se_full[1:] = variable SEs
+    se, V = _conley_inner(X, mu, resid, coords, cutoff_m)
     
-    # --- strip intercept, align with col_names ---
-    beta_disp = beta
-    se_disp   = se_full
-    
-    assert len(beta_disp) == len(columns), (
-        f"len(beta)={len(beta_disp)} != len(columns)={len(columns)}"
+    assert len(beta) == len(columns), (
+        f"len(beta)={len(beta)} != len(columns)={len(columns)}"
     )
     
-    z    = beta_disp / se_disp
+    z    = beta / se
     pval = 2 * (1 - norm.cdf(np.abs(z)))
     
     # pseudo R-squared
@@ -67,13 +62,12 @@ def fit_ppml_conley(df, x_vars, columns, y_var='hwy',
         rsq = None
     
     return SimpleNamespace(
-        params   = pd.Series(beta_disp, index=columns),
-        bse      = pd.Series(se_disp,   index=columns),
+        params   = pd.Series(beta, index=columns),
+        bse      = pd.Series(se,   index=columns),
         pvalues  = pd.Series(pval,      index=columns),
         rsquared = rsq,
         nobs     = float(len(y)),
-        # keep raw objects for marginal effects etc.
-        beta_full  = beta,
+        V        = V,
         mu         = mu,
         X          = X,
         y          = y,
@@ -109,4 +103,5 @@ def _conley_inner(X, mu, resid, coords, cutoff_m):
     outer = np.linalg.inv(XWX)
 
     V  = outer @ inner @ outer
-    return np.sqrt(np.diag(V))
+    se = np.sqrt(np.diag(V))
+    return se, V
