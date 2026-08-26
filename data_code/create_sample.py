@@ -348,6 +348,12 @@ def impute_values(df):
         if not neighbor_values.empty:
             df.at[idx, 'imputed_valueh'] = neighbor_values.median()
 
+    for idx in df.index:
+        neighbor_idxs = neighbors_dict[idx]
+        neighbor_race = df.loc[neighbor_idxs, 'pct_black'].dropna()
+        if not neighbor_race.empty:
+            df.at[idx, 'imputed_pct_black'] = neighbor_race.median()
+
     df['rent_avail'] = np.where(df['rent'].notna(), 1, 0)
     df['valueh_avail'] = np.where(df['valueh'].notna(), 1, 0)
     df['rent'] = df['rent'].fillna(0)
@@ -453,7 +459,8 @@ def create_grid(zoning, centroids, geology, census, state59, state40, us59, us40
     output['hwy'] = np.where(output['hwy'] < 0, 0, output['hwy'])
 
     # bits and pieces
-    output = output[output['numprec'] > 0]
+    # output = output[output['numprec'] > 0]
+    output['imputed'] = np.where(output['numprec'] == 0, 1, 0)
     avg_elev = output.loc[output['hwy'] == 1, 'elevation'].mean()
     print('average elevation in hwy grids:', avg_elev)
     output['dm_elevation'] = output['elevation'] - avg_elev
