@@ -340,13 +340,13 @@ def impute_values(df):
         neighbor_idxs = neighbors_dict[idx]
         neighbor_rents = df.loc[neighbor_idxs, 'rent'].dropna()
         if not neighbor_rents.empty:
-            df.at[idx, 'imputed_rent'] = neighbor_rents.mean()
+            df.at[idx, 'imputed_rent'] = neighbor_rents.median()
     
     for idx in df.index:
         neighbor_idxs = neighbors_dict[idx]
         neighbor_values = df.loc[neighbor_idxs, 'valueh'].dropna()
         if not neighbor_values.empty:
-            df.at[idx, 'imputed_valueh'] = neighbor_values.mean()
+            df.at[idx, 'imputed_valueh'] = neighbor_values.median()
 
     df['rent_avail'] = np.where(df['rent'].notna(), 1, 0)
     df['valueh_avail'] = np.where(df['valueh'].notna(), 1, 0)
