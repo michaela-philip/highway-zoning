@@ -6,7 +6,7 @@ from shapely.geometry import LineString
 import pickle
 import scipy.stats as stats
 from scipy.sparse import coo_matrix
-from scipy.sparse.csgraph import connected_components
+from scipy.sparse.csgraph import connected_components, shortest_path
 from scipy.spatial import KDTree
 from pathlib import Path
 
@@ -90,6 +90,84 @@ def compute_hwy_degree(df):
     out['component_id'] = labels
     return out
 
+def find_segment_endpoints(df):
+    """For each connected hwy_40 segment (component_id), identify its true
+    endpoint(s), correcting for the fact that a tight right-angle bend can give
+    a real tip a spurious extra touch (see compute_hwy_degree), making
+    hwy_degree < 2 alone unreliable right at such a bend:
+      - squares with hwy_degree < 2 are trusted directly (covers straight runs,
+        wide-radius bends, isolated squares, and clean multi-arm junctions);
+      - a component with exactly one such square has one tip obscured by a
+        bend -- BFS from the known tip across the component and take the
+        farthest square as the other endpoint (provably correct for a
+        tree-shaped component, which a bent path is);
+      - a component with none (both tips obscured, e.g. a minimal 3-square
+        right-angle bend) takes the farthest pair by graph hop-distance.
+    Ties in hop-distance (which happen exactly at these bends, since the
+    spurious touch creates an equal-length shortcut) are broken by Euclidean
+    centroid distance, since the true tips end up farther apart in real space
+    than any pair involving the bend square.
+
+    Known gap: a junction with several arms, where only some arms are long
+    enough to give a clean hwy_degree < 2 tip, still resolves as soon as >= 2
+    such tips are found -- any other arm's tip goes undetected rather than
+    being searched for specifically."""
+    degree_df = compute_hwy_degree(df)
+    hwy_40_squares = df[df['hwy_40'] == 1][['grid_id', 'geometry']].reset_index(drop=True)
+    hwy_40_squares = hwy_40_squares.merge(degree_df, on='grid_id').reset_index(drop=True)
+
+    touches_result = gpd.sjoin(
+        hwy_40_squares[['geometry']],
+        hwy_40_squares[['geometry']],
+        how='left',
+        predicate='touches',
+    )
+    matched = touches_result[touches_result['index_right'].notna()]
+    n = len(hwy_40_squares)
+    rows = matched.index.to_numpy()
+    cols = matched['index_right'].to_numpy(dtype=int)
+    adjacency = coo_matrix((np.ones(len(rows)), (rows, cols)), shape=(n, n)).tocsr()
+
+    centroids = hwy_40_squares.geometry.centroid
+    coords = np.column_stack([centroids.x.values, centroids.y.values])
+
+    endpoint_ids = []
+    for component_id, group in hwy_40_squares.groupby('component_id'):
+        idx = group.index.to_numpy()
+
+        if len(idx) == 1:
+            endpoint_ids.append(group['grid_id'].iloc[0])
+            continue
+
+        certain = group.loc[group['hwy_degree'] < 2]
+        if len(certain) >= 2:
+            endpoint_ids.extend(certain['grid_id'].tolist())
+            continue
+
+        local_adj = adjacency[idx][:, idx]
+        dist = shortest_path(local_adj, method='auto', unweighted=True, directed=False)
+        local_coords = coords[idx]
+
+        if len(certain) == 1:
+            known_pos = np.flatnonzero(idx == certain.index[0])[0]
+            far_dist = dist[known_pos]
+            tied = np.flatnonzero(far_dist == far_dist.max())
+            if len(tied) > 1:
+                euclid = np.linalg.norm(local_coords[tied] - local_coords[known_pos], axis=1)
+                best = tied[np.argmax(euclid)]
+            else:
+                best = tied[0]
+            endpoint_ids.append(group['grid_id'].iloc[known_pos])
+            endpoint_ids.append(group['grid_id'].iloc[best])
+        else:
+            pair_a, pair_b = np.where(np.triu(dist == dist.max(), k=1))
+            euclid = np.linalg.norm(local_coords[pair_a] - local_coords[pair_b], axis=1)
+            best = np.argmax(euclid)
+            endpoint_ids.append(group['grid_id'].iloc[pair_a[best]])
+            endpoint_ids.append(group['grid_id'].iloc[pair_b[best]])
+
+    return endpoint_ids
+
 # create a candidate list for non-ML based sample selection - include location and elevation
 def create_candidate_list(data, cbd, buffer_width_m=0, k=2):
     """buffer_width_m widens each ray into a corridor of that width before intersecting
@@ -103,14 +181,16 @@ def create_candidate_list(data, cbd, buffer_width_m=0, k=2):
     endpoints regardless of distance produced candidates spanning implausibly large
     areas (e.g. opposite corners of a city)."""
 
-    # identify highway endpoints using hwy degree < 2
+    # identify each highway segment's true endpoint(s) (see find_segment_endpoints)
     degree = compute_hwy_degree(data)
     data = data.merge(degree, on='grid_id', how='left')
 
-    pts = data.loc[data['hwy_degree'] < 2].copy()
-    if pts.empty:
+    if data['hwy_40'].sum() == 0:
         print('No exisiting highways found')
         return []
+
+    endpoint_ids = find_segment_endpoints(data)
+    pts = data.loc[data['grid_id'].isin(endpoint_ids)].copy()
 
     # connect each endpoint to its k nearest endpoints on other segments
     centroids = pts.geometry.centroid.reset_index(drop=True)
