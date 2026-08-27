@@ -12,7 +12,7 @@ def load_sample(path='data/output/sample.pkl'):
     df = pd.read_pickle(path)
     # df['rent'] = df['rent'].replace(0, 0.00001)
     # df['valueh'] = df['valueh'].replace(0, 0.00001)
-
+    df = df[df['imputed'] == 0].copy()
     df['log_valueh'] = np.log(df['valueh'] + 0.00001) * df['valueh_avail']
     df['log_rent'] = np.log(df['rent'] + 0.00001) * df['rent_avail']
     df['city_louisville'] = (df['city'] == 'louisville').astype(int)
