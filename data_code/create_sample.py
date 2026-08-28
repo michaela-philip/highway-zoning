@@ -457,7 +457,7 @@ def create_grid(zoning, centroids, geology, census, state59, state40, us59, us40
     output['dm_slope'] = output['slope'] - avg_slope
     return output
 
-def create_sample(df, sample):
+def create_sample(df, sample, gridsize):
     output = pd.DataFrame()
     grid_0 = 1
     for city in sample['city'].unique():
@@ -467,14 +467,14 @@ def create_sample(df, sample):
         if city == 'louisville':
             city_zoning1 = zoning['louisville_1947']
             city_zoning2 = zoning['louisville_1931']
-            city_grid = create_grid(city_zoning1, centroids, city_geology, city_df, state59, state40, us59, us40, interstate, gridsize = 150, city_sample = city_sample, zoning2 = city_zoning2, grid_0 = grid_0)
+            city_grid = create_grid(city_zoning1, centroids, city_geology, city_df, state59, state40, us59, us40, interstate, gridsize = gridsize, city_sample = city_sample, zoning2 = city_zoning2, grid_0 = grid_0)
         elif city == 'atlanta':
             city_zoning1 = zoning['atlanta_1929']
             city_zoning2 = zoning['atlanta_1954']
-            city_grid = create_grid(city_zoning1, centroids, city_geology, city_df, state59, state40, us59, us40, interstate, gridsize = 150, city_sample = city_sample, zoning2 = city_zoning2, grid_0 = grid_0)   
+            city_grid = create_grid(city_zoning1, centroids, city_geology, city_df, state59, state40, us59, us40, interstate, gridsize = gridsize, city_sample = city_sample, zoning2 = city_zoning2, grid_0 = grid_0)   
         else:
             city_zoning = zoning[city]
-            city_grid = create_grid(city_zoning, centroids, city_geology, city_df, state59, state40, us59, us40, interstate, city_sample = city_sample, gridsize = 150, grid_0 = grid_0)
+            city_grid = create_grid(city_zoning, centroids, city_geology, city_df, state59, state40, us59, us40, interstate, city_sample = city_sample, gridsize = gridsize, grid_0 = grid_0)
         city_grid['city'] = city
         output = pd.concat([output, city_grid], ignore_index=True)
         grid_0 = output['grid_id'].max() + 1
@@ -496,5 +496,14 @@ us40 = gpd.read_file('data/input/shapefiles/1940/1940 completed shapefiles/usHig
 ####################################################################################################
 # create sample with 150 x 150 grid squares
 sample = pd.read_pickle('data/input/samplelist.pkl')
-output = create_sample(census, sample)
-output.to_pickle('data/output/sample.pkl')
+output = create_sample(census, sample, gridsize=150)
+output.to_pickle('data/output/sample_150.pkl')
+
+output = create_sample(census, sample, gridsize=200)
+output.to_pickle('data/output/sample_200.pkl')
+
+output = create_sample(census, sample, gridsize=300)
+output.to_pickle('data/output/sample_300.pkl')
+
+output = create_sample(census, sample, gridsize=500)
+output.to_pickle('data/output/sample_500.pkl')
