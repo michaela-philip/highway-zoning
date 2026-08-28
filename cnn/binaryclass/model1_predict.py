@@ -20,20 +20,24 @@ dataroot = 'cnn/'
 outputroot = 'cnn/'
 
 use_saved_model = True
-saved_model_filename = 'binaryclass/bc_model1.tar'  # path to saved model for prediction
+# saved_model_filename = 'binaryclass/bc_model1.tar'  # path to saved model for prediction
 
 ####################################################################################################
 ### PARAMETERS ###
+# choose sample to use
+cell_width = 150
+grid = pd.read_pickle(f'data/output/sample_{cell_width}.pkl')
+saved_model_filename = f'cnn/binaryclass/bc_model1_{cell_width}.tar'
 
 # read in data and prepare lists
 sample = pd.read_pickle('data/input/samplelist.pkl')
 candidate_list = pd.read_pickle('data/output/cnn_candidate_list.pkl')
-grid = pd.read_pickle('data/output/sample.pkl')
+# grid = pd.read_pickle('data/output/sample.pkl')
 hwys = grid[grid['hwy'] == 1]['grid_id'].unique().tolist()
 features = ['distance_to_cbd', 'dist_water', 'dist_to_rr', 'flood_risk', 'elevation', 'slope', 'hwy']
 normalize_features = ['distance_to_cbd', 'dist_water', 'dist_to_rr', 'elevation', 'slope'] # the only features i want to demean
 
-cell_width = 150  # cell width in meters (convert from miles)
+# cell_width = 150  # cell width in meters (convert from miles)
 size_potential = 2  # potential locations: num_width_potential x num_width_potential
 size_padding = 8  # number of padding cells on each side of potential grid
 nc = len(features)  # number of channels: 1) other grocery stores 2) other businesses
@@ -421,7 +425,7 @@ for gid, scores in grid_scores.items():
 
 # save
 date = (datetime.now(timezone.utc) + timedelta(hours=-7)).strftime('%Y-%m-%d--%H-%M')
-filename_out = f'predicted_activation-model1-{date}.csv'
+filename_out = f'predicted_activation-model1_{cell_width}_{date}.csv'
 
 with open(dataroot + filename_out, 'w') as f:
     f.write('grid_id,logit_hwy,prob_hwy\n')

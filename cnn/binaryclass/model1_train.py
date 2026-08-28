@@ -24,20 +24,24 @@ outputroot = 'cnn/binaryclass/'
 
 use_saved_model = False
 RUN_WINDOW_SEARCH = False  # set to True to run, False to skip
-saved_model_filename = 'cnn/binaryclass/bc_model1.tar'
+# saved_model_filename = 'cnn/binaryclass/bc_model1.tar'
 
 ####################################################################################################
 ### PARAMETERS ###
+# choose sample to use
+cell_width = 300
+grid = pd.read_pickle(f'data/output/sample_{cell_width}.pkl')
+saved_model_filename = f'cnn/binaryclass/bc_model1_{cell_width}.tar'
 
 # read in data and prepare lists
 sample = pd.read_pickle('data/input/samplelist.pkl')
 candidate_list = pd.read_pickle('data/output/cnn_candidate_list.pkl')
-grid = pd.read_pickle('data/output/sample.pkl')
+# grid = pd.read_pickle('data/output/sample_150.pkl')
 hwys = grid[grid['hwy'] == 1]['grid_id'].unique().tolist()
 features = ['distance_to_cbd', 'dist_water', 'dist_to_rr', 'flood_risk', 'elevation', 'slope', 'hwy']
 normalize_features = ['distance_to_cbd', 'dist_water', 'dist_to_rr', 'elevation', 'slope'] # the only features i want to demean
 
-cell_width = 150  # cell width in meters
+# cell_width = 150  # cell width in meters
 size_potential = 2  # potential locations: num_width_potential x num_width_potential
 size_padding = 8  # number of padding cells on each side of potential grid
 nc = len(features)  # number of channels: 1) other grocery stores 2) other businesses
@@ -363,7 +367,7 @@ def save_model(filename=None):
     if not filename:
         date = (datetime.now(timezone.utc) + timedelta(hours=-7)).strftime('%Y-%m-%d %H:%M:%S')
         filename = 'checkpoint-epoch-' + str(curr_epoch) + '-' + date + '.tar'
-    path_save = outputroot + filename
+    path_save = filename
     # save the model
     torch.save({
                 'net_state_dict': net.state_dict(),
@@ -899,7 +903,7 @@ for epoch in range(curr_epoch, bound_epochs):
 
     print('Finished Epoch ' + str(epoch+1) + ' of ' + str(bound_epochs) + '. Saving model and optimizer checkpoint.')
     curr_epoch = curr_epoch + 1
-    save_model('bc_model1.tar')
+    save_model(saved_model_filename)
     print((datetime.now(timezone.utc) + timedelta(hours=-7)).strftime('%Y-%m-%d %H:%M:%S'))
 
 print('Finished Training')
