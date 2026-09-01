@@ -4,9 +4,8 @@ from rapidfuzz import process, distance, fuzz
 import os
 import re
 import censusbatchgeocoder
-import requests
-import geopy, geopy.distance
 import time
+from geocode_utils import as_xy, distance_meters, query_single_line_matches, pick_closest_candidate
 
 ## this is a beast of a file - overview below
 # section 1: ONLY section to be edited upon addition of new cities - add to 'sample' dataframe and run
@@ -413,64 +412,109 @@ def geocode_addresses(df_orig, city_sample):
     print(f"{(geocoded_df['is_match'] == 'Tie').sum()} ties")
     print(f"{(geocoded_df['is_match'] == 'No_Match').sum()} unmatched")
 
-    # want to deal with ties by choosing the coordinate closest to the adjacent entry 
-    def resolve_ties(row, max_retries = 3, delay=5):
-        url = 'https://geocoding.geo.census.gov/geocoder/locations/address'
-        params = {
-            'street':row['address'],
-            'city':row['city'],
-            'state':row['state'],
-            'zip':row['zipcode'],
-            'benchmark':'4',
-            'format':'json'
-        }
-        prev_coordinate = row['prev_coordinate']
-        for attempt in range(max_retries):
-            try:
-                response = requests.get(url, params=params, timeout=10)
-                if response.status_code == 200 and response.text.strip():
-                    try:
-                        matches = response.json().get('result', {}).get('addressMatches', [])
-                    except Exception as e:
-                        print(f"JSON decode error: {e}")
-                        return None
-                    if len(matches) > 0:
-                        c1 = (matches[0]['coordinates']['x'], matches[0]['coordinates']['y'])
-                        c2 = (matches[1]['coordinates']['x'], matches[1]['coordinates']['y'])
-                        d1 = geopy.distance.distance((c1[1], c1[0]), (prev_coordinate[1], prev_coordinate[0])).meters
-                        d2 = geopy.distance.distance((c2[1], c2[0]), (prev_coordinate[1], prev_coordinate[0])).meters
-                        return c1 if d1 < d2 else c2
-                else:
-                    return None
-            except requests.exceptions.ConnectionError as e:
-                print(f"Connection error on attempt {attempt+1}/{max_retries}: {e}")
-                if attempt < max_retries - 1:
-                    print(f"Retrying in {delay} seconds...")
-                    time.sleep(delay)
-                else:
-                    print("Max retries reached. Skipping this row.")
-                    return None
-            except Exception as e:
-                print(f"Unexpected error: {e}")
-                return None
+    # bring in street_match so 'Match' rows can be compared to their same-street neighbors
+    geocoded_df = geocoded_df.merge(
+        df_orig[['serial', 'street_match']].assign(serial=lambda d: d['serial'].astype(str)),
+        left_on='id', right_on='serial', how='left'
+    ).drop(columns='serial')
 
+    geocoded_df['coordinates'] = geocoded_df['coordinates'].str.split(',')
+
+    # --- flag 'Match' rows that are spatially implausible given their same-street neighbors ---
+    # the batch geocoder can silently return a single result where the single-line geocoder
+    # would have returned a tie (and pick the wrong one of the two); nothing in the batch
+    # response flags this, so we look for it in the data instead: a 'Match' whose distance to
+    # its same-street enumeration neighbors is far outside what's typical for that street.
+    xy = geocoded_df['coordinates'].apply(as_xy)
+    prev_xy, next_xy = xy.shift(1), xy.shift(-1)
+    prev_street, next_street = geocoded_df['street_match'].shift(1), geocoded_df['street_match'].shift(-1)
+    prev_match = geocoded_df['is_match'].shift(1)
+    dist_prev = pd.Series([distance_meters(a, b) for a, b in zip(xy, prev_xy)], index=geocoded_df.index)
+    dist_next = pd.Series([distance_meters(a, b) for a, b in zip(xy, next_xy)], index=geocoded_df.index)
+
+    # 'well-behaved' pairs: both sides matched cleanly (not Tie/No_Match) and share a street --
+    # these define what a normal block-to-block distance looks like on that particular street
+    well_behaved = (
+        (geocoded_df['is_match'] == 'Match') & (prev_match == 'Match') &
+        geocoded_df['street_match'].notna() & (geocoded_df['street_match'] == prev_street) &
+        dist_prev.notna()
+    )
+    MIN_PAIRS_FOR_THRESHOLD = 20  # need enough pairs on a street for a stable percentile estimate
+    OUTLIER_PERCENTILE = 0.95
+    pairs_by_street = dist_prev[well_behaved].groupby(geocoded_df.loc[well_behaved, 'street_match'])
+    street_pair_counts = pairs_by_street.size()
+    streets_with_enough_data = street_pair_counts[street_pair_counts >= MIN_PAIRS_FOR_THRESHOLD].index
+    thresholds = pairs_by_street.quantile(OUTLIER_PERCENTILE).loc[streets_with_enough_data]
+
+    same_street_prev = (prev_street == geocoded_df['street_match'])
+    same_street_next = (next_street == geocoded_df['street_match'])
+    threshold_per_row = geocoded_df['street_match'].map(thresholds)
+    prev_available = same_street_prev & dist_prev.notna()
+    next_available = same_street_next & dist_next.notna()
+    prev_too_far = prev_available & (dist_prev > threshold_per_row)
+    next_too_far = next_available & (dist_next > threshold_per_row)
+
+    # flagged only when every available same-street side is too far (so a row with just one
+    # same-street neighbor -- e.g. the first house on a block -- can still be flagged on that
+    # side alone, without being penalized for a missing second side)
+    geocoded_df['flagged_outlier'] = (
+        (geocoded_df['is_match'] == 'Match') &
+        geocoded_df['street_match'].isin(thresholds.index) &
+        (prev_available | next_available) &
+        (~prev_available | prev_too_far) &
+        (~next_available | next_too_far)
+    )
+    print(f"{geocoded_df['flagged_outlier'].sum()} 'Match' rows flagged as spatial outliers "
+          f"vs. same-street neighbors (candidates for a hidden single-line tie)")
+
+    def resolve_via_single_line(row, references):
+        candidates = query_single_line_matches(row['address'], row['city'], row['state'], row['zipcode'])
+        if candidates is None:
+            return None  # request failed; leave unresolved so it's retried on the next loop pass
+        return pick_closest_candidate(candidates, references)
+
+    # want to deal with ties by choosing the coordinate closest to the adjacent entry
     iter_count = 0
     max_iter = 10
-    geocoded_df['coordinates'] = geocoded_df['coordinates'].str.split(',')
     while True:
-        geocoded_df['prev_coordinate'] = geocoded_df['coordinates'].shift(1)
-        candidates = ((geocoded_df['is_match'] == 'Tie') & geocoded_df['prev_coordinate'].notna() & geocoded_df['coordinates'].isna())
+        xy_now = geocoded_df['coordinates'].apply(as_xy)
+        prev_xy_now = xy_now.shift(1)
+        tie_candidates = (geocoded_df['is_match'] == 'Tie') & prev_xy_now.notna() & xy_now.isna()
         # since this is based on the previous coordinate, I want this to iterate as long as possible
-        if candidates.any():
-            geocoded_df.loc[candidates, 'coordinates'] = geocoded_df.loc[candidates].apply(resolve_ties, axis=1)
+        if tie_candidates.any():
+            resolved = geocoded_df.loc[tie_candidates].apply(
+                lambda row: resolve_via_single_line(row, [prev_xy_now.loc[row.name]]), axis=1)
+            geocoded_df.loc[tie_candidates, 'coordinates'] = resolved.apply(lambda c: list(c) if c is not None else None)
             iter_count += 1
-            print(f'iter {iter_count}: {geocoded_df['coordinates'].notna().sum()} coordinates')
+            n_resolved = geocoded_df['coordinates'].apply(lambda c: isinstance(c, list)).sum()
+            print(f'iter {iter_count}: {n_resolved} coordinates')
         else:
             break
         if iter_count > max_iter:
             print('max iterations reached')
             break
-    
+
+    # now re-query flagged 'Match' rows the same way, using both neighbors as reference --
+    # unlike ties these already have a coordinate, so there's no propagation to chain, and a
+    # single pass (after ties are fully resolved) is enough
+    xy_final = geocoded_df['coordinates'].apply(as_xy)
+    prev_xy_final, next_xy_final = xy_final.shift(1), xy_final.shift(-1)
+    flag_targets = geocoded_df.index[
+        geocoded_df['flagged_outlier'] & (prev_xy_final.notna() | next_xy_final.notna())]
+    print(f"re-querying single-line geocoder for {len(flag_targets)} flagged rows")
+
+    n_changed = 0
+    for idx in flag_targets:
+        row = geocoded_df.loc[idx]
+        references = [prev_xy_final.loc[idx], next_xy_final.loc[idx]]
+        new_coord = resolve_via_single_line(row, references)
+        current = xy_final.loc[idx]
+        if new_coord is not None and (current is None or distance_meters(new_coord, current) > 1):
+            geocoded_df.at[idx, 'coordinates'] = list(new_coord)
+            n_changed += 1
+    print(f"{n_changed} flagged coordinates replaced with a closer single-line match")
+
+    geocoded_df = geocoded_df.drop(columns=['street_match'])
     merged = df_orig.copy()
     merged['serial'] = merged['serial'].astype(str)
     merged = pd.merge(merged, geocoded_df, left_on='serial', right_on = 'id', how = 'left')

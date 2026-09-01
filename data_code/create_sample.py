@@ -263,17 +263,16 @@ def place_railroads(grid):
     output['dist_to_rr'] = output.geometry.centroid.distance(rr_union)
     return output[['grid_id', 'dist_to_rr']]
 
-### FUNCTION TO PLACE CENSUS INFO INTO GRID ###
-def place_census(census, grid):
+### FUNCTION TO CONVERT CENSUS COORDINATES TO POINTS AND JOIN THEM TO GRID SQUARES ###
+# also used by resolve_dropped_geocodes.py to identify records that never receive a grid_id
+def assign_grid_ids(census, grid):
     mask = (census['coordinates'].notna() & census['longitude'].isna())
     census.loc[mask, 'longitude'] = census.loc[mask, 'coordinates'].apply(lambda x: x[0])
     census.loc[mask, 'latitude'] = census.loc[mask, 'coordinates'].apply(lambda x: x[1])
-    census = gpd.GeoDataFrame(census, geometry = gpd.points_from_xy(census.longitude, census.latitude), 
+    census = gpd.GeoDataFrame(census, geometry = gpd.points_from_xy(census.longitude, census.latitude),
                             crs = 'EPSG:4269') # census geocodes in NAD83 for some reason
     census = census.to_crs(grid.crs)
-    census['black_pop'] = (census['black'] * census['numprec'])
     census_grid = grid.sjoin(census, how='left', predicate='contains')
-    print(census_grid.describe())
 
     # similar to while geocoding, I will interpolate grid_id by comparing neighbors
     census = census.merge(census_grid[['serial', 'grid_id']], on = 'serial', how = 'left')
@@ -295,11 +294,19 @@ def place_census(census, grid):
             print('max iters reached')
             break
     census = census.drop(columns = ['prev_grid', 'next_grid'])
-    census = census[census['serial'].isin(candidate_serials)]
-    
-    # add in additional households to the grid
-    census_grid = pd.concat([census_grid, census], ignore_index=True)
-    
+    return census, census_grid, candidate_serials
+
+### FUNCTION TO PLACE CENSUS INFO INTO GRID ###
+def place_census(census, grid):
+    census['black_pop'] = (census['black'] * census['numprec'])
+    census, census_grid, candidate_serials = assign_grid_ids(census, grid)
+    print(census_grid.describe())
+
+    # add in the recovered households (unrecovered ones -- valid coords but no grid_id even
+    # after the neighbor interpolation above -- are handled separately, see resolve_dropped_geocodes.py)
+    recovered = census[census['serial'].isin(candidate_serials)]
+    census_grid = pd.concat([census_grid, recovered], ignore_index=True)
+
     # calculate population and demographics in each grid square
     agg_funcs = {
         'numprec':'sum',
@@ -407,20 +414,33 @@ def place_highways(grid, state59, state40, us59, us40, interstate):
     output['dist_to_hwy'] = output.geometry.centroid.distance(built_1940_union)
     return output
 
-### FUNCTION TO CREATE THE SAMPLE GRID ### 
-def create_grid(zoning, centroids, geology, census, state59, state40, us59, us40, interstate, gridsize, city_sample, zoning2 = None, grid_0 = 1, min_true_neighbors = 0):
-    # grid is fit to size of zoning map
-    a, b, c, d  = zoning.total_bounds
+### FUNCTION TO BUILD THE (UNCLASSIFIED) GRID OF SQUARES, FIT TO THE ZONING MAP'S EXTENT ###
+# also used by resolve_dropped_geocodes.py to reproduce the same grid extent for identification
+def build_grid(zoning, gridsize, grid_0 = 1):
+    a, b, c, d = zoning.total_bounds
     step = gridsize # gridsize in meters
-
     grid = gpd.GeoDataFrame(geometry = [
     shapely.geometry.box(minx, miny, maxx, maxy)
     for minx, maxx in zip(np.arange(a, c, step), np.arange(a, c, step)[1:])
     for miny, maxy in zip(np.arange(b, d, step), np.arange(b, d, step)[1:])], crs = zoning.crs)
-    print('grid created')
-
     # numeric id for each grid square to assist with aggregation
     grid['grid_id'] = range(grid_0, grid_0 + len(grid))
+    return grid
+
+### FUNCTION TO GET THE ZONING MAP THAT DEFINES A CITY'S GRID EXTENT ###
+# (the 'primary' map, for cities with two zoning vintages -- see create_sample())
+def get_primary_zoning(city):
+    if city == 'louisville':
+        return zoning['louisville_1947']
+    elif city == 'atlanta':
+        return zoning['atlanta_1929']
+    else:
+        return zoning[city]
+
+### FUNCTION TO CREATE THE SAMPLE GRID ###
+def create_grid(zoning, centroids, geology, census, state59, state40, us59, us40, interstate, gridsize, city_sample, zoning2 = None, grid_0 = 1, min_true_neighbors = 0):
+    grid = build_grid(zoning, gridsize, grid_0)
+    print('grid created')
 
     # overlay zoning map with grid squares and classify each square
     output = classify_grid(zoning, grid, centroids, city_sample, zoning2)
@@ -484,15 +504,15 @@ def create_sample(df, sample, gridsize, min_true_neighbors = 0):
         city_df = df[df['city'] == city].copy()
         city_geology = geology[city]
         if city == 'louisville':
-            city_zoning1 = zoning['louisville_1947']
+            city_zoning1 = get_primary_zoning(city)
             city_zoning2 = zoning['louisville_1931']
             city_grid = create_grid(city_zoning1, centroids, city_geology, city_df, state59, state40, us59, us40, interstate, gridsize = gridsize, city_sample = city_sample, zoning2 = city_zoning2, grid_0 = grid_0, min_true_neighbors = min_true_neighbors)
         elif city == 'atlanta':
-            city_zoning1 = zoning['atlanta_1929']
+            city_zoning1 = get_primary_zoning(city)
             city_zoning2 = zoning['atlanta_1954']
             city_grid = create_grid(city_zoning1, centroids, city_geology, city_df, state59, state40, us59, us40, interstate, gridsize = gridsize, city_sample = city_sample, zoning2 = city_zoning2, grid_0 = grid_0, min_true_neighbors = min_true_neighbors)
         else:
-            city_zoning = zoning[city]
+            city_zoning = get_primary_zoning(city)
             city_grid = create_grid(city_zoning, centroids, city_geology, city_df, state59, state40, us59, us40, interstate, city_sample = city_sample, gridsize = gridsize, grid_0 = grid_0, min_true_neighbors = min_true_neighbors)
         city_grid['city'] = city
         output = pd.concat([output, city_grid], ignore_index=True)
@@ -500,29 +520,31 @@ def create_sample(df, sample, gridsize, min_true_neighbors = 0):
     return output
 
 ####################################################################################################
-### LOAD DATA ###
-census = pd.read_pickle('data/intermed/geocoded_data.pkl')
-centroids = pd.read_csv('data/input/msas_with_central_city_cbds.csv') # from Dan Aaron Hartley
-centroids = gpd.GeoDataFrame(centroids, geometry = gpd.points_from_xy(centroids.cbd_retail_long, centroids.cbd_retail_lat), 
-                             crs = 'EPSG:4267') # best guess at CRS based off of projfinder.com
+### LOAD DATA AND RUN ###
+# guarded so that resolve_dropped_geocodes.py can import build_grid/assign_grid_ids/get_primary_zoning
+# without triggering this whole (expensive, network-calling) pipeline as a side effect of import
+if __name__ == '__main__':
+    census = pd.read_pickle('data/intermed/geocoded_data.pkl')
+    centroids = pd.read_csv('data/input/msas_with_central_city_cbds.csv') # from Dan Aaron Hartley
+    centroids = gpd.GeoDataFrame(centroids, geometry = gpd.points_from_xy(centroids.cbd_retail_long, centroids.cbd_retail_lat),
+                                 crs = 'EPSG:4267') # best guess at CRS based off of projfinder.com
 
-interstate = gpd.read_file('data/input/shapefiles/1960/interstates1959_del.shp') # from Jaworski and Kitchens
-state59 = gpd.read_file('data/input/shapefiles/1960/stateHighwayPaved1959_del.shp')
-us59 = gpd.read_file('data/input/shapefiles/1960/usHighwayPaved1959_del.shp')
-state40 = gpd.read_file('data/input/shapefiles/1940/1940 completed shapefiles/stateHighwayPaved1940_del.shp')
-us40 = gpd.read_file('data/input/shapefiles/1940/1940 completed shapefiles/usHighwayPaved1940_del.shp')
+    interstate = gpd.read_file('data/input/shapefiles/1960/interstates1959_del.shp') # from Jaworski and Kitchens
+    state59 = gpd.read_file('data/input/shapefiles/1960/stateHighwayPaved1959_del.shp')
+    us59 = gpd.read_file('data/input/shapefiles/1960/usHighwayPaved1959_del.shp')
+    state40 = gpd.read_file('data/input/shapefiles/1940/1940 completed shapefiles/stateHighwayPaved1940_del.shp')
+    us40 = gpd.read_file('data/input/shapefiles/1940/1940 completed shapefiles/usHighwayPaved1940_del.shp')
 
-####################################################################################################
-# create sample with 150 x 150 grid squares
-sample = pd.read_pickle('data/input/samplelist.pkl')
-output = create_sample(census, sample, gridsize=150, min_true_neighbors = 4)
-output.to_pickle('data/output/sample_150.pkl')
+    # create sample with 150 x 150 grid squares
+    sample = pd.read_pickle('data/input/samplelist.pkl')
+    output = create_sample(census, sample, gridsize=150, min_true_neighbors = 4)
+    output.to_pickle('data/output/sample_150.pkl')
 
-output = create_sample(census, sample, gridsize=200,min_true_neighbors = 4)
-output.to_pickle('data/output/sample_200.pkl')
+    output = create_sample(census, sample, gridsize=200,min_true_neighbors = 4)
+    output.to_pickle('data/output/sample_200.pkl')
 
-output = create_sample(census, sample, gridsize=300, min_true_neighbors = 4)
-output.to_pickle('data/output/sample_300.pkl')
+    output = create_sample(census, sample, gridsize=300, min_true_neighbors = 4)
+    output.to_pickle('data/output/sample_300.pkl')
 
-output = create_sample(census, sample, gridsize=500, min_true_neighbors = 4)
-output.to_pickle('data/output/sample_500.pkl')
+    output = create_sample(census, sample, gridsize=500, min_true_neighbors = 4)
+    output.to_pickle('data/output/sample_500.pkl')
