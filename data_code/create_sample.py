@@ -349,6 +349,24 @@ def impute_values(df):
 
     return df
 
+### FUNCTION TO DROP IMPUTED SQUARES THAT AREN'T CLOSE TO REAL CENSUS DATA ###
+def filter_sparse_imputed(df, min_true_neighbors):
+    # squares with imputed == 0 (real census data) are never dropped
+    df = df.reset_index(drop=True)
+    imputed_idx = df.index[df['imputed'] == 1]
+
+    touches = gpd.sjoin(df.loc[imputed_idx, ['geometry']], df[['geometry']],
+                         how='inner', predicate='touches')
+    is_true_neighbor = df['imputed'].to_numpy()[touches['index_right'].to_numpy()] == 0
+    n_true_neighbors = pd.Series(is_true_neighbor, index=touches.index).groupby(level=0).sum()
+
+    # squares with no touching neighbors at all never show up in `touches`; treat as 0 true neighbors
+    counts = pd.Series(0, index=imputed_idx)
+    counts.loc[n_true_neighbors.index] = n_true_neighbors.to_numpy()
+
+    drop_idx = imputed_idx[counts < min_true_neighbors]
+    return df.drop(index=drop_idx).reset_index(drop=True)
+
 ### FUNCTION TO CLEAN HWY DATA AND ADD INTO GRID ###
 def place_highways(grid, state59, state40, us59, us40, interstate):
     state59 = state59.to_crs(grid.crs)
@@ -390,7 +408,7 @@ def place_highways(grid, state59, state40, us59, us40, interstate):
     return output
 
 ### FUNCTION TO CREATE THE SAMPLE GRID ### 
-def create_grid(zoning, centroids, geology, census, state59, state40, us59, us40, interstate, gridsize, city_sample, zoning2 = None, grid_0 = 1):
+def create_grid(zoning, centroids, geology, census, state59, state40, us59, us40, interstate, gridsize, city_sample, zoning2 = None, grid_0 = 1, min_true_neighbors = 0):
     # grid is fit to size of zoning map
     a, b, c, d  = zoning.total_bounds
     step = gridsize # gridsize in meters
@@ -449,6 +467,7 @@ def create_grid(zoning, centroids, geology, census, state59, state40, us59, us40
     # bits and pieces
     # output = output[output['numprec'] > 0]
     output['imputed'] = np.where(output['numprec'] == 0, 1, 0)
+    output = filter_sparse_imputed(output, min_true_neighbors)
     avg_elev = output.loc[output['hwy'] == 1, 'elevation'].mean()
     print('average elevation in hwy grids:', avg_elev)
     output['dm_elevation'] = output['elevation'] - avg_elev
@@ -457,7 +476,7 @@ def create_grid(zoning, centroids, geology, census, state59, state40, us59, us40
     output['dm_slope'] = output['slope'] - avg_slope
     return output
 
-def create_sample(df, sample, gridsize):
+def create_sample(df, sample, gridsize, min_true_neighbors = 0):
     output = pd.DataFrame()
     grid_0 = 1
     for city in sample['city'].unique():
@@ -467,14 +486,14 @@ def create_sample(df, sample, gridsize):
         if city == 'louisville':
             city_zoning1 = zoning['louisville_1947']
             city_zoning2 = zoning['louisville_1931']
-            city_grid = create_grid(city_zoning1, centroids, city_geology, city_df, state59, state40, us59, us40, interstate, gridsize = gridsize, city_sample = city_sample, zoning2 = city_zoning2, grid_0 = grid_0)
+            city_grid = create_grid(city_zoning1, centroids, city_geology, city_df, state59, state40, us59, us40, interstate, gridsize = gridsize, city_sample = city_sample, zoning2 = city_zoning2, grid_0 = grid_0, min_true_neighbors = min_true_neighbors)
         elif city == 'atlanta':
             city_zoning1 = zoning['atlanta_1929']
             city_zoning2 = zoning['atlanta_1954']
-            city_grid = create_grid(city_zoning1, centroids, city_geology, city_df, state59, state40, us59, us40, interstate, gridsize = gridsize, city_sample = city_sample, zoning2 = city_zoning2, grid_0 = grid_0)   
+            city_grid = create_grid(city_zoning1, centroids, city_geology, city_df, state59, state40, us59, us40, interstate, gridsize = gridsize, city_sample = city_sample, zoning2 = city_zoning2, grid_0 = grid_0, min_true_neighbors = min_true_neighbors)
         else:
             city_zoning = zoning[city]
-            city_grid = create_grid(city_zoning, centroids, city_geology, city_df, state59, state40, us59, us40, interstate, city_sample = city_sample, gridsize = gridsize, grid_0 = grid_0)
+            city_grid = create_grid(city_zoning, centroids, city_geology, city_df, state59, state40, us59, us40, interstate, city_sample = city_sample, gridsize = gridsize, grid_0 = grid_0, min_true_neighbors = min_true_neighbors)
         city_grid['city'] = city
         output = pd.concat([output, city_grid], ignore_index=True)
         grid_0 = output['grid_id'].max() + 1
