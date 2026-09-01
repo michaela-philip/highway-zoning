@@ -121,5 +121,9 @@ def compute_demographic_access(grid, demographic_var, decay_m, max_dist_m = 5000
     grid = grid.copy()
     grid['dem_access_norm'] = dem_access_norm
     grid['dem_access_raw'] = access
-    grid['ResidentialxAccess'] = grid['Residential'] * grid['dem_access_norm']
+    grid['log_dem_access'] = np.log(grid['dem_access_raw'])
+    grid['ResidentialxAccess'] = grid['Residential'] * grid['dem_access_raw']
+    grid['DemAccessxHwySuitability'] = grid['dem_access_raw'] * grid['logit_hwy']
+    grid['ResidentialxHwySuitability'] = grid['Residential'] * grid['logit_hwy']
+    grid['ResidentialxAccessxHwySuitability'] = grid['Residential'] * grid['dem_access_raw'] * grid['logit_hwy']
     return grid
