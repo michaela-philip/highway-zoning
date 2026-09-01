@@ -515,14 +515,14 @@ us40 = gpd.read_file('data/input/shapefiles/1940/1940 completed shapefiles/usHig
 ####################################################################################################
 # create sample with 150 x 150 grid squares
 sample = pd.read_pickle('data/input/samplelist.pkl')
-output = create_sample(census, sample, gridsize=150)
+output = create_sample(census, sample, gridsize=150, min_true_neighbors = 4)
 output.to_pickle('data/output/sample_150.pkl')
 
-output = create_sample(census, sample, gridsize=200)
+output = create_sample(census, sample, gridsize=200,min_true_neighbors = 4)
 output.to_pickle('data/output/sample_200.pkl')
 
-output = create_sample(census, sample, gridsize=300)
+output = create_sample(census, sample, gridsize=300, min_true_neighbors = 4)
 output.to_pickle('data/output/sample_300.pkl')
 
-output = create_sample(census, sample, gridsize=500)
+output = create_sample(census, sample, gridsize=500, min_true_neighbors = 4)
 output.to_pickle('data/output/sample_500.pkl')
