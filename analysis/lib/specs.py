@@ -79,13 +79,19 @@ PROB_INTERACTIONS = [
 LOGIT_INTERACTIONS = [
     ('ResidentialxLogHwy', 'Residential x CNN Logit'),
     ('BlackxLogHwy', 'Black x CNN Logit'),
-    ('ResidentialxBlackxLogHwy', 'Residential x Black x CNN Logit'),
+    ('ResidentialxBlackxLogHwy', 'Residential x Black x CNN Logit')
 ]
 
 DEM_ACCESS = [
-    ('dem_access_norm', 'Demographic Access (Normalized)'),
     ('Residential', 'Residential'),
+    ('log_dem_access', 'Demographic Access'),
     ('ResidentialxAccess', 'Residential x Demographic Access'),
+]
+
+DEM_ACCESS_INTERACTIONS = [
+    ('ResidentialxHwySuitability', 'Residential x Highway Suitability'),
+    ('DemAccessxHwySuitability', 'Demographic Access x Highway Suitability'),
+    ('ResidentialxAccessxHwySuitability', 'Residential x Demographic Access x Highway Suitability')
 ]
 
 CITY_LABELS = {'louisville': 'City_Louisville', 'littlerock': 'City_LittleRock'}
