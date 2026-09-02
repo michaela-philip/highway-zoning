@@ -7,6 +7,10 @@ CORE_VARS = [
     ('ResidentialxBlack', 'Residential x Black')
 ]
 
+IMPUTED = [
+    ('imputed', 'Imputed')
+]
+
 NO_RACE = [
     ('Residential', 'Residential')
 ]
