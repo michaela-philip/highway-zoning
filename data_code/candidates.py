@@ -235,7 +235,7 @@ def create_candidate_list(data, cbd, buffer_width_m=75, k=2, use_cbd = False):
     candidates = candidates.loc[candidates['hwy_40'] == 0].copy()
     return candidates['grid_id'].unique().tolist()
 
-def get_candidates(data, centroids, sample):
+def get_candidates(data, centroids, sample, use_cbd = False):
     candidate_list = {}
     for city in sample['city'].unique():
         city_data = data[data['city'] == city].copy()
@@ -243,7 +243,7 @@ def get_candidates(data, centroids, sample):
         if not city_mask.any():
             raise ValueError(f"No CBD centroid found for city '{city}' in centroids['place']")
         city_cbd = centroids[city_mask]
-        candidate_list[city] = create_candidate_list(city_data, city_cbd)
+        candidate_list[city] = create_candidate_list(city_data, city_cbd, use_cbd)
     out_path = Path('data/output/candidate_list.pkl')
     out_path.parent.mkdir(parents=True, exist_ok=True)
     with open(out_path, 'wb') as fh:
@@ -253,13 +253,14 @@ def get_candidates(data, centroids, sample):
 
 
 ####################################################################################################
-data = pd.read_pickle('data/output/sample.pkl')
+cell_width = 150
+data = pd.read_pickle(f'data/output/sample_{cell_width}.pkl')
 sample = pd.read_pickle('data/input/samplelist.pkl')
 centroids = pd.read_csv('data/input/msas_with_central_city_cbds.csv')
 centroids = gpd.GeoDataFrame(centroids, geometry = gpd.points_from_xy(centroids.cbd_retail_long, centroids.cbd_retail_lat), 
                              crs = 'EPSG:4267') # best guess at CRS based off of projfinder.com
 ml_candidate_dict = get_mlcandidates(data, centroids, sample)
-candidate_dict = get_candidates(data, centroids, sample)
+candidate_dict = get_candidates(data, centroids, sample, use_cbd=False)
 
 # print the stats for my sake
 candidate_list = [item for sublist in candidate_dict.values() for item in sublist]
