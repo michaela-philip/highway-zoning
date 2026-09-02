@@ -4,16 +4,56 @@ from types import SimpleNamespace
 import numpy as np
 
 
-def format_regression_results(results, r2_label='R-squared'):
-    """Format a fitted results object (a raw statsmodels result, or the SimpleNamespace
-    produced by bootstrap_results_to_namespace) into a LaTeX-ready single-column
-    DataFrame: one row per coefficient (stacked coef^{stars} over (SE)), plus
-    r2_label/Observations rows. Assumes results.params/.bse/.pvalues are already indexed
-    by friendly display labels (true for everything produced via analysis.lib.specs.build_spec
-    and analysis.lib.bootstrap's fit functions). Pass r2_label='Pseudo R-squared' (or similar)
-    when results.rsquared isn't an OLS-style R^2 -- e.g. bootstrap_ppml_table overrides
-    results.rsquared with a deviance-based pseudo R^2 and labels it accordingly."""
-    df = pd.DataFrame({'coef':results.params, 'stderror': results.bse, 'pvalue': results.pvalues})[1:]
+def _extract_rsquared(results, r2_label):
+    """(value, label) for the R^2 row, or (None, label) to skip it. Prefers
+    results.rsquared (OLS, or a SimpleNamespace that already set one -- e.g.
+    bootstrap_results_to_namespace, or bootstrap_ppml_table overriding it with a
+    deviance-based pseudo R^2). Falls back to results.pseudo_rsquared('cs') -- present
+    on an out-of-the-box statsmodels GLM result (e.g. sm.GLM(...).fit()), which has no
+    .rsquared at all. `r2_label`, if given, always wins; otherwise defaults to
+    'R-squared' or 'Pseudo R-squared' to match whichever value was actually used."""
+    rsq = getattr(results, 'rsquared', None)
+    if rsq is not None:
+        return rsq, (r2_label or 'R-squared')
+    pseudo_rsquared = getattr(results, 'pseudo_rsquared', None)
+    if callable(pseudo_rsquared):
+        try:
+            return pseudo_rsquared('cs'), (r2_label or 'Pseudo R-squared')
+        except Exception:
+            pass
+    return None, r2_label
+
+
+def format_regression_results(results, r2_label=None, x_vars=None, columns=None):
+    """Format a fitted results object into a LaTeX-ready single-column DataFrame: one row
+    per coefficient (stacked coef^{stars} over (SE)), plus R^2/Observations rows.
+
+    `results` just needs .params/.bse/.pvalues/.nobs (see _extract_rsquared above for the
+    R^2 row). That covers:
+      - the SimpleNamespace produced by bootstrap_results_to_namespace or returned by
+        analysis.lib.standard_errors.fit_ppml_conley, and
+      - an out-of-the-box statsmodels result, e.g. sm.GLM(...).fit() or sm.OLS(...).fit().
+
+    By default results.params/.bse/.pvalues are assumed already indexed by friendly
+    display labels with an 'Intercept'/'const' entry (true for everything produced via
+    analysis.lib.bootstrap's fit functions and fit_ppml_conley) -- that entry is dropped
+    automatically, wherever it falls.
+
+    Pass x_vars/columns (as returned by analysis.lib.specs.build_spec) when `results`
+    instead comes from a model fit directly on df[x_vars] -- e.g.
+    sm.GLM(df['hwy'], df[x_vars], ...).fit(cov_type='HC3') -- so results.params is
+    indexed by the raw x_var names instead. They're relabeled to the friendly columns[1:]
+    labels before formatting. Works whether or not that design matrix had an intercept
+    added (sm.add_constant) -- an intercept/'const' row, if present, is still dropped."""
+    params, bse, pvalues = pd.Series(results.params), pd.Series(results.bse), pd.Series(results.pvalues)
+
+    if x_vars is not None and columns is not None:
+        rename = dict(zip(x_vars, columns[1:]))
+        params, bse, pvalues = (s.rename(index=rename) for s in (params, bse, pvalues))
+
+    df = pd.DataFrame({'coef': params, 'stderror': bse, 'pvalue': pvalues})
+    df = df.drop(index=[i for i in ('Intercept', 'const') if i in df.index])
+
     def sig_coef(row):
         if row['pvalue'] < 0.001:
             return f"{row['coef']:.3f}{{***}}"
@@ -26,7 +66,10 @@ def format_regression_results(results, r2_label='R-squared'):
     df['Coefficient'] = df.apply(
         lambda row: f"\\makecell[tr]{{{sig_coef(row)} \\\\ ({row['stderror']:.3f})}}", axis=1)
     df = df[['Coefficient']]
-    df.loc[r2_label] = [f"{results.rsquared:.3f}"]
+
+    rsq, r2_label = _extract_rsquared(results, r2_label)
+    if rsq is not None:
+        df.loc[r2_label] = [f"{rsq:.3f}"]
     df.loc['Observations'] = [f"{int(results.nobs)}"]
     return df
 
