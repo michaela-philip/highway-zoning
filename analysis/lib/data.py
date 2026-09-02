@@ -5,12 +5,14 @@ import geopandas as gpd
 import numpy as np
 import pandas as pd
 from scipy.spatial.distance import cdist
+import shapely.geometry
 
-
-def load_sample(size):
+def load_sample(size, impute = False):
     """Load the grid-square sample and construct the variables used across specifications."""
     path=f'data/output/sample_{size}.pkl'
     df = pd.read_pickle(path)
+    if impute:
+        df = impute_values(df, columns=df.columns)
     # df['rent'] = df['rent'].replace(0, 0.00001)
     # df['valueh'] = df['valueh'].replace(0, 0.00001)
     # df = df[df['imputed'] == 0].copy()
@@ -22,6 +24,8 @@ def load_sample(size):
     df['log_dist_to_rr'] = np.log(df['dist_to_rr'])
     df['log_dist_to_rr_sq'] = df['log_dist_to_rr'] ** 2
     df['log_dist_to_hwy'] = np.log(df['dist_to_hwy'])
+
+    df['mblack_1945def'] = np.where(df['pct_black'] > 0.6, 1, 0)
 
     df['ResidentialxBlack'] = df['Residential'] * df['mblack_1945def']
     df['ResidentialxBlack_pct'] = df['Residential'] * df['mblack_mean_pct']
@@ -100,7 +104,7 @@ def split_by_candidates(df, candidate_dict):
     indirect = pd.concat(indirect_frames, ignore_index=True)
     return direct, indirect
 
-def compute_demographic_access(grid, demographic_var, decay_m, max_dist_m = 5000):
+def compute_demographic_access(grid, demographic_var, decay_m, rho = None, max_dist_m = 5000):
     centroids = grid.geometry.centroid
     coords = np.column_stack([centroids.x.values, centroids.y.values])
 
@@ -108,6 +112,8 @@ def compute_demographic_access(grid, demographic_var, decay_m, max_dist_m = 5000
 
     # compute distance decay weights
     weights = np.exp(-dists / decay_m)
+    if rho is not None:
+        weights = np.exp(-dists * rho)
     weights[dists>max_dist_m] = 0
     np.fill_diagonal(weights, 0)
 
@@ -122,8 +128,23 @@ def compute_demographic_access(grid, demographic_var, decay_m, max_dist_m = 5000
     grid['dem_access_norm'] = dem_access_norm
     grid['dem_access_raw'] = access
     grid['log_dem_access'] = np.log(grid['dem_access_raw'])
-    grid['ResidentialxAccess'] = grid['Residential'] * grid['dem_access_raw']
-    grid['DemAccessxHwySuitability'] = grid['dem_access_raw'] * grid['logit_hwy']
+    grid['ResidentialxAccess'] = grid['Residential'] * grid['log_dem_access']
+    grid['DemAccessxHwySuitability'] = grid['log_dem_access'] * grid['logit_hwy']
     grid['ResidentialxHwySuitability'] = grid['Residential'] * grid['logit_hwy']
-    grid['ResidentialxAccessxHwySuitability'] = grid['Residential'] * grid['dem_access_raw'] * grid['logit_hwy']
+    grid['ResidentialxAccessxHwySuitability'] = grid['Residential'] * grid['log_dem_access'] * grid['logit_hwy']
     return grid
+
+def impute_values(df, columns):
+    imputed_mask = df['imputed'] == 1
+    columns = [c for c in columns if df.loc[imputed_mask, c].isna().any()]
+    touches = gpd.sjoin(df[['geometry']], df[['geometry']], how='inner', predicate='touches')
+
+    def neighbor_median(col):
+        neighbor_vals = df[col].to_numpy()[touches['index_right'].to_numpy()]
+        medians = pd.Series(neighbor_vals, index=touches.index).groupby(level=0).median()
+        result = pd.Series(np.nan, index=df.index)
+        result.loc[medians.index] = medians.to_numpy()
+        return result
+    for col in columns:
+        df.loc[imputed_mask, col] = df.loc[imputed_mask, col].fillna(neighbor_median(col))
+    return df
