@@ -2,7 +2,7 @@ import numpy as np
 import pandas as pd
 from scipy.stats import norm
 
-from analysis.lib.specs import CORE_VARS
+from analysis.lib.specs import RESIDENTIAL_LABEL, BLACK_LABEL, INTERACTION_LABEL
 from helpers.latex_formatting import export_table
 
 CELLS = {
@@ -28,19 +28,17 @@ def _cell_vectors(df, x_vars, columns, eval_at='mean',
     """
     Build the regressor row (pd.Series indexed by `columns`) for each of the four
     Residential x Black cells, holding every other regressor in x_vars at its sample
-    mean (or median). Requires x_vars/columns to include CORE_VARS (Residential, Black,
-    and their interaction) -- true for every spec built via build_spec in this project.
+    mean (or median). Requires columns to include the labels 'Residential', 'Black', and
+    'Residential x Black' -- true for every spec built via specs.core_spec() in this
+    project, regardless of which BLACK_DEFINITIONS key backed it.
 
     Pass sweep_var/sweep_label/sweep_value/sweep_interactions to also set a third
     variable (e.g. a CNN logit/probability) and its interactions with
     Black/Residential/Residential x Black at a given value -- sweep_interactions is the
-    (var, label) block for those 3 interactions, e.g. specs.LOGIT_INTERACTIONS or
-    specs.PROB_INTERACTIONS, in [Blackxsweep, Residentialxsweep, ResidentialxBlackxsweep]
-    order (matching how those blocks are defined in analysis/lib/specs.py).
+    (var, label) block for those 3 interactions, as returned by
+    specs.sweep_interactions_spec().
     """
-    row_var, row_label = CORE_VARS[0]
-    col_var, col_label = CORE_VARS[1]
-    inter_var, inter_label = CORE_VARS[2]
+    row_label, col_label, inter_label = RESIDENTIAL_LABEL, BLACK_LABEL, INTERACTION_LABEL
 
     varying_labels = {row_label, col_label, inter_label}
     if sweep_var is not None:

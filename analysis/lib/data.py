@@ -28,22 +28,22 @@ def load_sample(size, impute = False):
     df['mblack_1945def'] = np.where(df['pct_black'] > 0.6, 1, 0)
     df['mblack_50_pct'] = np.where(df['pct_black'] > 0.5, 1, 0)
     df['mblack_40_pct'] = np.where(df['pct_black'] > 0.4, 1, 0)
-
-    df['ResidentialxBlack60'] = df['Residential'] * df['mblack_1945def']
-    df['ResidentialxBlack50'] = df['Residential'] * df['mblack_50_pct']
-    df['ResidentialxBlack40'] = df['Residential'] * df['mblack_40_pct']
-    
-    df['ResidentialxBlack_pct'] = df['Residential'] * df['mblack_mean_pct']
-    df['ResidentialxBlack_share'] = df['Residential'] * df['mblack_mean_share']
-
+    df['mblack_pct_mean'] = np.where(df['pct_black'] > df['pct_black'].mean(), 1, 0)
+    df['mblack_share_mean'] = np.where(df['share_black'] > df['share_black'].mean(), 1, 0)
     df['log_black'] = np.log(df['pct_black'] + 0.000001)
-    df['ResidentialxLogBlack'] = df['Residential'] * df['log_black']
-    df['ResidentialxPctBlack'] = df['Residential'] * df['pct_black']
-
     df['any_black'] = np.where(df['black_pop'] != 0, 1, 0)
-    df['ResidentialxAnyBlack'] = df['Residential'] * df['any_black']
-    df['BlackxPctOwners'] = df['mblack_1945def'] * df['owner']
     return df
+
+
+def add_interaction(df, var_a, var_b, col=None):
+    """Return the name of the df column holding var_a * var_b, computing and caching it
+    on df (in place) if it isn't already present. Lets spec-building code (see
+    analysis.lib.specs.core_spec/sweep_interactions_spec) derive whatever interaction it
+    needs from a chosen base variable instead of every combination being precomputed."""
+    col = col or f'{var_a}x{var_b}'
+    if col not in df.columns:
+        df[col] = df[var_a] * df[var_b]
+    return col
 
 
 def restrict_to_discretionary(df):
@@ -78,20 +78,6 @@ def merge_cnn_probs(df, model_pattern, dataroot='cnn/'):
     df['grid_id'] = df['grid_id'].astype(str)
     df = df.merge(logits_df[['grid_id', 'logit_hwy', 'prob_hwy']], on='grid_id', how='left')
     df['grid_id'] = df['grid_id'].astype(orig_dtype)
-    return df
-
-
-def add_cnn_interactions(df):
-    """Add interaction terms between the CNN-predicted highway probability and
-    Residential/Black, used in specifications that condition on the CNN covariate."""
-    df = df.copy()
-    df['BlackxProbHwy'] = df['mblack_1945def'] * df['prob_hwy']
-    df['ResidentialxProbHwy'] = df['Residential'] * df['prob_hwy']
-    df['ResidentialxBlackxProbHwy'] = df['Residential'] * df['mblack_1945def'] * df['prob_hwy']
-    df['BlackxLogHwy'] = df['mblack_1945def'] * df['logit_hwy']
-    df['ResidentialxLogHwy'] = df['Residential'] * df['logit_hwy']
-    df['ResidentialxBlackxLogHwy'] = df['Residential'] * df['mblack_1945def'] * df['logit_hwy']
-    df['ResidentialxPredProb'] = df['Residential'] * df['logit_hwy']
     return df
 
 
@@ -133,10 +119,6 @@ def compute_demographic_access(grid, demographic_var, decay_m, rho = None, max_d
     grid['dem_access_norm'] = dem_access_norm
     grid['dem_access_raw'] = access
     grid['log_dem_access'] = np.log(grid['dem_access_raw'])
-    grid['ResidentialxAccess'] = grid['Residential'] * grid['log_dem_access']
-    grid['DemAccessxHwySuitability'] = grid['log_dem_access'] * grid['logit_hwy']
-    grid['ResidentialxHwySuitability'] = grid['Residential'] * grid['logit_hwy']
-    grid['ResidentialxAccessxHwySuitability'] = grid['Residential'] * grid['log_dem_access'] * grid['logit_hwy']
     return grid
 
 def impute_values(df, columns):
