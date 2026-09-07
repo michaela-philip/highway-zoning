@@ -26,8 +26,13 @@ def load_sample(size, impute = False):
     df['log_dist_to_hwy'] = np.log(df['dist_to_hwy'])
 
     df['mblack_1945def'] = np.where(df['pct_black'] > 0.6, 1, 0)
+    df['mblack_50_pct'] = np.where(df['pct_black'] > 0.5, 1, 0)
+    df['mblack_40_pct'] = np.where(df['pct_black'] > 0.4, 1, 0)
 
-    df['ResidentialxBlack'] = df['Residential'] * df['mblack_1945def']
+    df['ResidentialxBlack60'] = df['Residential'] * df['mblack_1945def']
+    df['ResidentialxBlack50'] = df['Residential'] * df['mblack_50_pct']
+    df['ResidentialxBlack40'] = df['Residential'] * df['mblack_40_pct']
+    
     df['ResidentialxBlack_pct'] = df['Residential'] * df['mblack_mean_pct']
     df['ResidentialxBlack_share'] = df['Residential'] * df['mblack_mean_share']
 
