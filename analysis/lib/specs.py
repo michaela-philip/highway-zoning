@@ -4,7 +4,19 @@
 CORE_VARS = [
     ('Residential', 'Residential'),
     ('mblack_1945def', 'Black'),
-    ('ResidentialxBlack', 'Residential x Black')
+    ('ResidentialxBlack60', 'Residential x Black')
+]
+
+CORE_VARS_50 = [
+    ('Residential', 'Residential'),
+    ('mblack_50_pct', 'Black'),
+    ('ResidentialxBlack50', 'Residential x Black')
+]
+
+CORE_VARS_40 = [
+    ('Residential', 'Residential'),
+    ('mblack_40_pct', 'Black'),
+    ('ResidentialxBlack40', 'Residential x Black')
 ]
 
 IMPUTED = [
