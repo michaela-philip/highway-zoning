@@ -235,7 +235,7 @@ def create_candidate_list(data, cbd, buffer_width_m=75, k=2, use_cbd = False):
     candidates = candidates.loc[candidates['hwy_40'] == 0].copy()
     return candidates['grid_id'].unique().tolist()
 
-def get_candidates(data, centroids, sample, use_cbd = False):
+def get_candidates(data, centroids, sample, cell_width, use_cbd = False):
     candidate_list = {}
     for city in sample['city'].unique():
         city_data = data[data['city'] == city].copy()
@@ -244,27 +244,46 @@ def get_candidates(data, centroids, sample, use_cbd = False):
             raise ValueError(f"No CBD centroid found for city '{city}' in centroids['place']")
         city_cbd = centroids[city_mask]
         candidate_list[city] = create_candidate_list(city_data, city_cbd, use_cbd)
-    out_path = Path('data/output/candidate_list.pkl')
+    out_path = Path(f'data/output/candidate_list_{cell_width}.pkl')
     out_path.parent.mkdir(parents=True, exist_ok=True)
     with open(out_path, 'wb') as fh:
         pickle.dump(candidate_list, fh, protocol=pickle.HIGHEST_PROTOCOL)
 
-    return candidate_list 
+    return candidate_list
+
+
+def get_candidate_dict(cell_width, use_cbd = False, force_recompute = False):
+    """Candidate list for the grid built at cell_width, keyed off sample_{cell_width}.pkl
+    so that callers with different cell widths (e.g. cnn_specif.py setting cell_width = 200)
+    get candidates computed on their own grid rather than a fixed one. Cached to
+    data/output/candidate_list_{cell_width}.pkl; pass force_recompute=True to rebuild it."""
+    cache_path = Path(f'data/output/candidate_list_{cell_width}.pkl')
+    if cache_path.exists() and not force_recompute:
+        with open(cache_path, 'rb') as fh:
+            return pickle.load(fh)
+
+    data = pd.read_pickle(f'data/output/sample_{cell_width}.pkl')
+    sample = pd.read_pickle('data/input/samplelist.pkl')
+    centroids = pd.read_csv('data/input/msas_with_central_city_cbds.csv')
+    centroids = gpd.GeoDataFrame(centroids, geometry = gpd.points_from_xy(centroids.cbd_retail_long, centroids.cbd_retail_lat),
+                                 crs = 'EPSG:4267') # best guess at CRS based off of projfinder.com
+    return get_candidates(data, centroids, sample, cell_width, use_cbd=use_cbd)
 
 
 ####################################################################################################
-cell_width = 150
-data = pd.read_pickle(f'data/output/sample_{cell_width}.pkl')
-sample = pd.read_pickle('data/input/samplelist.pkl')
-centroids = pd.read_csv('data/input/msas_with_central_city_cbds.csv')
-centroids = gpd.GeoDataFrame(centroids, geometry = gpd.points_from_xy(centroids.cbd_retail_long, centroids.cbd_retail_lat), 
-                             crs = 'EPSG:4267') # best guess at CRS based off of projfinder.com
-ml_candidate_dict = get_mlcandidates(data, centroids, sample)
-candidate_dict = get_candidates(data, centroids, sample, use_cbd=False)
+if __name__ == '__main__':
+    cell_width = 150
+    data = pd.read_pickle(f'data/output/sample_{cell_width}.pkl')
+    sample = pd.read_pickle('data/input/samplelist.pkl')
+    centroids = pd.read_csv('data/input/msas_with_central_city_cbds.csv')
+    centroids = gpd.GeoDataFrame(centroids, geometry = gpd.points_from_xy(centroids.cbd_retail_long, centroids.cbd_retail_lat),
+                                 crs = 'EPSG:4267') # best guess at CRS based off of projfinder.com
+    ml_candidate_dict = get_mlcandidates(data, centroids, sample)
+    candidate_dict = get_candidates(data, centroids, sample, cell_width, use_cbd=False)
 
-# print the stats for my sake
-candidate_list = [item for sublist in candidate_dict.values() for item in sublist]
-candidates = data.loc[data['grid_id'].isin(candidate_list)].copy()
-hwys = data['hwy'].sum()
-print(f'{candidates['hwy'].sum()} out of {hwys} highways are in candidate list ({100 * candidates['hwy'].sum() / hwys:.2f}%)')
-print(f'{len(candidate_list)} candidate squares out of {len(data)} total squares ({100 * len(candidate_list) / len(data):.2f}%)')
+    # print the stats for my sake
+    candidate_list = [item for sublist in candidate_dict.values() for item in sublist]
+    candidates = data.loc[data['grid_id'].isin(candidate_list)].copy()
+    hwys = data['hwy'].sum()
+    print(f'{candidates["hwy"].sum()} out of {hwys} highways are in candidate list ({100 * candidates["hwy"].sum() / hwys:.2f}%)')
+    print(f'{len(candidate_list)} candidate squares out of {len(data)} total squares ({100 * len(candidate_list) / len(data):.2f}%)')
