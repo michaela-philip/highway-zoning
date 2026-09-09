@@ -16,11 +16,11 @@ BLACK_DEFINITIONS = {
     '60pct': ('mblack_1945def', 'majority-Black, defined as greater than 60 percent Black (the 1945 legal definition)'),
     '50pct': ('mblack_50_pct', 'majority-Black, defined as greater than 50 percent Black'),
     '40pct': ('mblack_40_pct', 'majority-Black, defined as greater than 40 percent Black'),
-    'pct_mean': ('mblack_mean_pct', 'the mean percent Black population'),
-    'share_mean': ('mblack_mean_share', 'the mean share of the Black population'),
+    'mean_pct': ('mblack_mean_pct', 'the mean percent Black population'),
+    'mean_share': ('mblack_mean_share', 'the mean share of the Black population'),
     'log_pct': ('log_black', 'the log percent Black population'),
     'any': ('any_black', 'the presence of any Black residents'),
-    'dem_access': ('log_dem_access', 'log distance-decayed demographic access to the Black population'),
+    'dem_access': ('dem_access', 'distance-decayed demographic access to the Black population'),
 }
 
 RESIDENTIAL_LABEL = 'Residential'
