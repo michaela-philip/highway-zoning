@@ -28,8 +28,8 @@ def load_sample(size, impute = False):
     df['mblack_1945def'] = np.where(df['pct_black'] > 0.6, 1, 0)
     df['mblack_50_pct'] = np.where(df['pct_black'] > 0.5, 1, 0)
     df['mblack_40_pct'] = np.where(df['pct_black'] > 0.4, 1, 0)
-    df['mblack_pct_mean'] = np.where(df['pct_black'] > df['pct_black'].mean(), 1, 0)
-    df['mblack_share_mean'] = np.where(df['share_black'] > df['share_black'].mean(), 1, 0)
+    df['mblack_mean_pct'] = np.where(df['pct_black'] > df['pct_black'].mean(), 1, 0)
+    df['mblack_mean_share'] = np.where(df['share_black'] > df['share_black'].mean(), 1, 0)
     df['log_black'] = np.log(df['pct_black'] + 0.000001)
     df['any_black'] = np.where(df['black_pop'] != 0, 1, 0)
     return df
@@ -77,6 +77,7 @@ def merge_cnn_probs(df, model_pattern, dataroot='cnn/'):
     df = df.copy()
     df['grid_id'] = df['grid_id'].astype(str)
     df = df.merge(logits_df[['grid_id', 'logit_hwy', 'prob_hwy']], on='grid_id', how='left')
+    df['logit_hwy_centered'] = df['logit_hwy'] - df['logit_hwy'].mean()
     df['grid_id'] = df['grid_id'].astype(orig_dtype)
     return df
 
@@ -102,9 +103,11 @@ def compute_demographic_access(grid, demographic_var, decay_m, rho = None, max_d
     dists = cdist(coords, coords, metric = 'euclidean')
 
     # compute distance decay weights
-    weights = np.exp(-dists / decay_m)
+    # weights = np.exp(-dists / decay_m)
     if rho is not None:
         weights = np.exp(-dists * rho)
+    else:
+        weights = np.exp(-dists / decay_m)
     weights[dists>max_dist_m] = 0
     np.fill_diagonal(weights, 0)
 
@@ -113,12 +116,12 @@ def compute_demographic_access(grid, demographic_var, decay_m, rho = None, max_d
     # weighted sum and normalized 
     access = weights @ demo_vals
     weight_sums = weights.sum(axis=1)
-    dem_access_norm = np.where(weight_sums > 0, access / weight_sums, 0)
+    # dem_access_norm = np.where(weight_sums > 0, access / weight_sums, 0)
 
     grid = grid.copy()
-    grid['dem_access_norm'] = dem_access_norm
-    grid['dem_access_raw'] = access
-    grid['log_dem_access'] = np.log(grid['dem_access_raw'])
+    # grid['dem_access_norm'] = dem_access_norm
+    grid['dem_access'] = access
+    grid['log_dem_access'] = np.log(grid['dem_access'])
     return grid
 
 def impute_values(df, columns):
