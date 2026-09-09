@@ -42,6 +42,12 @@ def _cell_vectors(df, x_vars, columns, eval_at='mean',
 
     varying_labels = {row_label, col_label, inter_label}
     if sweep_var is not None:
+        if sweep_interactions is None:
+            raise ValueError(
+                "sweep_var was given but sweep_interactions is None -- pass the "
+                "(var, label) triple from specs.sweep_interactions_spec(df, black_key, "
+                f"{sweep_var!r}, {sweep_label!r})"
+            )
         varying_labels.add(sweep_label)
         varying_labels.update(lbl for _, lbl in sweep_interactions)
 
