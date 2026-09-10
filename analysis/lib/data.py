@@ -4,6 +4,7 @@ import os
 import geopandas as gpd
 import numpy as np
 import pandas as pd
+from scipy.spatial import KDTree
 from scipy.spatial.distance import cdist
 import shapely.geometry
 
@@ -123,6 +124,29 @@ def compute_demographic_access(grid, demographic_var, decay_m, rho = None, max_d
     grid['dem_access'] = access
     grid['log_dem_access'] = np.log(grid['dem_access'])
     return grid
+
+def assign_highway_exposure(df, high_exposure_threshold, low_exposure_threshold, hwy_col='hwy'):
+    """Label each grid square by its distance to the nearest square where hwy_col == 1:
+    within high_exposure_threshold is 'high' exposure, farther than that but within
+    low_exposure_threshold is 'low' exposure, and farther than low_exposure_threshold is
+    left unlabeled (None)."""
+    hwy_centroids = df.loc[df[hwy_col] == 1].geometry.centroid
+    if hwy_centroids.empty:
+        raise ValueError(f"No squares found with {hwy_col} == 1")
+    hwy_coords = np.column_stack([hwy_centroids.x.values, hwy_centroids.y.values])
+
+    centroids = df.geometry.centroid
+    coords = np.column_stack([centroids.x.values, centroids.y.values])
+
+    dist_to_hwy, _ = KDTree(hwy_coords).query(coords, k=1)
+
+    df = df.copy()
+    df['hwy_exposure'] = np.where(
+        dist_to_hwy <= high_exposure_threshold, 'high',
+        np.where(dist_to_hwy <= low_exposure_threshold, 'low', None)
+    )
+    return df
+
 
 def impute_values(df, columns):
     imputed_mask = df['imputed'] == 1
