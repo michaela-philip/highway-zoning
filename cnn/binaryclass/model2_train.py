@@ -24,20 +24,23 @@ outputroot = 'cnn/binaryclass/'
 
 use_saved_model = False
 RUN_WINDOW_SEARCH = False  # set to True to run, False to skip
-saved_model_filename = 'cnn/binaryclass/bc_model2.tar'
+# saved_model_filename = 'cnn/binaryclass/bc_model2.tar'
 
 ####################################################################################################
 ### PARAMETERS ###
+# choose sample to use
+cell_width = 150
+grid = pd.read_pickle(f'data/output/sample_{cell_width}.pkl')
+saved_model_filename = f'cnn/binaryclass/bc_model2_{cell_width}.tar'
 
 # read in data and prepare lists
 sample = pd.read_pickle('data/input/samplelist.pkl')
 candidate_list = pd.read_pickle('data/output/cnn_candidate_list.pkl')
-grid = pd.read_pickle('data/output/sample.pkl')
 hwys = grid[grid['hwy'] == 1]['grid_id'].unique().tolist()
 features = ['distance_to_cbd', 'dist_water', 'dist_to_hwy', 'dist_to_rr', 'flood_risk', 'elevation', 'slope', 'owner', 'hwy']
 normalize_features = ['distance_to_cbd', 'dist_water', 'dist_to_hwy', 'dist_to_rr', 'elevation', 'owner', 'slope'] # the only features i want to demean
 
-cell_width = 150  # cell width in meters
+# cell_width = 150  # cell width in meters
 size_potential = 2  # potential locations: num_width_potential x num_width_potential
 size_padding = 8  # number of padding cells on each side of potential grid
 nc = len(features)  # number of channels: 1) other grocery stores 2) other businesses
@@ -899,7 +902,7 @@ for epoch in range(curr_epoch, bound_epochs):
 
     print('Finished Epoch ' + str(epoch+1) + ' of ' + str(bound_epochs) + '. Saving model and optimizer checkpoint.')
     curr_epoch = curr_epoch + 1
-    save_model('bc_model2.tar')
+    save_model(saved_model_filename)
     print((datetime.now(timezone.utc) + timedelta(hours=-7)).strftime('%Y-%m-%d %H:%M:%S'))
 
 print('Finished Training')
