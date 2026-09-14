@@ -366,7 +366,7 @@ def save_model(filename=None):
     if not filename:
         date = (datetime.now(timezone.utc) + timedelta(hours=-7)).strftime('%Y-%m-%d %H:%M:%S')
         filename = 'checkpoint-epoch-' + str(curr_epoch) + '-' + date + '.tar'
-    path_save = outputroot + filename
+    path_save = filename
     # save the model
     torch.save({
                 'net_state_dict': net.state_dict(),
