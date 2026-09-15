@@ -4,41 +4,110 @@ import statsmodels.api as sm
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from analysis.lib.data import (
-    load_sample, restrict_to_discretionary, merge_cnn_probs, split_by_candidates, compute_demographic_access
+    load_sample, restrict_to_discretionary, merge_cnn_probs, split_by_candidates, compute_characteristic_access, assign_highway_exposure, widen_highways, city_specific_shares, compute_shares,
 )
 from analysis.lib.bootstrap import bootstrap_lpm_table, fit_ols
 from analysis.lib.specs import (
-    HOUSING_VARS, HH_CONTROLS, LOG_DIST_HWY, GEO_CONTROLS, CNN_LOGIT,
+    HOUSING_VARS, HH_CONTROLS, LOG_DIST_HWY, GEO_CONTROLS, CNN_LOGIT, RESIDENTIAL, HWY_ACCESS,
     build_spec, leaveout_except, core_spec, sweep_interactions_spec, black_definition_note,
 )
 from analysis.lib.marginal_effects import export_predicted_outcomes_table, predicted_outcomes_from_fit
-from data_code.candidates import candidate_dict
+from data_code.candidates import get_candidate_dict
 from helpers.latex_formatting import export_single_regression, export_multiple_regressions
 
-cell_width = 200
+cell_width = 150
 df = load_sample(cell_width, impute = True)
 df = merge_cnn_probs(df, f'predicted_activation-model1_{cell_width}*.csv', dataroot='cnn/')
+df = compute_characteristic_access(df, 'hwy_40', 'hwy_access', decay_m = 300, max_dist_m = 900)
+
 df = restrict_to_discretionary(df)
-df = compute_demographic_access(df, 'pct_black', decay_m = 400, max_dist_m = 3000)
+df = compute_characteristic_access(df, 'pct_black', 'dem_access', decay_m = 300, max_dist_m = 3000)
 df = df[df['imputed'] == 0]
 
+# df = assign_highway_exposure(df, high_exposure_threshold = 900, low_exposure_threshold = 2100)
+# df = widen_highways(df, buffer_m = 150)
+
+candidate_dict = get_candidate_dict(cell_width)
 dir_sample, ind_sample = split_by_candidates(df, candidate_dict)
-sweep_values = ind_sample['logit_hwy'].quantile([0.25, 0.50, 0.75]).tolist()
+sweep_values = ind_sample.loc[ind_sample['hwy'] == 1, 'logit_normalized'].quantile([0.50, 0.75, 0.85, 0.90]).tolist()
 
+ind_sample = compute_shares(ind_sample)
+ind_sample = compute_characteristic_access(ind_sample, 'share_black', 'dem_access', decay_m = 300, max_dist_m = 3000)
+ind_sample = city_specific_shares(ind_sample, quantile=0.25)
+# ind_sample = compute_characteristic_access(ind_sample, 'hwy_40', 'hwy_access', decay_m = 300, max_dist_m = 900)
 
-CORE = core_spec(ind_sample, '60pct')
-LOGIT_INTERACTIONS = sweep_interactions_spec(ind_sample, '60pct', 'logit_hwy', 'CNN Logit')
-x_vars, columns = build_spec(ind_sample, CORE, CNN_LOGIT, LOGIT_INTERACTIONS, HOUSING_VARS, LOG_DIST_HWY, HH_CONTROLS, GEO_CONTROLS)
+# CORE = core_spec(ind_sample, 'dem_access')
+# LOGIT_INTERACTIONS = sweep_interactions_spec(ind_sample, 'dem_access', 'logit_normalized', 'CNN Logit')
+# x_vars, columns = build_spec(ind_sample, CORE, CNN_LOGIT, LOGIT_INTERACTIONS, HOUSING_VARS, LOG_DIST_HWY, HH_CONTROLS, GEO_CONTROLS, HWY_ACCESS)
+# model = sm.OLS(ind_sample['hwy'], sm.add_constant(ind_sample[x_vars])).fit(cov_type='HC3', maxiter=200)
+# print(model.summary())
+
+# CORE = core_spec(ind_sample, 'high_share')
+# LOGIT_INTERACTIONS = sweep_interactions_spec(ind_sample, 'high_share', 'logit_normalized', 'CNN Logit')
+# x_vars, columns = build_spec(ind_sample, CORE, CNN_LOGIT, LOGIT_INTERACTIONS, HOUSING_VARS, LOG_DIST_HWY, HH_CONTROLS, GEO_CONTROLS, HWY_ACCESS)
+# model = sm.GLM(ind_sample['hwy'], sm.add_constant(ind_sample[x_vars]), family=sm.families.Poisson(link=sm.families.links.Log())).fit(cov_type='HC3', maxiter=200)
+# print(model.summary())
+# predicted_outcomes = predicted_outcomes_from_fit(model, ind_sample, x_vars, columns, link = 'log', sweep_var='logit_normalized', sweep_label='CNN Logit', sweep_values=sweep_values, sweep_interactions=LOGIT_INTERACTIONS)
+
+CORE = core_spec(ind_sample, '40pct')
+LOGIT_INTERACTIONS = sweep_interactions_spec(ind_sample, '40pct', 'logit_normalized', 'CNN Logit')
+x_vars, columns = build_spec(ind_sample, CORE, CNN_LOGIT, LOGIT_INTERACTIONS, HOUSING_VARS, LOG_DIST_HWY, HH_CONTROLS, GEO_CONTROLS, HWY_ACCESS)
 model = sm.GLM(ind_sample['hwy'], sm.add_constant(ind_sample[x_vars]), family=sm.families.Poisson(link=sm.families.links.Log())).fit(cov_type='HC3', maxiter=200)
 print(model.summary())
-predicted_outcomes = predicted_outcomes_from_fit(model, ind_sample, x_vars, columns, link = 'log')
+# predicted_outcomes = predicted_outcomes_from_fit(model, ind_sample, x_vars, columns, eval_at = 'ame', link = 'log', sweep_var='logit_normalized', sweep_label='CNN Logit', sweep_values=['own'], sweep_interactions=LOGIT_INTERACTIONS)
 
-CORE = core_spec(ind_sample, 'dem_access')
-LOGIT_INTERACTIONS = sweep_interactions_spec(ind_sample, 'dem_access', 'logit_hwy', 'CNN Logit')
-x_vars, columns = build_spec(ind_sample, CORE, CNN_LOGIT, LOGIT_INTERACTIONS, HOUSING_VARS, LOG_DIST_HWY, HH_CONTROLS, GEO_CONTROLS)
-model = sm.GLM(ind_sample['hwy'], sm.add_constant(ind_sample[x_vars]), family=sm.families.Poisson(link=sm.families.links.Log())).fit(cov_type='HC3', maxiter=200)
-print(model.summary())
-predicted_outcomes = predicted_outcomes_from_fit(model, ind_sample, x_vars, columns, link = 'log')
+
+# CORE = core_spec(df, '40pct')
+# LOGIT_INTERACTIONS = sweep_interactions_spec(df, '40pct', 'logit_normalized', 'CNN Logit')
+# x_vars, columns = build_spec(df, CORE, CNN_LOGIT, LOGIT_INTERACTIONS, HOUSING_VARS, LOG_DIST_HWY, HH_CONTROLS, GEO_CONTROLS, HWY_ACCESS)
+# model = sm.GLM(df['hwy'], sm.add_constant(df[x_vars]), family=sm.families.Poisson(link=sm.families.links.Log())).fit(cov_type='HC3', maxiter=200)
+# print(model.summary())
+# predicted_outcomes = predicted_outcomes_from_fit(model, df, x_vars, columns, eval_at = 'ame', link = 'log', sweep_var='logit_normalized', sweep_label='CNN Logit', sweep_values=sweep_values, sweep_interactions=LOGIT_INTERACTIONS)
+
+
+# CORE = core_spec(ind_sample, 'dem_access')
+# LOGIT_INTERACTIONS = sweep_interactions_spec(ind_sample, 'dem_access', 'logit_normalized', 'CNN Logit')
+# x_vars, columns = build_spec(ind_sample, CORE, CNN_LOGIT, LOGIT_INTERACTIONS, HOUSING_VARS, LOG_DIST_HWY, HH_CONTROLS, GEO_CONTROLS, HWY_ACCESS)
+# # model = sm.GLM(ind_sample['hwy'], sm.add_constant(ind_sample[x_vars]), family=sm.families.Poisson(link=sm.families.links.Log())).fit(cov_type='HC3', maxiter=200)
+# model = sm.OLS(ind_sample['hwy'], sm.add_constant(ind_sample[x_vars])).fit(cov_type='HC3', maxiter=200)
+# print(model.summary())
+# predicted_outcomes = predicted_outcomes_from_fit(model, ind_sample, x_vars, columns, link = 'log', sweep_var='logit_normalized', sweep_label='CNN Logit', sweep_values=sweep_values, sweep_interactions=LOGIT_INTERACTIONS)
+
+# x_vars, columns = build_spec(ind_sample, CORE, CNN_LOGIT, LOGIT_INTERACTIONS, HOUSING_VARS, LOG_DIST_HWY, HH_CONTROLS, GEO_CONTROLS)
+# model = sm.GLM(ind_sample['hwy'], sm.add_constant(ind_sample[x_vars]), family=sm.families.Poisson(link=sm.families.links.Log())).fit(cov_type='HC3', maxiter=200)
+# print(model.summary())
+# predicted_outcomes = predicted_outcomes_from_fit(model, ind_sample, x_vars, columns, link = 'log', sweep_var='logit_normalized', sweep_label='CNN Logit', sweep_values=sweep_values, sweep_interactions=LOGIT_INTERACTIONS)
+
+# CORE = core_spec(ind_sample, 'dem_access')
+# LOGIT_INTERACTIONS = sweep_interactions_spec(ind_sample, 'dem_access', 'logit_normalized', 'CNN Logit')
+# x_vars, columns = build_spec(ind_sample, CORE, CNN_LOGIT, HOUSING_VARS, LOG_DIST_HWY, HH_CONTROLS, GEO_CONTROLS)
+# model = sm.GLM(ind_sample['hwy_59'], sm.add_constant(ind_sample[x_vars]), family=sm.families.Poisson(link=sm.families.links.Log())).fit(cov_type='HC3', maxiter=200)
+# print(model.summary())
+
+# x_vars, columns = build_spec(ind_sample, CORE, CNN_LOGIT, LOGIT_INTERACTIONS, HOUSING_VARS, LOG_DIST_HWY, HH_CONTROLS, GEO_CONTROLS)
+# model = sm.GLM(ind_sample['hwy_59'], sm.add_constant(ind_sample[x_vars]), family=sm.families.Poisson(link=sm.families.links.Log())).fit(cov_type='HC3', maxiter=200)
+# print(model.summary())
+# CORE = core_spec(ind_sample, '50pct')
+# LOGIT_INTERACTIONS = sweep_interactions_spec(ind_sample, '50pct', 'logit_normalized', 'CNN Logit')
+# x_vars, columns = build_spec(ind_sample, CORE, CNN_LOGIT, HOUSING_VARS, LOG_DIST_HWY, HH_CONTROLS, GEO_CONTROLS)
+# model = sm.GLM(ind_sample['hwy'], sm.add_constant(ind_sample[x_vars]), family=sm.families.Poisson(link=sm.families.links.Log())).fit(cov_type='HC3', maxiter=200)
+# print(model.summary())
+# # predicted_outcomes = predicted_outcomes_from_fit(model, ind_sample, x_vars, columns, link = 'log', sweep_var='logit_normalized', sweep_label='CNN Logit', sweep_values=sweep_values, sweep_interactions=LOGIT_INTERACTIONS)
+
+# CORE = core_spec(ind_sample, '40pct')
+# LOGIT_INTERACTIONS = sweep_interactions_spec(ind_sample, '40pct', 'logit_normalized', 'CNN Logit')
+# x_vars, columns = build_spec(ind_sample, CORE, CNN_LOGIT, HOUSING_VARS, LOG_DIST_HWY, HH_CONTROLS, GEO_CONTROLS)
+# model = sm.GLM(ind_sample['hwy'], sm.add_constant(ind_sample[x_vars]), family=sm.families.Poisson(link=sm.families.links.Log())).fit(cov_type='HC3', maxiter=200)
+# print(model.summary())
+# predicted_outcomes = predicted_outcomes_from_fit(model, ind_sample, x_vars, columns, link = 'log', sweep_var='logit_normalized', sweep_label='CNN Logit', sweep_values=sweep_values, sweep_interactions=LOGIT_INTERACTIONS)
+
+
+# CORE = core_spec(ind_sample, 'dem_access')
+# LOGIT_INTERACTIONS = sweep_interactions_spec(ind_sample, 'dem_access', 'logit_hwy', 'CNN Logit')
+# x_vars, columns = build_spec(ind_sample, CORE, CNN_LOGIT, LOGIT_INTERACTIONS, HOUSING_VARS, LOG_DIST_HWY, HH_CONTROLS, GEO_CONTROLS)
+# model = sm.GLM(ind_sample['hwy'], sm.add_constant(ind_sample[x_vars]), family=sm.families.Poisson(link=sm.families.links.Log())).fit(cov_type='HC3', maxiter=200)
+# print(model.summary())
+# predicted_outcomes = predicted_outcomes_from_fit(model, ind_sample, x_vars, columns, link = 'log', sweep_var='logit_hwy', sweep_label='CNN Logit', sweep_values=sweep_values, sweep_interactions=LOGIT_INTERACTIONS)
 
 # CORE = core_spec(ind_sample, '50pct')
 # LOGIT_INTERACTIONS = sweep_interactions_spec(ind_sample, '50pct', 'logit_hwy', 'CNN Logit')
