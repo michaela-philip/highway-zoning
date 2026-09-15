@@ -242,8 +242,10 @@ def _print_table(sv, sweep_label, eval_at, cell_estimates, contrast_results, did
         sv_str = ""
     elif sv == 'own':
         sv_str = f" | {sweep_label} = each row's own value"
-    else:
+    elif isinstance(sv, (int, float, np.floating, np.integer)):
         sv_str = f" | {sweep_label} = {sv:.3f}"
+    else:
+        sv_str = f" | {sweep_label} in {sv}"
     print("\n" + "=" * 70)
     print(f"PREDICTED OUTCOMES{sv_str}")
     eval_desc = {'mean': 'mean', 'median': 'median', 'ame': "each observation's own values (averaged)"}[eval_at]
@@ -377,6 +379,53 @@ def predicted_outcomes_from_fit(res, df, x_vars, columns, **kwargs):
     else:
         raise AttributeError("res has neither .cov_params() nor .V -- can't get a covariance matrix for delta-method SEs")
     return predicted_outcomes(df, x_vars, columns, beta, cov=cov, **kwargs)
+
+
+def predicted_outcomes_by_stratum_from_fit(res, df, x_vars, columns, sweep_var, bins,
+                                            sweep_label=None, sweep_interactions=None,
+                                            bin_labels=None, verbose=True, **kwargs):
+    """
+    "How does the effect vary across levels of `sweep_var`" (e.g. a CNN suitability
+    logit), answered WITHOUT ever overriding `sweep_var` to an externally-chosen level.
+
+    predicted_outcomes_from_fit(..., eval_at='ame', sweep_value=<some fixed number>)
+    forces every row in df to that one CNN-logit value while keeping every other
+    regressor at its own real value -- but that cross of "this row's real city/controls"
+    with "an externally chosen suitability level" need not be a combination the model
+    ever actually saw, and can extrapolate just as badly as MEM even though every
+    individual piece (some row really has that logit value; some row really has those
+    controls) was observed somewhere in the data.
+
+    This instead partitions df into bins of `sweep_var` (equal-frequency quantile bins if
+    `bins` is an int, explicit edges otherwise -- see pandas.qcut/cut) and runs ordinary
+    eval_at='ame', sweep_value='own' (every row keeps ITS OWN sweep_var and interaction
+    values; only Residential/Black are counterfactually varied) separately within each
+    bin. Every prediction is therefore a real, jointly-observed covariate combination --
+    the "how does it vary" comes from which rows are averaged over, not from rewriting
+    their covariates.
+
+    Returns {bin: {'cells':..., 'contrasts':..., 'did':...}}, in the same shape
+    predicted_outcomes() returns for a sweep -- pass straight to
+    export_predicted_outcomes_table(..., column_labels=...).
+    """
+    bin_id = pd.qcut(df[sweep_var], bins, labels=bin_labels) if isinstance(bins, int) \
+        else pd.cut(df[sweep_var], bins, labels=bin_labels)
+
+    results = {}
+    for b in bin_id.cat.categories:
+        sub = df[bin_id == b]
+        if len(sub) == 0:
+            continue
+        out = predicted_outcomes_from_fit(
+            res, sub, x_vars, columns, eval_at='ame',
+            sweep_var=sweep_var, sweep_label=sweep_label, sweep_values=['own'],
+            sweep_interactions=sweep_interactions, verbose=False, **kwargs,
+        )
+        cell_estimates, contrast_results, did = out['own']['cells'], out['own']['contrasts'], out['own']['did']
+        if verbose:
+            _print_table(f"{b} (n={len(sub)})", sweep_label, 'ame', cell_estimates, contrast_results, did)
+        results[b] = out['own']
+    return results
 
 
 def export_predicted_outcomes_table(results, caption, label,
