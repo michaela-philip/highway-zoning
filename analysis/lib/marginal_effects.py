@@ -26,17 +26,44 @@ def _cell_vectors(df, x_vars, columns, eval_at='mean',
                    sweep_var=None, sweep_label=None, sweep_value=None,
                    sweep_interactions=None):
     """
-    Build the regressor row (pd.Series indexed by `columns`) for each of the four
-    Residential x Black cells, holding every other regressor in x_vars at its sample
-    mean (or median). Requires columns to include the labels 'Residential', 'Black', and
-    'Residential x Black' -- true for every spec built via specs.core_spec() in this
-    project, regardless of which BLACK_DEFINITIONS key backed it.
+    Build the regressor matrix (pd.DataFrame, columns=`columns`) for each of the four
+    Residential x Black cells. Requires columns to include the labels 'Residential',
+    'Black', and 'Residential x Black' -- true for every spec built via specs.core_spec()
+    in this project, regardless of which BLACK_DEFINITIONS key backed it.
 
-    Pass sweep_var/sweep_label/sweep_value/sweep_interactions to also set a third
-    variable (e.g. a CNN logit/probability) and its interactions with
-    Black/Residential/Residential x Black at a given value -- sweep_interactions is the
-    (var, label) block for those 3 interactions, as returned by
-    specs.sweep_interactions_spec().
+    eval_at controls how every OTHER regressor (not Residential/Black/their interaction,
+    nor the sweep block) is set:
+      'mean'/'median'  -- MEM: collapse every other regressor to its sample mean/median,
+                          giving a single synthetic "average square" row per cell. Cheap,
+                          but for a nonlinear link (e.g. link='log'/PPML) E[f(x)] != f(E[x]),
+                          and the synthetic row can land far outside the data actually
+                          seen by the model, at which point exp(x'beta) can blow up to
+                          values that aren't interpretable as probabilities even though
+                          y is 0/1. See predicted_outcomes_ame_from_fit.
+      'ame'            -- average marginal effects: keep every OTHER regressor at each
+                          observation's own actual value, predict every row of df under
+                          this cell's Residential/Black (and sweep) assignment, then
+                          average across the n rows. Every prediction is evaluated at a
+                          real covariate combination, so it can't extrapolate the way MEM
+                          can. For eval_at='mean' with an identity link the two coincide
+                          exactly (linear predictions commute with averaging); they only
+                          differ under a nonlinear link like 'log'.
+
+    Pass sweep_var/sweep_label/sweep_value/sweep_interactions whenever x_vars/columns
+    include a third variable interacted with Black/Residential/Residential x Black (e.g.
+    a CNN logit built via specs.sweep_interactions_spec()) -- WITHOUT this, those
+    interaction columns fall into "every other regressor" above and get collapsed to
+    their unconditional sample mean/median regardless of the cell's Residential/Black
+    values, which is inconsistent (e.g. 'Residential x CNN Logit' held nonzero even in a
+    Residential=0 cell) and, under link='log', a common cause of wildly-extrapolated
+    predictions. sweep_interactions is the (var, label) block for those 3 interaction
+    columns, as returned by specs.sweep_interactions_spec(). sweep_value is either a
+    fixed number (e.g. df[sweep_var].mean(), to report a single "at the mean CNN logit"
+    column -- the only option under eval_at='mean'/'median', since there's just one row
+    to fill in) or the literal string 'own', valid only with eval_at='ame', meaning: use
+    each row's own actual sweep_var value instead of one fixed number, so the sweep
+    variable and its interactions are held at that row's real value while only
+    Residential/Black are counterfactually varied.
     """
     row_label, col_label, inter_label = RESIDENTIAL_LABEL, BLACK_LABEL, INTERACTION_LABEL
 
@@ -53,27 +80,38 @@ def _cell_vectors(df, x_vars, columns, eval_at='mean',
 
     other_pairs = [(v, c) for v, c in zip(x_vars, columns[1:]) if c not in varying_labels]
     other_raw = [v for v, _ in other_pairs]
-    eval_vals = df[other_raw].mean() if eval_at == 'mean' else df[other_raw].median()
+
+    if eval_at == 'ame':
+        base = pd.DataFrame(0.0, index=df.index, columns=columns)
+        for raw, friendly in other_pairs:
+            base[friendly] = df[raw].values
+    else:
+        eval_vals = df[other_raw].mean() if eval_at == 'mean' else df[other_raw].median()
+        base = pd.DataFrame(0.0, index=[0], columns=columns)
+        for raw, friendly in other_pairs:
+            base[friendly] = eval_vals[raw]
+    base['Intercept'] = 1.0
+
+    if sweep_value == 'own':
+        assert eval_at == 'ame', "sweep_value='own' only makes sense with eval_at='ame' (MEM has a single row -- pick a fixed sweep_value, e.g. df[sweep_var].mean())"
 
     def make_x(residential, black):
-        x = pd.Series(0.0, index=columns)
-        x['Intercept'] = 1.0
+        x = base.copy()
         x[row_label] = residential
         x[col_label] = black
         x[inter_label] = residential * black
-        for raw, friendly in other_pairs:
-            x[friendly] = eval_vals[raw]
         if sweep_var is not None and sweep_value is not None:
-            x[sweep_label] = sweep_value
+            sv = df[sweep_var].values if sweep_value == 'own' else sweep_value
+            x[sweep_label] = sv
             for _, lbl in sweep_interactions:
                 tokens = lbl.split(' x ')
                 has_row, has_col = row_label in tokens, col_label in tokens
                 if has_row and has_col:
-                    x[lbl] = residential * black * sweep_value
+                    x[lbl] = residential * black * sv
                 elif has_row:
-                    x[lbl] = residential * sweep_value
+                    x[lbl] = residential * sv
                 elif has_col:
-                    x[lbl] = black * sweep_value
+                    x[lbl] = black * sv
                 else:
                     raise ValueError(f"{lbl!r} in sweep_interactions doesn't reference {row_label!r} or {col_label!r}")
         return x
@@ -81,9 +119,19 @@ def _cell_vectors(df, x_vars, columns, eval_at='mean',
     return {label: make_x(res, blk) for label, (res, blk) in CELLS.items()}
 
 
-def _predict(x, beta, link):
-    z = float(np.asarray(x) @ np.asarray(beta))
-    return np.exp(z) if link == 'log' else z
+def _predict(X, beta, link):
+    """Per-row predictions for a regressor matrix X (DataFrame, n rows), averaged across
+    rows. n=1 for the MEM case (eval_at='mean'/'median'), n=len(df) for AME.
+
+    The (n, k) @ (k,) matmul below spuriously raises divide-by-zero/overflow
+    RuntimeWarnings on some BLAS backends (observed with Accelerate on macOS) whenever a
+    regressor column is all-zero for every row -- e.g. 'Black' in the White cells -- even
+    though the actual output has no NaN/Inf; np.errstate suppresses that false positive.
+    """
+    with np.errstate(divide='ignore', over='ignore', invalid='ignore'):
+        eta = X.values.astype(float) @ np.asarray(beta, dtype=float)
+    mu = np.exp(eta) if link == 'log' else eta
+    return float(np.mean(mu))
 
 
 def _point_estimates(xs, beta, link):
@@ -140,15 +188,25 @@ def _delta_estimates(xs, beta, cov, link):
     statsmodels results object's .cov_params(), or the Conley sandwich covariance
     (res.V) from analysis.lib.standard_errors.fit_ppml_conley.
 
-    LPM (link='identity'): gradient of predict(x) = x
-    PPML (link='log'):     gradient of predict(x) = exp(x'b) * x
+    Each xs[label] is an (n, k) regressor matrix (n=1 for MEM, n=len(df) for AME) and the
+    reported quantity is the AVERAGE prediction across its n rows, so its gradient wrt
+    beta is the average of the per-row gradients:
+      LPM (link='identity'): gradient of predict(x_i) = x_i        -> mean_i(x_i)
+      PPML (link='log'):     gradient of predict(x_i) = exp(x_i'b) * x_i -> mean_i(...)
+    For n=1 this reduces exactly to the single-row gradient used before.
     """
     V = np.asarray(cov)
     predictions = {label: _predict(x, beta, link) for label, x in xs.items()}
 
     def grad(x):
-        xv = np.asarray(x)
-        return _predict(x, beta, link) * xv if link == 'log' else xv
+        Xv = x.values.astype(float)
+        if link == 'log':
+            with np.errstate(divide='ignore', over='ignore', invalid='ignore'):
+                mu = np.exp(Xv @ np.asarray(beta, dtype=float))
+            g = (mu[:, None] * Xv).mean(axis=0)
+        else:
+            g = Xv.mean(axis=0)
+        return g
 
     def se_of(g):
         return np.sqrt(max(g @ V @ g, 0.0))
@@ -180,10 +238,16 @@ def _stars(p):
 
 
 def _print_table(sv, sweep_label, eval_at, cell_estimates, contrast_results, did):
-    sv_str = f" | {sweep_label} = {sv:.3f}" if sv is not None else ""
+    if sv is None:
+        sv_str = ""
+    elif sv == 'own':
+        sv_str = f" | {sweep_label} = each row's own value"
+    else:
+        sv_str = f" | {sweep_label} = {sv:.3f}"
     print("\n" + "=" * 70)
     print(f"PREDICTED OUTCOMES{sv_str}")
-    print(f"(Other variables held at {'mean' if eval_at == 'mean' else 'median'})")
+    eval_desc = {'mean': 'mean', 'median': 'median', 'ame': "each observation's own values (averaged)"}[eval_at]
+    print(f"(Other variables held at {eval_desc})")
     print("=" * 70)
     print(f"\n{'Neighborhood Type':30} {'Predicted':>12} {'SE':>8} {'95% CI':>20}")
     print("-" * 72)
@@ -221,11 +285,22 @@ def predicted_outcomes(df, x_vars, columns, beta, boot_coefs=None, cov=None,
                         sweep_var=None, sweep_label=None, sweep_values=None,
                         sweep_interactions=None, verbose=True):
     """
-    Predicted outcome for the four Residential x Black cells, holding every other
-    regressor in x_vars at its sample mean (or median). `beta` is a coefficient vector
-    ordered [intercept, *x_vars] to match `columns` -- true for every (beta, ...) pair
-    returned by analysis.lib.bootstrap's fit functions, or by predicted_outcomes_from_fit
-    below.
+    Predicted outcome for the four Residential x Black cells. `beta` is a coefficient
+    vector ordered [intercept, *x_vars] to match `columns` -- true for every (beta, ...)
+    pair returned by analysis.lib.bootstrap's fit functions, or by
+    predicted_outcomes_from_fit below.
+
+    eval_at picks how every OTHER regressor is set (see _cell_vectors for the full
+    rationale):
+      'mean'/'median'  MEM -- collapse to a single synthetic "average square" per cell.
+                       Cheap, but under a nonlinear link (link='log'/PPML) this can
+                       extrapolate to a covariate combination far from any real
+                       observation, producing predictions/SEs that are technically
+                       "predicted E[y]" but not sane probabilities even though y is 0/1.
+      'ame'            average marginal effects -- predict every row of df under this
+                       cell's assignment using that row's own other covariates, then
+                       average. Never extrapolates past the data actually used to fit
+                       the model; the recommended default when link='log'.
 
     Pass at most one of:
       boot_coefs  (n_bootstraps, k) array of bootstrap draws (fit_ols has none;
@@ -249,6 +324,7 @@ def predicted_outcomes(df, x_vars, columns, beta, boot_coefs=None, cov=None,
     when not sweeping, or {sweep value: {...that same dict...}} when sweep_var is given.
     """
     assert link in ('identity', 'log')
+    assert eval_at in ('mean', 'median', 'ame')
     assert boot_coefs is None or cov is None, "pass at most one of boot_coefs / cov"
 
     beta = np.asarray(beta)
