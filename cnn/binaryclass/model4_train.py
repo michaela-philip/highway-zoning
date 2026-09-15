@@ -37,8 +37,8 @@ saved_model_filename = f'cnn/binaryclass/bc_model4_{cell_width}.tar'
 sample = pd.read_pickle('data/input/samplelist.pkl')
 candidate_list = pd.read_pickle('data/output/cnn_candidate_list.pkl')
 hwys = grid[grid['hwy'] == 1]['grid_id'].unique().tolist()
-features = ['distance_to_cbd', 'dist_water', 'dist_to_hwy', 'dist_to_rr', 'flood_risk', 'elevation', 'slope', 'hwy']
-normalize_features = ['distance_to_cbd', 'dist_water', 'dist_to_hwy', 'dist_to_rr', 'elevation', 'slope'] # the only features i want to demean
+features = ['distance_to_cbd', 'dist_water', 'hwy_40', 'dist_to_rr', 'flood_risk', 'elevation', 'slope', 'hwy']
+normalize_features = ['distance_to_cbd', 'dist_water', 'dist_to_rr', 'elevation', 'slope'] # the only features i want to demean
 
 # cell_width = 150  # cell width in meters
 size_potential = 2  # potential locations: num_width_potential x num_width_potential
@@ -68,29 +68,29 @@ print('cell_width: ' + str(round(cell_width)) + 'm')
 ####################################################################################################
 ### SAMPLE/BATCH CREATION FUNCTIONS ###
 # get the 1940 highway squares and new highway squares as geodataframes
-hwy_40_squares = grid[grid['hwy_40'] == 1][['grid_id', 'geometry']].copy()
-hwy_new_squares = grid[grid['hwy'] == 1][['grid_id', 'geometry']].copy()
+# hwy_40_squares = grid[grid['hwy_40'] == 1][['grid_id', 'geometry']].copy()
+# hwy_new_squares = grid[grid['hwy'] == 1][['grid_id', 'geometry']].copy()
 
-# find new highway squares that touch (share a boundary with) 
-# any 1940 highway square
-# sjoin with predicate='touches' finds squares sharing an edge or corner
-touches_result = gpd.sjoin(
-    hwy_new_squares,
-    hwy_40_squares[['geometry']],
-    how='left',
-    predicate='touches'
-)
+# # find new highway squares that touch (share a boundary with) 
+# # any 1940 highway square
+# # sjoin with predicate='touches' finds squares sharing an edge or corner
+# touches_result = gpd.sjoin(
+#     hwy_new_squares,
+#     hwy_40_squares[['geometry']],
+#     how='left',
+#     predicate='touches'
+# )
 
-# squares that got a match are adjacent to the 1940 network
-adjacent_ids = set(
-    touches_result[touches_result['index_right'].notna()]['grid_id']
-)
+# # squares that got a match are adjacent to the 1940 network
+# adjacent_ids = set(
+#     touches_result[touches_result['index_right'].notna()]['grid_id']
+# )
 
-discretionary_ids = set(
-    hwy_new_squares[~hwy_new_squares['grid_id'].isin(adjacent_ids)]['grid_id']
-)
-hwys_discretionary = list(discretionary_ids)
-S_id_real = np.array(hwys_discretionary, dtype=int)
+# discretionary_ids = set(
+#     hwy_new_squares[~hwy_new_squares['grid_id'].isin(adjacent_ids)]['grid_id']
+# )
+# hwys_discretionary = list(discretionary_ids)
+# S_id_real = np.array(hwys_discretionary, dtype=int)
 
 # normalize features before creating the raster
 def normalize_features_per_city(grid, features, nodata=-9999.0):
@@ -280,8 +280,8 @@ else:
     cand_flat = [int(x) for x in candidate_list]
     S_id_random = candidate_list['grid_id'].tolist()
 
-# S_id_real = hwys
-S_id_real = np.array(S_id_real, dtype=int)
+S_id_real = hwys
+# S_id_real = np.array(S_id_real, dtype=int)
 S_id_random = np.array(S_id_random, dtype=int)
 
 def create_batch(batch_tensor=batch_tensor, labels=labels,
@@ -922,7 +922,7 @@ for epoch in range(curr_epoch, bound_epochs):
                         f' | prob percentiles (p10/p50/p90): {p10:.3f} / {p50:.3f} / {p90:.3f}')
                 
     prob_df, n_cand, recall = evaluate_candidate_pool(
-    net, city_rasters, GRIDID_TO_RC, grid, hwys_discretionary,
+    net, city_rasters, GRIDID_TO_RC, grid, hwys,
     features, size_padding, size_potential, threshold=0.3)
 
     print('Finished Epoch ' + str(epoch+1) + ' of ' + str(bound_epochs) + '. Saving model and optimizer checkpoint.')
