@@ -1,5 +1,6 @@
 import sys
 from pathlib import Path
+import numpy as np
 import statsmodels.api as sm
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
@@ -11,7 +12,9 @@ from analysis.lib.specs import (
     HOUSING_VARS, HH_CONTROLS, LOG_DIST_HWY, GEO_CONTROLS, CNN_LOGIT, RESIDENTIAL, HWY_ACCESS,
     build_spec, leaveout_except, core_spec, sweep_interactions_spec, black_definition_note,
 )
-from analysis.lib.marginal_effects import export_predicted_outcomes_table, predicted_outcomes_from_fit
+from analysis.lib.marginal_effects import (
+    export_predicted_outcomes_table, predicted_outcomes_from_fit, predicted_outcomes_by_stratum_from_fit,
+)
 from data_code.candidates import get_candidate_dict
 from helpers.latex_formatting import export_single_regression, export_multiple_regressions
 
@@ -29,6 +32,17 @@ df = df[df['imputed'] == 0]
 
 candidate_dict = get_candidate_dict(cell_width)
 dir_sample, ind_sample = split_by_candidates(df, candidate_dict)
+
+# logit_normalized has a long right tail (max ~6.6 vs. a std of ~1). A few of the most-
+# suitable squares combine an extreme logit value with the weakly-identified Black x
+# CNN Logit / Residential x CNN Logit interaction coefficients, so forcing THOSE rows'
+# Residential/Black into a counterfactual sends exp(x'beta) into the millions even
+# though every other real square predicts sanely -- clip the tail before it's used to
+# build any interaction, so no downstream table (predicted outcomes, sweep, stratified)
+# can be dominated by a handful of outlier rows.
+LOGIT_LO, LOGIT_HI = ind_sample['logit_normalized'].quantile([0.01, 0.99])
+ind_sample['logit_normalized'] = ind_sample['logit_normalized'].clip(LOGIT_LO, LOGIT_HI)
+
 sweep_values = ind_sample.loc[ind_sample['hwy'] == 1, 'logit_normalized'].quantile([0.50, 0.75, 0.85, 0.90]).tolist()
 
 ind_sample = compute_shares(ind_sample)
@@ -40,7 +54,21 @@ LOGIT_INTERACTIONS = sweep_interactions_spec(ind_sample, '40pct', 'logit_normali
 x_vars, columns = build_spec(ind_sample, CORE, CNN_LOGIT, LOGIT_INTERACTIONS, HOUSING_VARS, LOG_DIST_HWY, HH_CONTROLS, GEO_CONTROLS, HWY_ACCESS)
 model = sm.GLM(ind_sample['hwy'], sm.add_constant(ind_sample[x_vars]), family=sm.families.Poisson(link=sm.families.links.Log())).fit(cov_type='HC3', maxiter=200)
 print(model.summary())
-predicted_outcomes = predicted_outcomes_from_fit(model, ind_sample, x_vars, columns, eval_at = 'ame', link = 'log', sweep_var='logit_normalized', sweep_label='CNN Logit', sweep_values=['own'], sweep_interactions=LOGIT_INTERACTIONS)
+
+# AME by suitability stratum rather than one pooled number: bin edges are the same
+# highway-square-calibrated percentiles used for `sweep_values` above, so "how does the
+# effect vary with suitability" is answered by WHICH real rows get averaged over in each
+# bin, never by rewriting a row's own CNN logit -- every prediction stays inside the
+# joint support of the data.
+suitability_bins = [-np.inf] + sweep_values + [np.inf]
+suitability_bin_labels = [
+    'Below P50 (of highway squares)', 'P50-P75', 'P75-P85', 'P85-P90', 'Above P90',
+]
+predicted_outcomes_by_suitability = predicted_outcomes_by_stratum_from_fit(
+    model, ind_sample, x_vars, columns, sweep_var='logit_normalized', bins=suitability_bins,
+    sweep_label='CNN Logit', sweep_interactions=LOGIT_INTERACTIONS,
+    bin_labels=suitability_bin_labels, link='log',
+)
 
 # # --- run for both specs ---
 # sweep_values = [ind_sample['logit_hwy'].mean()]
