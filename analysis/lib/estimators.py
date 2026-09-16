@@ -89,20 +89,25 @@ def _conley_inner(X, mu, resid, coords, cutoff_m):
     Xe    = X * resid[:, np.newaxis]
     inner = np.zeros((k, k))
 
-    chunk_size = 500
-    for i in range(0, n, chunk_size):
-        i_end   = min(i + chunk_size, n)
-        dists   = cdist(coords[i:i_end], coords, metric='euclidean')
-        weights = np.maximum(0, 1 - dists / cutoff_m)
-        inner  += Xe[i:i_end].T @ (
-            weights[:, :, np.newaxis] * Xe[np.newaxis, :, :]
-        ).sum(axis=1)
+    # These matmuls spuriously raise divide-by-zero/overflow RuntimeWarnings on some BLAS
+    # backends (observed with Accelerate on macOS) whenever a regressor column is all-zero
+    # for a chunk/the whole sample, with no actual NaN/Inf in the result -- see
+    # analysis/lib/marginal_effects.py's _predict for the same false positive.
+    with np.errstate(divide='ignore', over='ignore', invalid='ignore'):
+        chunk_size = 500
+        for i in range(0, n, chunk_size):
+            i_end   = min(i + chunk_size, n)
+            dists   = cdist(coords[i:i_end], coords, metric='euclidean')
+            weights = np.maximum(0, 1 - dists / cutoff_m)
+            inner  += Xe[i:i_end].T @ (
+                weights[:, :, np.newaxis] * Xe[np.newaxis, :, :]
+            ).sum(axis=1)
 
-    # PPML bread: (X'WX)^-1 where W = diag(mu)
-    XWX   = X.T @ (mu[:, np.newaxis] * X)
-    outer = np.linalg.inv(XWX)
+        # PPML bread: (X'WX)^-1 where W = diag(mu)
+        XWX   = X.T @ (mu[:, np.newaxis] * X)
+        outer = np.linalg.inv(XWX)
 
-    V  = outer @ inner @ outer
+        V  = outer @ inner @ outer
     se = np.sqrt(np.diag(V))
     return se, V
 
@@ -149,6 +154,68 @@ def fit_ppml_firth(df, x_vars, columns, y_var='hwy', maxiter=200, tol=1e-8):
     # Deviance-based pseudo R^2 against a null (intercept-only) Poisson fit -- a single
     # parameter estimated from n events is never separation-prone, so the null model
     # doesn't need bias reduction itself.
+    null_model = sm.GLM(y, np.ones((len(y), 1)), family=sm.families.Poisson(link=sm.families.links.Log())).fit()
+    with np.errstate(divide='ignore', invalid='ignore'):
+        dev_terms = np.where(y > 0, y * np.log(y / mu), 0.0) - (y - mu)
+    deviance = 2 * dev_terms.sum()
+    rsq = 1 - deviance / null_model.deviance
+
+    return SimpleNamespace(
+        params   = pd.Series(beta, index=columns),
+        bse      = pd.Series(se, index=columns),
+        pvalues  = pd.Series(pval, index=columns),
+        rsquared = rsq,
+        nobs     = float(len(y)),
+        V        = V,
+        mu       = mu,
+        X        = X,
+        y        = y,
+        n_iter   = n_iter,
+    )
+
+
+def fit_ppml_firth_conley(df, x_vars, columns, y_var='hwy', maxiter=200, tol=1e-8,
+                           cutoff_m=1500, coords=None):
+    """
+    Firth-bias-reduced point estimate (fit_ppml_firth) with Conley spatial-HAC SEs
+    (fit_ppml_conley's _conley_inner) computed around it, for when you need both: too few
+    events/parameter for plain PPML to be stable (fit_ppml_firth's job), AND too few
+    clusters (e.g. only a handful of cities) for cluster-robust SEs to be trustworthy, so
+    spatial HAC is the right robustness layer instead (fit_ppml_conley's job).
+
+    _conley_inner only needs X, the fitted mu, and the score residuals y-mu -- it doesn't
+    care which estimating equation produced them, so this just runs Firth's IRLS for the
+    point estimate/mu instead of plain MLE's, then feeds those into the same spatial
+    sandwich fit_ppml_conley uses. Caveat: this evaluates the usual (plain-score) sandwich
+    formula at the Firth-corrected beta/mu, which is the standard practical approach but
+    isn't a from-first-principles derivation of the Firth estimator's own sampling
+    variance under spatial dependence (the bias-reduction term's O(1/n) contribution to
+    the correction is asymptotically negligible next to the leading-order sandwich
+    variance, which is why this approximation is standard, but it is an approximation).
+
+    Returns the same SimpleNamespace shape as fit_ppml_conley/fit_ppml_firth.
+    """
+    y = df[y_var].values.astype(float)
+    X = np.column_stack([np.ones(len(df)), df[x_vars].values.astype(float)])
+
+    beta, mu, _, n_iter = _firth_irls(X, y, maxiter=maxiter, tol=tol)
+    resid = y - mu
+
+    if coords is None:
+        coords = np.column_stack([
+            df.geometry.centroid.x.values,
+            df.geometry.centroid.y.values,
+        ])
+
+    se, V = _conley_inner(X, mu, resid, coords, cutoff_m)
+
+    assert len(beta) == len(columns), (
+        f"len(beta)={len(beta)} != len(columns)={len(columns)}"
+    )
+
+    z = beta / se
+    pval = 2 * (1 - norm.cdf(np.abs(z)))
+
     null_model = sm.GLM(y, np.ones((len(y), 1)), family=sm.families.Poisson(link=sm.families.links.Log())).fit()
     with np.errstate(divide='ignore', invalid='ignore'):
         dev_terms = np.where(y > 0, y * np.log(y / mu), 0.0) - (y - mu)
