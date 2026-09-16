@@ -107,7 +107,7 @@ def _conley_inner(X, mu, resid, coords, cutoff_m):
     return se, V
 
 
-def fit_ppml_firth(df, x_vars, columns, y_var='hwy', maxiter=200, tol=1e-10):
+def fit_ppml_firth(df, x_vars, columns, y_var='hwy', maxiter=200, tol=1e-8):
     """
     Fit PPML (Poisson, log link) with Firth's bias-reduction correction (Firth 1993,
     generalized to the GLM family by Kosmidis & Firth 2009, "Bias reduction in
@@ -169,11 +169,17 @@ def fit_ppml_firth(df, x_vars, columns, y_var='hwy', maxiter=200, tol=1e-10):
     )
 
 
-def _firth_irls(X, y, maxiter=200, tol=1e-10):
+def _firth_irls(X, y, maxiter=200, tol=1e-8):
     """
     IRLS for Poisson-log with Firth's bias-reduction adjustment -- see fit_ppml_firth's
     docstring for the z*_i = z_i + 0.5*h_i/W_i recipe. Returns (beta, mu, V, n_iter), where
     V = (X'WX)^-1 evaluated at the converged beta (the Firth-corrected covariance).
+
+    Convergence is checked on the RELATIVE change in beta (max_j |beta_new_j - beta_j| /
+    (|beta_j| + 1)), not the absolute change -- with a rare-events fit some coefficients
+    can still be moderately large even after bias reduction, and an absolute tolerance
+    tight enough to matter for a near-zero coefficient is unreachable floating-point noise
+    for a large one, which is what was cutting fit_ppml_firth's convergence off early.
     """
     n, k = X.shape
     mu = y + 0.1  # standard IRLS start: avoids log(0) for zero counts
@@ -195,8 +201,9 @@ def _firth_irls(X, y, maxiter=200, tol=1e-10):
             z_star = z + 0.5 * h / W
 
             beta_new = XtWX_inv @ (X.T @ (W * z_star))
+            rel_change = np.max(np.abs(beta_new - beta) / (np.abs(beta) + 1))
 
-            if np.max(np.abs(beta_new - beta)) < tol:
+            if rel_change < tol:
                 beta = beta_new
                 mu = np.exp(X @ beta)
                 break
@@ -204,7 +211,14 @@ def _firth_irls(X, y, maxiter=200, tol=1e-10):
             beta = beta_new
             mu = np.exp(X @ beta)
         else:
-            raise RuntimeError(f"Firth-corrected PPML did not converge in {maxiter} iterations")
+            raise RuntimeError(
+                f"Firth-corrected PPML did not converge in {maxiter} iterations "
+                f"(final relative change {rel_change:.2e}, target {tol:.2e}). "
+                f"Final beta: {np.round(beta, 3).tolist()}. "
+                "If rel_change is only modestly above tol, try raising maxiter or loosening "
+                "tol; if it's bouncing rather than shrinking, that's a real (not just "
+                "tolerance) convergence problem worth reporting back with this beta vector."
+            )
 
         W = mu
         V = np.linalg.inv(X.T @ (W[:, None] * X))
