@@ -15,6 +15,7 @@ from analysis.lib.specs import (
 from analysis.lib.marginal_effects import (
     export_predicted_outcomes_table, predicted_outcomes_from_fit, predicted_outcomes_by_stratum_from_fit,
 )
+from analysis.lib.estimators import (fit_ppml_conley, fit_ppml_firth)
 from data_code.candidates import get_candidate_dict
 from helpers.latex_formatting import export_single_regression, export_multiple_regressions
 
@@ -33,25 +34,10 @@ df = df[df['imputed'] == 0]
 candidate_dict = get_candidate_dict(cell_width)
 dir_sample, ind_sample = split_by_candidates(df, candidate_dict)
 
-# logit_normalized has a long right tail (max ~6.6 vs. a std of ~1). A few of the most-
-# suitable squares combine an extreme logit value with the weakly-identified Black x
-# CNN Logit / Residential x CNN Logit interaction coefficients, so forcing THOSE rows'
-# Residential/Black into a counterfactual sends exp(x'beta) into the millions even
-# though every other real square predicts sanely -- clip the tail before it's used to
-# build any interaction, so no downstream table (predicted outcomes, sweep, stratified)
-# can be dominated by a handful of outlier rows.
-# NB: clip at a fixed number of SDs from the mean, not a population percentile --
-# highway squares are themselves concentrated at the high end of this distribution (that's
-# the whole point of the CNN logit), so a percentile-based clip (e.g. the 1st/99th) can
-# swallow a big chunk of the hwy==1 subsample used for `sweep_values` below and collapse
-# its 75th/85th/90th percentiles onto the same clip ceiling. An SD-based cutoff only
-# touches genuinely isolated outliers, regardless of how many real (non-outlier) hwy==1
-# rows sit near the top of the distribution.
-_logit_mean, _logit_sd = ind_sample['logit_normalized'].mean(), ind_sample['logit_normalized'].std()
-LOGIT_LO, LOGIT_HI = _logit_mean - 5 * _logit_sd, _logit_mean + 5 * _logit_sd
+LOGIT_LO, LOGIT_HI = ind_sample['logit_normalized'].quantile(0.01), ind_sample['logit_normalized'].quantile(0.99)
 ind_sample['logit_normalized'] = ind_sample['logit_normalized'].clip(LOGIT_LO, LOGIT_HI)
 
-sweep_values = ind_sample.loc[ind_sample['hwy'] == 1, 'logit_normalized'].quantile([0.50, 0.75, 0.85, 0.90]).tolist()
+sweep_values = ind_sample.loc[ind_sample['hwy'] == 1, 'logit_normalized'].quantile([0.25, 0.50, 0.75]).tolist()
 
 ind_sample = compute_shares(ind_sample)
 ind_sample = compute_characteristic_access(ind_sample, 'share_black', 'dem_access', decay_m = 300, max_dist_m = 3000)
@@ -63,6 +49,19 @@ x_vars, columns = build_spec(ind_sample, CORE, CNN_LOGIT, LOGIT_INTERACTIONS, HO
 model = sm.GLM(ind_sample['hwy'], sm.add_constant(ind_sample[x_vars]), family=sm.families.Poisson(link=sm.families.links.Log())).fit(cov_type='HC3', maxiter=200)
 print(model.summary())
 
+suitability_bins = [-np.inf] + sweep_values + [np.inf]
+suitability_bin_labels = [
+    'Below P25 (of highway squares)', 'P25-P50', 'P50-P75', 'Above P75 (of highway squares)'
+]
+predicted_outcomes_by_suitability = predicted_outcomes_by_stratum_from_fit(
+    model, ind_sample, x_vars, columns, sweep_var='logit_normalized', bins=suitability_bins,
+    sweep_label='CNN Logit', sweep_interactions=LOGIT_INTERACTIONS,
+    bin_labels=suitability_bin_labels, link='log',
+)
+
+model = fit_ppml_firth(ind_sample, x_vars, columns, y_var = 'hwy', maxiter=200)
+print(model.summary())
+
 # AME by suitability stratum rather than one pooled number: bin edges are the same
 # highway-square-calibrated percentiles used for `sweep_values` above, so "how does the
 # effect vary with suitability" is answered by WHICH real rows get averaged over in each
@@ -70,7 +69,7 @@ print(model.summary())
 # joint support of the data.
 suitability_bins = [-np.inf] + sweep_values + [np.inf]
 suitability_bin_labels = [
-    'Below P50 (of highway squares)', 'P50-P75', 'P75-P85', 'P85-P90', 'Above P90',
+    'Below P25 (of highway squares)', 'P25-P50', 'P50-P75', 'Above P75 (of highway squares)'
 ]
 predicted_outcomes_by_suitability = predicted_outcomes_by_stratum_from_fit(
     model, ind_sample, x_vars, columns, sweep_var='logit_normalized', bins=suitability_bins,
