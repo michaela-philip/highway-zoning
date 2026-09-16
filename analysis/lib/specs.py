@@ -21,6 +21,8 @@ BLACK_DEFINITIONS = {
     'log_pct': ('log_black', 'the log percent Black population'),
     'any': ('any_black', 'the presence of any Black residents'),
     'dem_access': ('dem_access', 'distance-decayed demographic access to the Black population'),
+    'mixed': ('mixed_black', 'mixed-Black, defined as between 30 and 80 percent Black'),
+    'high_share': ('high_black_share', 'indicator for having a high share of Black residents'),
 }
 
 RESIDENTIAL_LABEL = 'Residential'
@@ -65,6 +67,9 @@ def sweep_interactions_spec(df, black_key, sweep_var, sweep_label, residential_v
         (triple, f'{RESIDENTIAL_LABEL} x {BLACK_LABEL} x {sweep_label}'),
     ]
 
+RESIDENTIAL = [
+    ('Residential', 'Residential')
+]
 
 HOUSING_VARS = [
     ('log_valueh', 'Log(Value)'),
@@ -99,6 +104,11 @@ CNN_LOGIT = [
     ('logit_hwy', 'CNN Logit')
 ]
 
+HWY_ACCESS = [
+    ('hwy_access', 'Distance-Decayed Highway Access'),
+    ('hwy_access_sq', 'Distance-Decayed Highway Access^2')
+]
+
 CITY_LABELS = {'louisville': 'City_Louisville', 'littlerock': 'City_LittleRock'}
 
 
@@ -108,9 +118,19 @@ def city_dummy_spec(df):
     return [(f'city_{c}', CITY_LABELS.get(c, f'City_{c.title()}')) for c in cities[1:]]
 
 
-def build_spec(df, *blocks):
-    """Combine variable blocks plus city dummies into an (x_vars, columns) pair."""
-    pairs = [pair for block in blocks for pair in block] + city_dummy_spec(df)
+def build_spec(df, *blocks, include_city_dummies=True):
+    """Combine variable blocks (plus city dummies, unless include_city_dummies=False)
+    into an (x_vars, columns) pair.
+
+    Pass include_city_dummies=False when city fixed effects would separately identify a
+    cell that has zero outcome variation within some city (e.g. a Black-defined subgroup
+    with 0 events in one city but nonzero pooled across cities) -- forcing that
+    per-city cell drives PPML toward quasi-complete separation regardless of estimator.
+    Dropping city FE pools the cells instead; pair it with spatial (e.g. Conley) rather
+    than city-clustered SEs if there are too few cities left to cluster on."""
+    pairs = [pair for block in blocks for pair in block]
+    if include_city_dummies:
+        pairs = pairs + city_dummy_spec(df)
     x_vars = [v for v, _ in pairs]
     columns = ['Intercept'] + [label for _, label in pairs]
     return x_vars, columns
