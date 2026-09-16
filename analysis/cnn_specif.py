@@ -17,7 +17,7 @@ from analysis.lib.marginal_effects import (
 )
 from analysis.lib.estimators import (fit_ppml_conley, fit_ppml_firth)
 from data_code.candidates import get_candidate_dict
-from helpers.latex_formatting import export_single_regression, export_multiple_regressions
+from helpers.latex_formatting import export_single_regression, export_multiple_regressions, format_regression_results
 
 cell_width = 150
 df = load_sample(cell_width, impute = True)
@@ -45,28 +45,17 @@ ind_sample = city_specific_shares(ind_sample, quantile=0.25)
 
 CORE = core_spec(ind_sample, '40pct')
 LOGIT_INTERACTIONS = sweep_interactions_spec(ind_sample, '40pct', 'logit_normalized', 'CNN Logit')
-x_vars, columns = build_spec(ind_sample, CORE, CNN_LOGIT, LOGIT_INTERACTIONS, HOUSING_VARS, LOG_DIST_HWY, HH_CONTROLS, GEO_CONTROLS, HWY_ACCESS)
-model = sm.GLM(ind_sample['hwy'], sm.add_constant(ind_sample[x_vars]), family=sm.families.Poisson(link=sm.families.links.Log())).fit(cov_type='HC3', maxiter=200)
-print(model.summary())
+# include_city_dummies=False: city FE forced separate identification of each city's
+# Residential x Black cell, and Atlanta's (both) and Louisville's (Residential x Black)
+# cells have ZERO hwy==1 events -- complete separation no estimator can fix. Pooling
+# across cities instead gives every cell nonzero events (e.g. that same Louisville cell
+# goes from 0/138 to 4/567 pooled). "Black" itself is redefinable by other levers, so a
+# separate per-city effect isn't central here -- Conley spatial SEs below replace the
+# now-dropped city clustering (3 cities is too few to cluster on anyway).
+x_vars, columns = build_spec(ind_sample, CORE, CNN_LOGIT, LOGIT_INTERACTIONS, HOUSING_VARS, LOG_DIST_HWY, HH_CONTROLS, GEO_CONTROLS, HWY_ACCESS, include_city_dummies=False)
+model = fit_ppml_conley(ind_sample, x_vars, columns, y_var='hwy', cutoff_m=1500)
+print(format_regression_results(model))
 
-suitability_bins = [-np.inf] + sweep_values + [np.inf]
-suitability_bin_labels = [
-    'Below P25 (of highway squares)', 'P25-P50', 'P50-P75', 'Above P75 (of highway squares)'
-]
-predicted_outcomes_by_suitability = predicted_outcomes_by_stratum_from_fit(
-    model, ind_sample, x_vars, columns, sweep_var='logit_normalized', bins=suitability_bins,
-    sweep_label='CNN Logit', sweep_interactions=LOGIT_INTERACTIONS,
-    bin_labels=suitability_bin_labels, link='log',
-)
-
-model = fit_ppml_firth(ind_sample, x_vars, columns, y_var = 'hwy', maxiter=200)
-print(model.summary())
-
-# AME by suitability stratum rather than one pooled number: bin edges are the same
-# highway-square-calibrated percentiles used for `sweep_values` above, so "how does the
-# effect vary with suitability" is answered by WHICH real rows get averaged over in each
-# bin, never by rewriting a row's own CNN logit -- every prediction stays inside the
-# joint support of the data.
 suitability_bins = [-np.inf] + sweep_values + [np.inf]
 suitability_bin_labels = [
     'Below P25 (of highway squares)', 'P25-P50', 'P50-P75', 'Above P75 (of highway squares)'
