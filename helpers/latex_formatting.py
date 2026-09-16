@@ -31,7 +31,7 @@ def format_regression_results(results, r2_label=None, x_vars=None, columns=None)
     `results` just needs .params/.bse/.pvalues/.nobs (see _extract_rsquared above for the
     R^2 row). That covers:
       - the SimpleNamespace produced by bootstrap_results_to_namespace or returned by
-        analysis.lib.standard_errors.fit_ppml_conley, and
+        analysis.lib.estimators.fit_ppml_conley, and
       - an out-of-the-box statsmodels result, e.g. sm.GLM(...).fit() or sm.OLS(...).fit().
 
     By default results.params/.bse/.pvalues are assumed already indexed by friendly

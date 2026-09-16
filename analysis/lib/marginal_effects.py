@@ -186,7 +186,7 @@ def _delta_estimates(xs, beta, cov, link):
     """SE/CI/p-values via the delta method from a coefficient covariance matrix `cov`
     (full, including the intercept row/column, ordered like `columns`) -- e.g. a
     statsmodels results object's .cov_params(), or the Conley sandwich covariance
-    (res.V) from analysis.lib.standard_errors.fit_ppml_conley.
+    (res.V) from analysis.lib.estimators.fit_ppml_conley.
 
     Each xs[label] is an (n, k) regressor matrix (n=1 for MEM, n=len(df) for AME) and the
     reported quantity is the AVERAGE prediction across its n rows, so its gradient wrt
@@ -310,7 +310,7 @@ def predicted_outcomes(df, x_vars, columns, beta, boot_coefs=None, cov=None,
                   from the empirical bootstrap distribution.
       cov         full coefficient covariance matrix, e.g. a statsmodels results
                   object's .cov_params(), or the Conley sandwich covariance from
-                  analysis.lib.standard_errors.fit_ppml_conley (res.V) -- SEs/CIs/
+                  analysis.lib.estimators.fit_ppml_conley (res.V) -- SEs/CIs/
                   p-values come from the delta method.
     Passing neither returns point estimates only.
 
@@ -360,7 +360,7 @@ def predicted_outcomes_from_fit(res, df, x_vars, columns, **kwargs):
       - an out-of-the-box statsmodels results object, e.g.
         sm.GLM(y, X, family=sm.families.Poisson(...)).fit() or sm.OLS(y, X).fit(),
         using its .params and .cov_params() for delta-method SEs; or
-      - a SimpleNamespace like analysis.lib.standard_errors.fit_ppml_conley() returns,
+      - a SimpleNamespace like analysis.lib.estimators.fit_ppml_conley() returns,
         using its .params and .V (Conley sandwich covariance) instead.
 
     res.params must be ordered [intercept, *x_vars] to line up with `columns` -- true
