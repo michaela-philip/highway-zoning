@@ -26,11 +26,12 @@ def load_sample(size, impute = False):
     df['log_dist_to_rr_sq'] = df['log_dist_to_rr'] ** 2
     df['log_dist_to_hwy'] = np.log(df['dist_to_hwy'])
 
-    df['mblack_1945def'] = np.where(df['pct_black'] > 0.6, 1, 0)
-    df['mblack_50_pct'] = np.where(df['pct_black'] > 0.5, 1, 0)
-    df['mblack_40_pct'] = np.where(df['pct_black'] > 0.4, 1, 0)
-    df['mblack_mean_pct'] = np.where(df['pct_black'] > df['pct_black'].mean(), 1, 0)
-    df['mblack_mean_share'] = np.where(df['share_black'] > df['share_black'].mean(), 1, 0)
+    df['mblack_1945def'] = np.where(df['pct_black'] >= 0.6, 1, 0)
+    df['mblack_50_pct'] = np.where(df['pct_black'] >= 0.5, 1, 0)
+    df['mblack_40_pct'] = np.where(df['pct_black'] >= 0.4, 1, 0)
+    df['mixed_black'] = np.where((df['pct_black'] >= 0.3) & (df['pct_black'] < 0.8), 1, 0)
+    df['mblack_mean_pct'] = np.where(df['pct_black'] >= df['pct_black'].mean(), 1, 0)
+    df['mblack_mean_share'] = np.where(df['share_black'] >= df['share_black'].mean(), 1, 0)
     df['log_black'] = np.log(df['pct_black'] + 0.000001)
     df['any_black'] = np.where(df['black_pop'] != 0, 1, 0)
     return df
@@ -79,6 +80,7 @@ def merge_cnn_probs(df, model_pattern, dataroot='cnn/'):
     df['grid_id'] = df['grid_id'].astype(str)
     df = df.merge(logits_df[['grid_id', 'logit_hwy', 'prob_hwy']], on='grid_id', how='left')
     df['logit_hwy_centered'] = df['logit_hwy'] - df['logit_hwy'].mean()
+    df['logit_normalized'] = (df['logit_hwy'] - df['logit_hwy'].mean()) / df['logit_hwy'].std()
     df['grid_id'] = df['grid_id'].astype(orig_dtype)
     return df
 
@@ -97,7 +99,7 @@ def split_by_candidates(df, candidate_dict):
     indirect = pd.concat(indirect_frames, ignore_index=True)
     return direct, indirect
 
-def compute_demographic_access(grid, demographic_var, decay_m, rho = None, max_dist_m = 5000):
+def compute_characteristic_access(grid, characteristic_var, access_name, decay_m, rho = None, max_dist_m = 5000):
     centroids = grid.geometry.centroid
     coords = np.column_stack([centroids.x.values, centroids.y.values])
 
@@ -112,17 +114,15 @@ def compute_demographic_access(grid, demographic_var, decay_m, rho = None, max_d
     weights[dists>max_dist_m] = 0
     np.fill_diagonal(weights, 0)
 
-    demo_vals = grid[demographic_var].fillna(0).values
+    demo_vals = grid[characteristic_var].fillna(0).values
 
-    # weighted sum and normalized 
     access = weights @ demo_vals
-    weight_sums = weights.sum(axis=1)
-    # dem_access_norm = np.where(weight_sums > 0, access / weight_sums, 0)
 
     grid = grid.copy()
-    # grid['dem_access_norm'] = dem_access_norm
-    grid['dem_access'] = access
-    grid['log_dem_access'] = np.log(grid['dem_access'])
+    grid[access_name] = access
+    grid['log_' + access_name] = np.log(grid[access_name])
+    grid[access_name + '_sq'] = grid[access_name] ** 2
+
     return grid
 
 def assign_highway_exposure(df, high_exposure_threshold, low_exposure_threshold, hwy_col='hwy'):
@@ -145,7 +145,21 @@ def assign_highway_exposure(df, high_exposure_threshold, low_exposure_threshold,
         dist_to_hwy <= high_exposure_threshold, 'high',
         np.where(dist_to_hwy <= low_exposure_threshold, 'low', None)
     )
+    df['high_exposure'] = (df['hwy_exposure'] == 'high').astype(int).fillna(0).astype(int)
+    df['low_exposure'] = (df['hwy_exposure'] == 'low').astype(int).fillna(0).astype(int)
     return df
+
+def widen_highways(grid, buffer_m):
+    hwy_squares = grid.loc[grid['hwy'] == 1, ['grid_id', 'geometry']]
+    corridor = gpd.GeoDataFrame(geometry=hwy_squares.buffer(buffer_m), crs=grid.crs)
+
+    grid_geo = grid[['grid_id', 'geometry']]
+    hwy_wide = gpd.sjoin(grid_geo, corridor, how='left', predicate='intersects')
+    hwy_wide['hwy_wide'] = np.where(hwy_wide['index_right'].isna(), 0, 1)
+    hwy_wide = hwy_wide.groupby('grid_id').agg({'hwy_wide': 'max'}).reset_index()
+    grid = grid.merge(hwy_wide, on='grid_id', how='left')
+    grid['hwy_wide'] = grid['hwy_wide'].fillna(0).astype(int)
+    return grid
 
 
 def impute_values(df, columns):
@@ -161,4 +175,24 @@ def impute_values(df, columns):
         return result
     for col in columns:
         df.loc[imputed_mask, col] = df.loc[imputed_mask, col].fillna(neighbor_median(col))
+    return df
+
+def city_specific_shares(df, quantile = 0.25):
+    """Compute an indicator for having a 'high share' of the Black population based on each city's own distribution, and return a copy of df with that column added."""
+    df = df.copy()
+    for city in df['city'].unique():
+        city_mask = df['city'] == city
+        city_df = df.loc[city_mask]
+        threshold = city_df.loc[city_df['any_black'] == 1, 'share_black'].quantile(quantile)
+        df.loc[city_mask, 'high_black_share'] = (city_df['share_black'] >= threshold).astype(int)
+    return df
+
+def compute_shares(df):
+    df = df.copy()
+    for city in df['city'].unique():
+        city_mask = df['city'] == city
+        city_df = df.loc[city_mask]
+        total_black_pop = city_df['black_pop'].sum()
+        share_black = np.where(total_black_pop > 0, city_df['black_pop'] / total_black_pop, 0)
+        df.loc[city_mask, 'share_black'] = share_black
     return df
