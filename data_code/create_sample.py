@@ -81,6 +81,7 @@ def classify_grid(zoning1, grid, centroids, city_sample, zoning2 = None):
 
     output = grid.merge(combined, on='grid_id', how='right')
     output['Residential'] = np.where(output['maj_zoning'] == 'residential', 1, 0)
+    output[['zoning_change', 'secondary_pct_res']] = output[['zoning_change', 'secondary_pct_res']].fillna(0)
 
     city = city_sample['city']
     # calculate distance between grid centroid and CBD 
@@ -523,11 +524,11 @@ sample = pd.read_pickle('data/input/samplelist.pkl')
 output = create_sample(census, sample, gridsize=150, min_true_neighbors = 4)
 output.to_pickle('data/output/sample_150.pkl')
 
-# output = create_sample(census, sample, gridsize=200,min_true_neighbors = 4)
-# output.to_pickle('data/output/sample_200.pkl')
+output = create_sample(census, sample, gridsize=200,min_true_neighbors = 4)
+output.to_pickle('data/output/sample_200.pkl')
 
-# output = create_sample(census, sample, gridsize=300, min_true_neighbors = 4)
-# output.to_pickle('data/output/sample_300.pkl')
+output = create_sample(census, sample, gridsize=300, min_true_neighbors = 4)
+output.to_pickle('data/output/sample_300.pkl')
 
-# output = create_sample(census, sample, gridsize=500, min_true_neighbors = 4)
-# output.to_pickle('data/output/sample_500.pkl')
+output = create_sample(census, sample, gridsize=500, min_true_neighbors = 4)
+output.to_pickle('data/output/sample_500.pkl')
