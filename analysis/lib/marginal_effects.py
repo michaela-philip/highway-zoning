@@ -407,24 +407,42 @@ def predicted_outcomes_by_stratum_from_fit(res, df, x_vars, columns, sweep_var, 
     Returns {bin: {'cells':..., 'contrasts':..., 'did':...}}, in the same shape
     predicted_outcomes() returns for a sweep -- pass straight to
     export_predicted_outcomes_table(..., column_labels=...).
+
+    sweep_interactions is optional: if `sweep_var` isn't interacted with Residential/Black
+    in your model at all (e.g. CNN Logit entered as a plain additive control), pass
+    sweep_interactions=None (the default) -- `sweep_var` is then just an ordinary
+    covariate, already held at each row's own real value automatically under eval_at='ame'
+    with no special-casing needed, and this only uses `sweep_var` to decide which rows
+    fall in which bin. Passing sweep_interactions is only for recomputing genuine
+    interaction terms (e.g. 'Residential x CNN Logit') consistently with each row's own
+    sweep_var value -- see predicted_outcomes()/_cell_vectors for why that recomputation
+    matters whenever such terms exist in the model.
     """
     bin_id = pd.qcut(df[sweep_var], bins, labels=bin_labels) if isinstance(bins, int) \
         else pd.cut(df[sweep_var], bins, labels=bin_labels)
+
+    has_interactions = sweep_interactions is not None and len(sweep_interactions) > 0
 
     results = {}
     for b in bin_id.cat.categories:
         sub = df[bin_id == b]
         if len(sub) == 0:
             continue
-        out = predicted_outcomes_from_fit(
-            res, sub, x_vars, columns, eval_at='ame',
-            sweep_var=sweep_var, sweep_label=sweep_label, sweep_values=['own'],
-            sweep_interactions=sweep_interactions, verbose=False, **kwargs,
-        )
-        cell_estimates, contrast_results, did = out['own']['cells'], out['own']['contrasts'], out['own']['did']
+        if has_interactions:
+            out = predicted_outcomes_from_fit(
+                res, sub, x_vars, columns, eval_at='ame',
+                sweep_var=sweep_var, sweep_label=sweep_label, sweep_values=['own'],
+                sweep_interactions=sweep_interactions, verbose=False, **kwargs,
+            )
+            cell_estimates, contrast_results, did = out['own']['cells'], out['own']['contrasts'], out['own']['did']
+        else:
+            out = predicted_outcomes_from_fit(
+                res, sub, x_vars, columns, eval_at='ame', verbose=False, **kwargs,
+            )
+            cell_estimates, contrast_results, did = out['cells'], out['contrasts'], out['did']
         if verbose:
             _print_table(f"{b} (n={len(sub)})", sweep_label, 'ame', cell_estimates, contrast_results, did)
-        results[b] = out['own']
+        results[b] = {'cells': cell_estimates, 'contrasts': contrast_results, 'did': did}
     return results
 
 
