@@ -13,14 +13,14 @@ from rasterstats import zonal_stats
 ### SECTION TO BE EDITED UPON ADDITION OF NEW CITIES ###
 atlanta_zoning1 = gpd.read_file('data/input/zoning_shapefiles/atlanta/zoning.shp')
 atlanta_zoning2 = gpd.read_file('data/input/zoning_shapefiles/atlanta/zoning-1954.shp')
-louisville_zoning1 = gpd.read_file('data/input/zoning_shapefiles/louisville/zoning-1947.shp')
-louisville_zoning2 = gpd.read_file('data/input/zoning_shapefiles/louisville/zoning-1931.shp')
+louisville_zoning1 = gpd.read_file('data/input/zoning_shapefiles/louisville/zoning-1931.shp')
+louisville_zoning2 = gpd.read_file('data/input/zoning_shapefiles/louisville/zoning-1947.shp')
 littlerock = gpd.read_file('data/input/zoning_shapefiles/littlerock/zoning-1937.shp')
 zoning = {
     'atlanta_1929': atlanta_zoning1,
     'atlanta_1954': atlanta_zoning2,
-    'louisville_1947': louisville_zoning1,
-    'louisville_1931': louisville_zoning2,
+    'louisville_1931': louisville_zoning1,
+    'louisville_1947': louisville_zoning2,
     'littlerock': littlerock
 }
 atlanta_geology = gpd.read_file('data/input/atlanta/water_topog.shp')
@@ -36,48 +36,51 @@ geology = {
 ### FUNCTION TO CLASSIFY GRID BASED ON ZONING ###
 def classify_grid(zoning1, grid, centroids, city_sample, zoning2 = None):
     # condense zoning to residential and industrial
-    zoning_map = {'dwelling': 'residential', 'apartment': 'residential', 
-                    'single family': 'residential', '2 family': 'residential', 
-                    '2-4 family': 'residential', 'commercial': 'industrial',
-                    'industrial': 'industrial', 'business': 'industrial',
-                    'light industry': 'industrial', 'heavy industry': 'industrial'
-                    }
-    zoning1['zoning'] = zoning1['Zonetype'].map(zoning_map)
-    zoning1 = zoning1[zoning1['zoning'].notna()]
-    zoning1 = zoning1.overlay(grid, how = 'identity')
-    print('zoning 1 overlaid')
+    zoning_map = {'dwelling': 'residential', 'apartment': 'residential',
+                'single family': 'residential', '2 family': 'residential',
+                '2-4 family': 'residential', 'commercial': 'industrial',
+                'industrial': 'industrial', 'business': 'industrial',
+                'light industry': 'industrial', 'heavy industry': 'industrial'
+                }
 
-    # reclassify grids by zoning type (similar approach Noelkel et al. (2020) HOLC classification)
-    def classify_grids(df):
+    def classify_grids(zoning):
+        zoning = zoning.copy()
+        zoning['zoning'] = zoning['Zonetype'].map(zoning_map)
+        zoning = zoning[zoning['zoning'].notna()]
+        zoning = zoning.overlay(grid, how='identity')
+
+        df = zoning.copy()
         df['area'] = df['geometry'].area
         df['area_res'] = np.where(df['zoning'] == 'residential', df['area'], 0)
         df['area_ind'] = np.where(df['zoning'] == 'industrial', df['area'], 0)
         df = df.groupby('grid_id').agg({'area': 'sum', 'area_res': 'sum', 'area_ind': 'sum'})
         df['pct_res'] = df['area_res'] / df['area']
         df['pct_ind'] = df['area_ind'] / df['area']
-
-        # classify based on relative percentages (may not be ideal)
         df['maj_zoning'] = np.where(df['pct_res'] > df['pct_ind'], 'residential', 'industrial')
-        output = grid.merge(df['maj_zoning'], left_on='grid_id', right_index=True)
-        output['Residential'] = np.where(output['maj_zoning'] == 'residential', 1, 0)
-        return output
+        return df[['maj_zoning', 'pct_res']].reset_index()
 
-    output = classify_grids(zoning1)
+    df1 = classify_grids(zoning1)
+    print('zoning 1 overlaid')
 
     if zoning2 is not None:
         print('using two zoning maps')
-        zoning2['zoning'] = zoning2['Zonetype'].map(zoning_map)
-        zoning2 = zoning2[zoning2['zoning'].notna()]
-        zoning2 = zoning2.overlay(grid, how = 'identity')
-        output2 = classify_grids(zoning2)
+        df2 = classify_grids(zoning2)
 
-        # drop all squares whose zoning classification changes
-        # compare only squares that exist in both maps - squares that only come into existence later are left as is
-        overlap = output[['grid_id', 'maj_zoning']].merge(output2[['grid_id', 'maj_zoning']], 
-                                                            on='grid_id', suffixes=('_1', '_2'), how = 'inner')
-        drop_ids = overlap.loc[overlap['maj_zoning_1'] != overlap['maj_zoning_2'], 'grid_id']
-        output = output[~output['grid_id'].isin(drop_ids)]
-        print(len(drop_ids), 'grid squares dropped due to zoning change')
+        combined = df1.merge(df2, on='grid_id', suffixes=('', '_2'), how='outer')
+
+        both_present = combined['maj_zoning'].notna() & combined['maj_zoning_2'].notna()
+        combined['zoning_change'] = np.where(both_present, combined['maj_zoning'] != combined['maj_zoning_2'], np.nan)
+        combined['secondary_pct_res'] = np.where(both_present, combined['pct_res_2'], np.nan)
+
+        # squares only in map 2: their map-2 classification becomes the primary one
+        combined['maj_zoning'] = combined['maj_zoning'].fillna(combined['maj_zoning_2'])
+        combined['pct_res'] = combined['pct_res'].fillna(combined['pct_res_2'])
+        combined = combined.drop(columns=['maj_zoning_2', 'pct_res_2'])
+    else:
+        combined = df1
+
+    output = grid.merge(combined, on='grid_id', how='right')
+    output['Residential'] = np.where(output['maj_zoning'] == 'residential', 1, 0)
 
     city = city_sample['city']
     # calculate distance between grid centroid and CBD 
@@ -272,6 +275,7 @@ def place_census(census, grid):
                             crs = 'EPSG:4269') # census geocodes in NAD83 for some reason
     census = census.to_crs(grid.crs)
     census['black_pop'] = (census['black'] * census['numprec'])
+    census['black_homeowners'] = (census['black'] * census['owner'])
     census_grid = grid.sjoin(census, how='left', predicate='contains')
     print(census_grid.describe())
 
@@ -307,6 +311,7 @@ def place_census(census, grid):
         'rent' : 'median',
         'valueh': 'median',
         'serial': 'count',
+        'black_homeowners': 'sum',
         'owner':'mean'
     }
     # groupby instead of dissolve -- the caller only keeps the aggregated columns, so
@@ -436,7 +441,7 @@ def create_grid(zoning, centroids, geology, census, state59, state40, us59, us40
     print('elevation and slope added to grid')
 
     # overlay census data on grid
-    output = output.merge(place_census(census, output)[['grid_id', 'numprec', 'black_pop', 'rent', 'valueh', 
+    output = output.merge(place_census(census, output)[['grid_id', 'numprec', 'black_pop', 'black_homeowners', 'rent', 'valueh', 
                                                                   'pct_black', 'share_black', 'mblack_mean_pct', 
                                                                   'mblack_mean_share', 'mblack_1945def', 'serial', 'owner']],
                            on='grid_id', how='left')
@@ -484,8 +489,8 @@ def create_sample(df, sample, gridsize, min_true_neighbors = 0):
         city_df = df[df['city'] == city].copy()
         city_geology = geology[city]
         if city == 'louisville':
-            city_zoning1 = zoning['louisville_1947']
-            city_zoning2 = zoning['louisville_1931']
+            city_zoning1 = zoning['louisville_1931']
+            city_zoning2 = zoning['louisville_1947']
             city_grid = create_grid(city_zoning1, centroids, city_geology, city_df, state59, state40, us59, us40, interstate, gridsize = gridsize, city_sample = city_sample, zoning2 = city_zoning2, grid_0 = grid_0, min_true_neighbors = min_true_neighbors)
         elif city == 'atlanta':
             city_zoning1 = zoning['atlanta_1929']
@@ -518,11 +523,11 @@ sample = pd.read_pickle('data/input/samplelist.pkl')
 output = create_sample(census, sample, gridsize=150, min_true_neighbors = 4)
 output.to_pickle('data/output/sample_150.pkl')
 
-output = create_sample(census, sample, gridsize=200,min_true_neighbors = 4)
-output.to_pickle('data/output/sample_200.pkl')
+# output = create_sample(census, sample, gridsize=200,min_true_neighbors = 4)
+# output.to_pickle('data/output/sample_200.pkl')
 
-output = create_sample(census, sample, gridsize=300, min_true_neighbors = 4)
-output.to_pickle('data/output/sample_300.pkl')
+# output = create_sample(census, sample, gridsize=300, min_true_neighbors = 4)
+# output.to_pickle('data/output/sample_300.pkl')
 
-output = create_sample(census, sample, gridsize=500, min_true_neighbors = 4)
-output.to_pickle('data/output/sample_500.pkl')
+# output = create_sample(census, sample, gridsize=500, min_true_neighbors = 4)
+# output.to_pickle('data/output/sample_500.pkl')
