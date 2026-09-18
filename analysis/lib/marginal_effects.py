@@ -74,7 +74,7 @@ def _cell_vectors(df, x_vars, columns, eval_at='mean',
                           and the synthetic row can land far outside the data actually
                           seen by the model, at which point exp(x'beta) can blow up to
                           values that aren't interpretable as probabilities even though
-                          y is 0/1. See predicted_outcomes_ame_from_fit.
+                          y is 0/1. See eval_at='ame' below.
       'ame'            -- average marginal effects: keep every OTHER regressor at each
                           observation's own actual value, predict every row of df under
                           this cell's Residential/Black (and sweep) assignment, then
@@ -118,11 +118,15 @@ def _cell_vectors(df, x_vars, columns, eval_at='mean',
 
     varying_labels = {row_label, col_label, inter_label}
     if sweep_var is not None:
+        if sweep_label is None:
+            raise ValueError("sweep_var was given but sweep_label is None -- pass the friendly "
+                              "column label for it (e.g. 'CNN Logit')")
         if sweep_interactions is None:
             raise ValueError(
                 "sweep_var was given but sweep_interactions is None -- pass the "
                 "(var, label) triple from specs.sweep_interactions_spec(df, black_key, "
-                f"{sweep_var!r}, {sweep_label!r})"
+                f"{sweep_var!r}, {sweep_label!r}), or [] if sweep_var isn't interacted "
+                "with Residential/Black in this model at all"
             )
         varying_labels.add(sweep_label)
         varying_labels.update(lbl for _, lbl in sweep_interactions)
@@ -195,15 +199,23 @@ def _predict(X, beta, link):
     return float(np.mean(mu))
 
 
+def _did_value(predictions, did_cells):
+    """DiD point value from a {label: prediction} dict: (black-hi@res-lo) -
+    (black-hi@res-hi) - (black-lo@res-lo) + (black-lo@res-hi) -- see
+    _cells_and_contrasts for why did_cells is ordered that way. Shared by
+    _point_estimates/_bootstrap_estimates/_delta_estimates, which otherwise each repeat
+    this same combination."""
+    bnr, br, wnr, wr = did_cells
+    return predictions[bnr] - predictions[br] - predictions[wnr] + predictions[wr]
+
+
 def _point_estimates(xs, beta, link, contrasts, did_cells):
     """Point predictions only -- no SE/CI/p-values."""
     predictions = {label: _predict(x, beta, link) for label, x in xs.items()}
     cell_estimates = {label: (predictions[label], None, None) for label in xs}
     contrast_results = {clabel: (predictions[a] - predictions[b], None, None)
                          for clabel, (a, b) in contrasts.items()}
-    bnr, br, wnr, wr = did_cells
-    did_val = predictions[bnr] - predictions[br] - predictions[wnr] + predictions[wr]
-    return predictions, cell_estimates, contrast_results, (did_val, None, None)
+    return predictions, cell_estimates, contrast_results, (_did_value(predictions, did_cells), None, None)
 
 
 def _bootstrap_estimates(xs, beta, boot_coefs, link, contrasts, did_cells):
@@ -235,7 +247,7 @@ def _bootstrap_estimates(xs, beta, boot_coefs, link, contrasts, did_cells):
 
     bnr, br, wnr, wr = did_cells
     boot_did = boot_preds[bnr] - boot_preds[br] - boot_preds[wnr] + boot_preds[wr]
-    did_val = predictions[bnr] - predictions[br] - predictions[wnr] + predictions[wr]
+    did_val = _did_value(predictions, did_cells)
     did_se = np.std(boot_did)
     did_p = 2 * min((boot_did > 0).mean(), (boot_did < 0).mean())
 
@@ -263,34 +275,57 @@ def _se_of(g, cov):
     return np.sqrt(max(g @ V @ g, 0.0))
 
 
+def _beta_cov_from_fit(res):
+    """(beta, cov) from a fitted result object -- an out-of-the-box statsmodels result
+    (.params/.cov_params()) or a SimpleNamespace like analysis.lib.estimators's
+    fit_ppml_conley/fit_ppml_firth(_conley) return (.params/.V). Shared by
+    predicted_outcomes_from_fit and predicted_outcomes_by_black_group_from_fit."""
+    beta = np.asarray(res.params)
+    if hasattr(res, 'cov_params'):
+        cov = np.asarray(res.cov_params())
+    elif hasattr(res, 'V'):
+        cov = np.asarray(res.V)
+    else:
+        raise AttributeError("res has neither .cov_params() nor .V -- can't get a covariance matrix for delta-method SEs")
+    return beta, cov
+
+
+def _delta_contrast(xs, key_a, key_b, beta, cov, link):
+    """(diff, se, p, grad_diff) for predictions[key_a] - predictions[key_b] via the delta
+    method (note the order: a minus b, matching _cells_and_contrasts' (lo, hi) contrast
+    tuples, e.g. Non-Residential minus Residential -- a positive value means the *first*
+    label's predicted rate is higher). grad_diff is returned too so callers can combine
+    it further (e.g. a DiD across two contrasts computed on different sub-dataframes, as
+    in predicted_outcomes_by_black_group_from_fit -- gradients from different
+    (sub)samples can't be recovered from just the two diffs/SEs, since the DiD's SE also
+    depends on covariance between the two contrasts' gradients through the shared beta)."""
+    diff = _predict(xs[key_a], beta, link) - _predict(xs[key_b], beta, link)
+    grad_diff = _gradient(xs[key_a], beta, link) - _gradient(xs[key_b], beta, link)
+    se = _se_of(grad_diff, cov)
+    z = diff / se if se > 0 else np.nan
+    p = 2 * (1 - norm.cdf(abs(z)))
+    return diff, se, p, grad_diff
+
+
 def _delta_estimates(xs, beta, cov, link, contrasts, did_cells):
     """SE/CI/p-values via the delta method from a coefficient covariance matrix `cov`
     (full, including the intercept row/column, ordered like `columns`) -- e.g. a
     statsmodels results object's .cov_params(), or the Conley sandwich covariance
-    (res.V) from analysis.lib.estimators.fit_ppml_conley. See _gradient for the
-    per-cell gradient this is built from.
+    (res.V) from analysis.lib.estimators.fit_ppml_conley. See _gradient/_delta_contrast
+    for the per-cell/per-contrast math this is built from.
     """
     predictions = {label: _predict(x, beta, link) for label, x in xs.items()}
+    cell_estimates = {label: (predictions[label], _se_of(_gradient(x, beta, link), cov), None)
+                       for label, x in xs.items()}
 
-    def se_of(g):
-        return _se_of(g, cov)
-
-    cell_estimates = {label: (predictions[label], se_of(_gradient(x, beta, link)), None) for label, x in xs.items()}
-
-    def contrast(a, b):
-        diff = predictions[a] - predictions[b]
-        se = se_of(_gradient(xs[a], beta, link) - _gradient(xs[b], beta, link))
-        z = diff / se if se > 0 else np.nan
-        p = 2 * (1 - norm.cdf(abs(z)))
-        return diff, se, p
-
-    contrast_results = {clabel: contrast(a, b) for clabel, (a, b) in contrasts.items()}
+    contrast_results = {clabel: _delta_contrast(xs, a, b, beta, cov, link)[:3]
+                         for clabel, (a, b) in contrasts.items()}
 
     bnr, br, wnr, wr = did_cells
-    did_val = predictions[bnr] - predictions[br] - predictions[wnr] + predictions[wr]
+    did_val = _did_value(predictions, did_cells)
     did_grad = (_gradient(xs[bnr], beta, link) - _gradient(xs[br], beta, link)
                 - _gradient(xs[wnr], beta, link) + _gradient(xs[wr], beta, link))
-    did_se = se_of(did_grad)
+    did_se = _se_of(did_grad, cov)
     did_z = did_val / did_se if did_se > 0 else np.nan
     did_p = 2 * (1 - norm.cdf(abs(did_z)))
 
@@ -301,7 +336,8 @@ def _stars(p):
     return '***' if p < 0.01 else '**' if p < 0.05 else '*' if p < 0.10 else ''
 
 
-def _print_table(sv, sweep_label, eval_at, cell_estimates, contrast_results, did):
+def _print_table(sv, sweep_label, eval_at, cell_estimates, contrast_results, did=None,
+                  did_row_label='Disparate protection (DiD)'):
     if sv is None:
         sv_str = ""
     elif sv == 'own':
@@ -335,11 +371,13 @@ def _print_table(sv, sweep_label, eval_at, cell_estimates, contrast_results, did
         else:
             print(f"{clabel:50} {diff:10.4f} {'--':>8} {'--':>8}")
 
+    if did is None:
+        return
     did_val, did_se, did_p = did
     if did_se is not None:
-        print(f"{'Disparate protection (DiD)':50} {did_val:10.4f} {did_se:8.4f} {did_p:8.3f}{_stars(did_p)}")
+        print(f"{did_row_label:50} {did_val:10.4f} {did_se:8.4f} {did_p:8.3f}{_stars(did_p)}")
     else:
-        print(f"{'Disparate protection (DiD)':50} {did_val:10.4f} {'--':>8} {'--':>8}")
+        print(f"{did_row_label:50} {did_val:10.4f} {'--':>8} {'--':>8}")
 
 
 # --------------------------------------------------------------------------
@@ -448,13 +486,7 @@ def predicted_outcomes_from_fit(res, df, x_vars, columns, **kwargs):
     Any remaining kwargs (link, eval_at, sweep_*, verbose) are passed through to
     predicted_outcomes().
     """
-    beta = np.asarray(res.params)
-    if hasattr(res, 'cov_params'):
-        cov = np.asarray(res.cov_params())
-    elif hasattr(res, 'V'):
-        cov = np.asarray(res.V)
-    else:
-        raise AttributeError("res has neither .cov_params() nor .V -- can't get a covariance matrix for delta-method SEs")
+    beta, cov = _beta_cov_from_fit(res)
     return predicted_outcomes(df, x_vars, columns, beta, cov=cov, **kwargs)
 
 
@@ -492,14 +524,7 @@ def predicted_outcomes_by_black_group_from_fit(res, df, x_vars, columns, black_g
     black_groups = list(black_groups.items()) if isinstance(black_groups, dict) else list(black_groups)
     assert len(black_groups) >= 2, "need at least 2 black_groups to compare"
 
-    beta = np.asarray(res.params)
-    if hasattr(res, 'cov_params'):
-        cov = np.asarray(res.cov_params())
-    elif hasattr(res, 'V'):
-        cov = np.asarray(res.V)
-    else:
-        raise AttributeError("res has neither .cov_params() nor .V -- can't get a covariance matrix for delta-method SEs")
-
+    beta, cov = _beta_cov_from_fit(res)
     lbl_r_lo, lbl_r_hi = residential_labels
 
     groups_out = {}
@@ -512,28 +537,19 @@ def predicted_outcomes_by_black_group_from_fit(res, df, x_vars, columns, black_g
                             residential_values=residential_values, black_values=('own', 'own'),
                             residential_labels=residential_labels, black_labels=(glabel, glabel))
         key_lo, key_hi = f'{glabel} {lbl_r_lo}', f'{glabel} {lbl_r_hi}'
-        predictions = {k: _predict(xs[k], beta, link) for k in (key_lo, key_hi)}
-        grad_lo, grad_hi = _gradient(xs[key_lo], beta, link), _gradient(xs[key_hi], beta, link)
-        diff = predictions[key_hi] - predictions[key_lo]
-        se = _se_of(grad_hi - grad_lo, cov)
-        z = diff / se if se > 0 else np.nan
-        p = 2 * (1 - norm.cdf(abs(z)))
+        # a - b = lo - hi (Non-Residential minus Residential), matching the
+        # Non-Residential-minus-Residential convention _cells_and_contrasts/
+        # _delta_estimates use everywhere else in this file.
+        diff, se, p, grad_diff = _delta_contrast(xs, key_lo, key_hi, beta, cov, link)
         cell_estimates = {
-            key_lo: (predictions[key_lo], _se_of(grad_lo, cov), None),
-            key_hi: (predictions[key_hi], _se_of(grad_hi, cov), None),
+            key_lo: (_predict(xs[key_lo], beta, link), _se_of(_gradient(xs[key_lo], beta, link), cov), None),
+            key_hi: (_predict(xs[key_hi], beta, link), _se_of(_gradient(xs[key_hi], beta, link), cov), None),
         }
+        contrast_results = {f'{glabel} Protection effect': (diff, se, p)}
         if verbose:
-            print("\n" + "=" * 70)
-            print(f"PREDICTED OUTCOMES | {glabel} (n={len(sub)})")
-            print("(Black held at each observation's own real value; only Residential varied)")
-            print("=" * 70)
-            print(f"\n{'Neighborhood Type':30} {'Predicted':>12} {'SE':>8} {'95% CI':>20}")
-            print("-" * 72)
-            for k, (pred, se_k, _) in cell_estimates.items():
-                print(f"{k:30} {pred:12.4f} {se_k:8.4f} [{pred - 1.96*se_k:.4f}, {pred + 1.96*se_k:.4f}]")
-            print(f"\n{glabel} Protection effect: {diff:10.4f}   SE {se:8.4f}   p={p:.3f}{_stars(p)}")
+            _print_table(f"{glabel} (n={len(sub)})", None, 'ame', cell_estimates, contrast_results)
         groups_out[glabel] = {'cells': cell_estimates, 'contrast': (diff, se, p)}
-        group_grads[glabel] = grad_hi - grad_lo
+        group_grads[glabel] = grad_diff
 
     did = None
     if len(black_groups) == 2:
@@ -544,7 +560,7 @@ def predicted_outcomes_by_black_group_from_fit(res, df, x_vars, columns, black_g
         did_p = 2 * (1 - norm.cdf(abs(did_z)))
         did = (did_val, did_se, did_p)
         if verbose:
-            print(f"\nDisparate protection ({lbl_b} - {lbl_a}): {did_val:10.4f}   SE {did_se:8.4f}   p={did_p:.3f}{_stars(did_p)}")
+            print(f"\n{f'Disparate protection ({lbl_b} - {lbl_a})':50} {did_val:10.4f} {did_se:8.4f} {did_p:8.3f}{_stars(did_p)}")
 
     return {'groups': groups_out, 'did': did}
 
@@ -589,28 +605,23 @@ def predicted_outcomes_by_stratum_from_fit(res, df, x_vars, columns, sweep_var, 
     bin_id = pd.qcut(df[sweep_var], bins, labels=bin_labels) if isinstance(bins, int) \
         else pd.cut(df[sweep_var], bins, labels=bin_labels)
 
-    has_interactions = sweep_interactions is not None and len(sweep_interactions) > 0
-
+    # _cell_vectors only *requires* sweep_interactions when sweep_var is given and it's
+    # None (its guard against "you forgot to pass them"); an explicit [] -- "confirmed,
+    # sweep_var isn't interacted with anything" -- is already fine, so no branching is
+    # needed here for the has-vs-hasn't-got-interactions cases.
     results = {}
     for b in bin_id.cat.categories:
         sub = df[bin_id == b]
         if len(sub) == 0:
             continue
-        if has_interactions:
-            out = predicted_outcomes_from_fit(
-                res, sub, x_vars, columns, eval_at='ame',
-                sweep_var=sweep_var, sweep_label=sweep_label, sweep_values=['own'],
-                sweep_interactions=sweep_interactions, verbose=False, **kwargs,
-            )
-            cell_estimates, contrast_results, did = out['own']['cells'], out['own']['contrasts'], out['own']['did']
-        else:
-            out = predicted_outcomes_from_fit(
-                res, sub, x_vars, columns, eval_at='ame', verbose=False, **kwargs,
-            )
-            cell_estimates, contrast_results, did = out['cells'], out['contrasts'], out['did']
+        out = predicted_outcomes_from_fit(
+            res, sub, x_vars, columns, eval_at='ame',
+            sweep_var=sweep_var, sweep_label=sweep_label, sweep_values=['own'],
+            sweep_interactions=sweep_interactions or [], verbose=False, **kwargs,
+        )['own']
         if verbose:
-            _print_table(f"{b} (n={len(sub)})", sweep_label, 'ame', cell_estimates, contrast_results, did)
-        results[b] = {'cells': cell_estimates, 'contrasts': contrast_results, 'did': did}
+            _print_table(f"{b} (n={len(sub)})", sweep_label, 'ame', out['cells'], out['contrasts'], out['did'])
+        results[b] = out
     return results
 
 
