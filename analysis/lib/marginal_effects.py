@@ -5,13 +5,17 @@ from scipy.stats import norm
 from analysis.lib.specs import RESIDENTIAL_LABEL, BLACK_LABEL, INTERACTION_LABEL
 from helpers.latex_formatting import export_table
 
-# Residential and Black are always binary (0/1) here. If your Black measure is
-# continuous (e.g. dem_access), threshold it into a 0/1 column BEFORE it reaches this
-# file -- df['Black'] = (df['dem_access'] > x).astype(float) -- exactly like every other
-# BLACK_DEFINITIONS entry in specs.py (mblack_40_pct, high_black_share, ...) already is a
-# threshold on some underlying continuous measure. That keeps this file to one simple
-# job: predict the 4 Residential x Black cells, given how "every other regressor" and
-# (optionally) one swept variable are set. See predicted_outcomes()'s docstring.
+# Residential is always binary (0/1) here -- it's a discrete zoning category. Black is
+# binary (0/1) by DEFAULT, but can be reported at two representative levels of a
+# continuous measure instead (e.g. dem_access's 10th/90th percentile) via black_values/
+# black_labels below -- standard practice for presenting a continuous regressor's effect,
+# as long as the two levels are within the range the model actually saw (real sample
+# values, not extrapolated ones) and black_labels makes clear these are representative
+# levels, not two literal discrete groups partitioning the sample. If you'd rather Black
+# itself be modeled as discrete, threshold it into a 0/1 column before it reaches this
+# file instead -- df['Black'] = (df['dem_access'] > x).astype(float) -- exactly like
+# every other BLACK_DEFINITIONS entry in specs.py (mblack_40_pct, high_black_share, ...)
+# already is a threshold on some underlying continuous measure.
 CELLS = {
     'White Non-Residential': (0, 0),
     'White Residential': (1, 0),
@@ -27,13 +31,34 @@ CONTRASTS = {
 DID_CELLS = ('Black Non-Residential', 'Black Residential', 'White Non-Residential', 'White Residential')
 
 
+def _black_cells(black_values, black_labels):
+    """The 4 (residential, black) cell values keyed by name, the 2 Residential contrasts,
+    and the DiD cell order -- generalized over black_values/black_labels (Residential
+    stays fixed at (0, 1) / 'Non-Residential'/'Residential'). Reduces to CELLS/CONTRASTS/
+    DID_CELLS exactly when black_values=(0, 1), black_labels=('White', 'Black') (the
+    defaults everywhere this is used)."""
+    b_lo, b_hi = black_values
+    lbl_lo, lbl_hi = black_labels
+    cells = {
+        f'{lbl_lo} Non-Residential': (0, b_lo), f'{lbl_lo} Residential': (1, b_lo),
+        f'{lbl_hi} Non-Residential': (0, b_hi), f'{lbl_hi} Residential': (1, b_hi),
+    }
+    contrasts = {
+        f'{lbl_lo} Protection effect': (f'{lbl_lo} Non-Residential', f'{lbl_lo} Residential'),
+        f'{lbl_hi} Protection effect': (f'{lbl_hi} Non-Residential', f'{lbl_hi} Residential'),
+    }
+    did_cells = (f'{lbl_hi} Non-Residential', f'{lbl_hi} Residential',
+                 f'{lbl_lo} Non-Residential', f'{lbl_lo} Residential')
+    return cells, contrasts, did_cells
+
+
 # --------------------------------------------------------------------------
 # shared building blocks
 # --------------------------------------------------------------------------
 
 def _cell_vectors(df, x_vars, columns, eval_at='mean',
                    sweep_var=None, sweep_label=None, sweep_value=None,
-                   sweep_interactions=None):
+                   sweep_interactions=None, black_values=(0, 1), black_labels=('White', 'Black')):
     """
     Build the regressor matrix (pd.DataFrame, columns=`columns`) for each of the four
     Residential x Black cells. Requires columns to include the labels 'Residential',
@@ -74,11 +99,12 @@ def _cell_vectors(df, x_vars, columns, eval_at='mean',
     variable and its interactions are held at that row's real value while only
     Residential/Black are counterfactually varied.
 
-    Residential/Black are always binary (0/1) -- see the module comment above CELLS for
-    why a continuous Black measure should be thresholded into a 0/1 column upstream of
-    this function rather than handled here.
+    Residential is always binary (0/1). black_values/black_labels let Black be reported
+    at two representative levels of a continuous measure instead of literal 0/1 -- see
+    the module comment above CELLS for the tradeoffs.
     """
     row_label, col_label, inter_label = RESIDENTIAL_LABEL, BLACK_LABEL, INTERACTION_LABEL
+    cells, _, _ = _black_cells(black_values, black_labels)
 
     varying_labels = {row_label, col_label, inter_label}
     if sweep_var is not None:
@@ -133,7 +159,7 @@ def _cell_vectors(df, x_vars, columns, eval_at='mean',
                     raise ValueError(f"{lbl!r} in sweep_interactions doesn't reference {row_label!r} or {col_label!r}")
         return x
 
-    return {label: make_x(res, blk) for label, (res, blk) in CELLS.items()}
+    return {label: make_x(res, blk) for label, (res, blk) in cells.items()}
 
 
 def _predict(X, beta, link):
@@ -160,16 +186,16 @@ def _did_value(predictions, did_cells):
     return predictions[bnr] - predictions[br] - predictions[wnr] + predictions[wr]
 
 
-def _point_estimates(xs, beta, link):
+def _point_estimates(xs, beta, link, contrasts, did_cells):
     """Point predictions only -- no SE/CI/p-values."""
     predictions = {label: _predict(x, beta, link) for label, x in xs.items()}
     cell_estimates = {label: (predictions[label], None, None) for label in xs}
     contrast_results = {clabel: (predictions[a] - predictions[b], None, None)
-                         for clabel, (a, b) in CONTRASTS.items()}
-    return predictions, cell_estimates, contrast_results, (_did_value(predictions, DID_CELLS), None, None)
+                         for clabel, (a, b) in contrasts.items()}
+    return predictions, cell_estimates, contrast_results, (_did_value(predictions, did_cells), None, None)
 
 
-def _bootstrap_estimates(xs, beta, boot_coefs, link):
+def _bootstrap_estimates(xs, beta, boot_coefs, link, contrasts, did_cells):
     """SE/CI/p-values from the empirical bootstrap distribution -- as returned by
     fit_ols/bootstrap_lpm_table/bootstrap_ppml_table in analysis.lib.bootstrap."""
     predictions = {label: _predict(x, beta, link) for label, x in xs.items()}
@@ -194,11 +220,11 @@ def _bootstrap_estimates(xs, beta, boot_coefs, link):
         p = 2 * min((boot_diff > 0).mean(), (boot_diff < 0).mean())
         return diff, se, p
 
-    contrast_results = {clabel: contrast(a, b) for clabel, (a, b) in CONTRASTS.items()}
+    contrast_results = {clabel: contrast(a, b) for clabel, (a, b) in contrasts.items()}
 
-    bnr, br, wnr, wr = DID_CELLS
+    bnr, br, wnr, wr = did_cells
     boot_did = boot_preds[bnr] - boot_preds[br] - boot_preds[wnr] + boot_preds[wr]
-    did_val = _did_value(predictions, DID_CELLS)
+    did_val = _did_value(predictions, did_cells)
     did_se = np.std(boot_did)
     did_p = 2 * min((boot_did > 0).mean(), (boot_did < 0).mean())
 
@@ -253,7 +279,7 @@ def _delta_contrast(xs, key_a, key_b, beta, cov, link):
     return diff, se, p
 
 
-def _delta_estimates(xs, beta, cov, link):
+def _delta_estimates(xs, beta, cov, link, contrasts, did_cells):
     """SE/CI/p-values via the delta method from a coefficient covariance matrix `cov`
     (full, including the intercept row/column, ordered like `columns`) -- e.g. a
     statsmodels results object's .cov_params(), or the Conley sandwich covariance
@@ -265,10 +291,10 @@ def _delta_estimates(xs, beta, cov, link):
                        for label, x in xs.items()}
 
     contrast_results = {clabel: _delta_contrast(xs, a, b, beta, cov, link)
-                         for clabel, (a, b) in CONTRASTS.items()}
+                         for clabel, (a, b) in contrasts.items()}
 
-    bnr, br, wnr, wr = DID_CELLS
-    did_val = _did_value(predictions, DID_CELLS)
+    bnr, br, wnr, wr = did_cells
+    did_val = _did_value(predictions, did_cells)
     did_grad = (_gradient(xs[bnr], beta, link) - _gradient(xs[br], beta, link)
                 - _gradient(xs[wnr], beta, link) + _gradient(xs[wr], beta, link))
     did_se = _se_of(did_grad, cov)
@@ -333,7 +359,9 @@ def _print_table(sv, sweep_label, eval_at, cell_estimates, contrast_results, did
 def predicted_outcomes(df, x_vars, columns, beta, boot_coefs=None, cov=None,
                         link='identity', eval_at='mean',
                         sweep_var=None, sweep_label=None, sweep_values=None,
-                        sweep_interactions=None, verbose=True):
+                        sweep_interactions=None,
+                        black_values=(0, 1), black_labels=('White', 'Black'),
+                        verbose=True):
     """
     Predicted outcome for the four Residential x Black cells. `beta` is a coefficient
     vector ordered [intercept, *x_vars] to match `columns` -- true for every (beta, ...)
@@ -370,6 +398,12 @@ def predicted_outcomes(df, x_vars, columns, beta, boot_coefs=None, cov=None,
     -- see _cell_vectors for the sweep_var/sweep_label/sweep_values/sweep_interactions
     arguments.
 
+    black_values/black_labels: (0, 1)/('White', 'Black') by default. Pass e.g.
+    black_values=(df['dem_access'].quantile(0.1), df['dem_access'].quantile(0.9)),
+    black_labels=('Low Black Access', 'High Black Access') to report the same 4-cell
+    table at two representative levels of a continuous Black measure instead -- see the
+    module comment above CELLS for when that's appropriate.
+
     Returns {cell label: (point estimate, SE or None, bootstrap draws or None)} etc.
     when not sweeping, or {sweep value: {...that same dict...}} when sweep_var is given.
     """
@@ -379,19 +413,21 @@ def predicted_outcomes(df, x_vars, columns, beta, boot_coefs=None, cov=None,
 
     beta = np.asarray(beta)
     sweep_grid = sweep_values if sweep_var is not None else [None]
+    _, contrasts, did_cells = _black_cells(black_values, black_labels)
 
     all_results = {}
     for sv in sweep_grid:
         xs = _cell_vectors(df, x_vars, columns, eval_at=eval_at,
                             sweep_var=sweep_var, sweep_label=sweep_label, sweep_value=sv,
-                            sweep_interactions=sweep_interactions)
+                            sweep_interactions=sweep_interactions,
+                            black_values=black_values, black_labels=black_labels)
 
         if boot_coefs is not None:
-            _, cell_estimates, contrast_results, did = _bootstrap_estimates(xs, beta, boot_coefs, link)
+            _, cell_estimates, contrast_results, did = _bootstrap_estimates(xs, beta, boot_coefs, link, contrasts, did_cells)
         elif cov is not None:
-            _, cell_estimates, contrast_results, did = _delta_estimates(xs, beta, cov, link)
+            _, cell_estimates, contrast_results, did = _delta_estimates(xs, beta, cov, link, contrasts, did_cells)
         else:
-            _, cell_estimates, contrast_results, did = _point_estimates(xs, beta, link)
+            _, cell_estimates, contrast_results, did = _point_estimates(xs, beta, link, contrasts, did_cells)
 
         if verbose:
             _print_table(sv, sweep_label, eval_at, cell_estimates, contrast_results, did)
@@ -485,9 +521,13 @@ def predicted_outcomes_by_stratum_from_fit(res, df, x_vars, columns, sweep_var, 
 
 def export_predicted_outcomes_table(results, caption, label,
                                      widthmultiplier=0.6,
-                                     notes=None, column_labels=None):
+                                     notes=None, column_labels=None,
+                                     black_labels=('White', 'Black')):
     """Export output from predicted_outcomes() / predicted_outcomes_from_fit() --
-    {'cells': ..., 'contrasts': ..., 'did': ...}, or {sweep value: {...}} when swept."""
+    {'cells': ..., 'contrasts': ..., 'did': ...}, or {sweep value: {...}} when swept.
+
+    Pass the same black_labels used to generate `results` so the DiD row reads
+    correctly -- e.g. black_labels=('Low Black Access', 'High Black Access')."""
     def stars(p):
         if p is None: return ''
         return ('{***}' if p < 0.01 else '{**}' if p < 0.05
@@ -509,7 +549,7 @@ def export_predicted_outcomes_table(results, caption, label,
             rows[clabel] = fmt(diff, se, p)
 
         did_val, did_se, did_p = sv_results['did']
-        did_key = 'Disparate Protection (Black Protection - White Protection)'
+        did_key = f'Disparate Protection ({black_labels[1]} Protection - {black_labels[0]} Protection)'
         rows[did_key] = fmt(did_val, did_se, did_p)
 
         return rows
