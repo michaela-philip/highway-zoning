@@ -23,6 +23,10 @@ BLACK_DEFINITIONS = {
     'dem_access': ('dem_access', 'distance-decayed demographic access to the Black population'),
     'mixed': ('mixed_black', 'mixed-Black, defined as between 30 and 80 percent Black'),
     'high_share': ('high_black_share', 'indicator for having a high share of Black residents'),
+    'black_homeowners_access': ('black_homeowners_access', 'access to Black homeowners'),
+    'high_dem_access': ('high_dem_access', 'indicator for high access to the Black population'),
+    'black_homeowners_indicator': ('black_homeowners_indicator', 'indicator for presence of Black homeowners'),
+    'homeowners_access': ('homeowners_access', 'access to homeowners'),
 }
 
 RESIDENTIAL_LABEL = 'Residential'
@@ -67,6 +71,16 @@ def sweep_interactions_spec(df, black_key, sweep_var, sweep_label, residential_v
         (triple, f'{RESIDENTIAL_LABEL} x {BLACK_LABEL} x {sweep_label}'),
     ]
 
+CONTINUOUS_EXPOSURE = [
+    ('res_access', 'Residential Access'),
+    ('dem_access', 'Demographic Access'),
+    ('resxdem_access', 'Residential x Demographic Access'),
+]
+
+BLACK_HOMEOWNERSHIP_EXPOSURE = [
+    ('black_homeowners_access', 'Black Homeowners Access'),
+]
+
 RESIDENTIAL = [
     ('Residential', 'Residential')
 ]
@@ -84,7 +98,7 @@ GEO_CONTROLS = [
     ('flood_risk', 'Flood Risk'),
     ('dist_water', 'dist(Water)'),
     ('slope', 'Slope'),
-    ('dm_elevation', 'Elevation')
+    ('elevation', 'Elevation'),
 ]
 
 HH_CONTROLS = [
@@ -101,12 +115,12 @@ CNN_PROB = [
 ]
 
 CNN_LOGIT = [
-    ('logit_hwy', 'CNN Logit')
+    ('logit_normalized', 'Est. Highway Suitability')
 ]
 
 HWY_ACCESS = [
     ('hwy_access', 'Distance-Decayed Highway Access'),
-    ('hwy_access_sq', 'Distance-Decayed Highway Access^2')
+    ('hwy_access_wide', 'Distance-Decayed Highway Access (wide)'),
 ]
 
 CITY_LABELS = {'louisville': 'City_Louisville', 'littlerock': 'City_LittleRock'}

@@ -14,6 +14,8 @@ def load_sample(size, impute = False):
     df = pd.read_pickle(path)
     if impute:
         df = impute_values(df, columns=df.columns)
+    else:
+        df = df[df['imputed'] == 0].copy()
     # df['rent'] = df['rent'].replace(0, 0.00001)
     # df['valueh'] = df['valueh'].replace(0, 0.00001)
     # df = df[df['imputed'] == 0].copy()
@@ -25,6 +27,12 @@ def load_sample(size, impute = False):
     df['log_dist_to_rr'] = np.log(df['dist_to_rr'])
     df['log_dist_to_rr_sq'] = df['log_dist_to_rr'] ** 2
     df['log_dist_to_hwy'] = np.log(df['dist_to_hwy'])
+
+    df['slope'] = 100 * df['slope']  # convert to percent slope
+    df['mean_hwy_construction'] = df.groupby('city')['hwy'].transform('mean')
+    df['pct_black_owner'] = np.where(df['owner'] != 0, df['black_homeowners'] / (df['owner'] * df['numprec']), 0)
+    df['black_homeowners_indicator'] = np.where(df['black_homeowners'] > 0, 1, 0)
+    df['homeowners'] = df['owner'] * df['numprec']
 
     df['mblack_1945def'] = np.where(df['pct_black'] >= 0.6, 1, 0)
     df['mblack_50_pct'] = np.where(df['pct_black'] >= 0.5, 1, 0)
@@ -79,8 +87,11 @@ def merge_cnn_probs(df, model_pattern, dataroot='cnn/'):
     df = df.copy()
     df['grid_id'] = df['grid_id'].astype(str)
     df = df.merge(logits_df[['grid_id', 'logit_hwy', 'prob_hwy']], on='grid_id', how='left')
-    df['logit_hwy_centered'] = df['logit_hwy'] - df['logit_hwy'].mean()
-    df['logit_normalized'] = (df['logit_hwy'] - df['logit_hwy'].mean()) / df['logit_hwy'].std()
+    for city in df['city'].unique():
+        city_mean = df.loc[df['city'] == city, 'logit_hwy'].mean()
+        city_std = df.loc[df['city'] == city, 'logit_hwy'].std()
+        df.loc[df['city'] == city, 'logit_centered'] = df.loc[df['city'] == city, 'logit_hwy'] - city_mean
+        df.loc[df['city'] == city, 'logit_normalized'] = (df.loc[df['city'] == city, 'logit_hwy'] - city_mean) / city_std
     df['grid_id'] = df['grid_id'].astype(orig_dtype)
     return df
 
@@ -120,9 +131,20 @@ def compute_characteristic_access(grid, characteristic_var, access_name, decay_m
 
     grid = grid.copy()
     grid[access_name] = access
-    grid['log_' + access_name] = np.log(grid[access_name])
+    grid['log_' + access_name] = np.log(grid[access_name] + 0.000000001)
     grid[access_name + '_sq'] = grid[access_name] ** 2
 
+    return grid
+
+def high_access_indicator(grid, access_var, threshold, city_specific = True):
+    """Return a copy of grid with a new indicator column for having access_var above
+    threshold."""
+    grid = grid.copy()
+    if city_specific:
+        threshold = grid.groupby('city')[access_var].transform(lambda x: x.quantile(threshold))
+    else:
+        threshold = grid['access_var'].quantile(threshold)
+    grid[f'high_{access_var}'] = (grid[access_var] >= threshold).astype(int)
     return grid
 
 def assign_highway_exposure(df, high_exposure_threshold, low_exposure_threshold, hwy_col='hwy'):
@@ -192,7 +214,12 @@ def compute_shares(df):
     for city in df['city'].unique():
         city_mask = df['city'] == city
         city_df = df.loc[city_mask]
+        total_homeowners = city_df['homeowners'].sum()
         total_black_pop = city_df['black_pop'].sum()
         share_black = np.where(total_black_pop > 0, city_df['black_pop'] / total_black_pop, 0)
+        share_black_homeowners = np.where(city_df['black_homeowners'].sum() > 0, city_df['black_homeowners'] / city_df['black_homeowners'].sum(), 0)
+        share_homeowners = np.where(city_df['homeowners'].sum() > 0, city_df['homeowners'] / total_homeowners, 0)
         df.loc[city_mask, 'share_black'] = share_black
+        df.loc[city_mask, 'share_black_homeowners'] = share_black_homeowners
+        df.loc[city_mask, 'share_homeowners'] = share_homeowners
     return df
