@@ -162,6 +162,40 @@ def _cell_vectors(df, x_vars, columns, eval_at='mean',
     return {label: make_x(res, blk) for label, (res, blk) in cells.items()}
 
 
+def _reference_x(df, x_vars, columns, sweep_var=None, sweep_label=None, sweep_value=None,
+                  sweep_interactions=None):
+    """
+    Regressor matrix using every row's OWN real value for everything, including
+    Residential/Black -- no cell is forced. Optionally forces just the sweep variable to
+    sweep_value (recomputing its interactions using each row's own real
+    Residential/Black), so this can serve as a same-suitability-level reference point
+    alongside the 4 (forced) cells -- the 'Sample Average' row from
+    predicted_outcomes(..., include_reference_row=True). Always AME-style (real rows),
+    regardless of the cells' own eval_at, since the point is an unforced baseline.
+    """
+    row_label, col_label = RESIDENTIAL_LABEL, BLACK_LABEL
+    x = pd.DataFrame(0.0, index=df.index, columns=columns)
+    for raw, friendly in zip(x_vars, columns[1:]):
+        x[friendly] = df[raw].values
+    x['Intercept'] = 1.0
+
+    if sweep_var is not None and sweep_value is not None:
+        residential, black = x[row_label].values, x[col_label].values
+        x[sweep_label] = sweep_value
+        for _, lbl in (sweep_interactions or []):
+            tokens = lbl.split(' x ')
+            has_row, has_col = row_label in tokens, col_label in tokens
+            if has_row and has_col:
+                x[lbl] = residential * black * sweep_value
+            elif has_row:
+                x[lbl] = residential * sweep_value
+            elif has_col:
+                x[lbl] = black * sweep_value
+            else:
+                raise ValueError(f"{lbl!r} in sweep_interactions doesn't reference {row_label!r} or {col_label!r}")
+    return x
+
+
 def _predict(X, beta, link):
     """Per-row predictions for a regressor matrix X (DataFrame, n rows), averaged across
     rows. n=1 for the MEM case (eval_at='mean'/'median'), n=len(df) for AME.
@@ -361,7 +395,7 @@ def predicted_outcomes(df, x_vars, columns, beta, boot_coefs=None, cov=None,
                         sweep_var=None, sweep_label=None, sweep_values=None,
                         sweep_interactions=None,
                         black_values=(0, 1), black_labels=('White', 'Black'),
-                        verbose=True):
+                        include_reference_row=False, verbose=True):
     """
     Predicted outcome for the four Residential x Black cells. `beta` is a coefficient
     vector ordered [intercept, *x_vars] to match `columns` -- true for every (beta, ...)
@@ -404,6 +438,14 @@ def predicted_outcomes(df, x_vars, columns, beta, boot_coefs=None, cov=None,
     table at two representative levels of a continuous Black measure instead -- see the
     module comment above CELLS for when that's appropriate.
 
+    include_reference_row=True adds a 'Sample Average' row: the model's average
+    predicted rate using every row's own real value for everything, INCLUDING
+    Residential/Black (no cell is forced) -- only the sweep variable, if any, is set to
+    the current sweep value, same as the 4 cells. Useful alongside the cells as a
+    same-suitability-level baseline, e.g. to see whether a given cell's contrast is small
+    because that cell sits close to the unconditional average (little going on) or
+    because two large, offsetting deviations happen to cancel.
+
     Returns {cell label: (point estimate, SE or None, bootstrap draws or None)} etc.
     when not sweeping, or {sweep value: {...that same dict...}} when sweep_var is given.
     """
@@ -421,6 +463,10 @@ def predicted_outcomes(df, x_vars, columns, beta, boot_coefs=None, cov=None,
                             sweep_var=sweep_var, sweep_label=sweep_label, sweep_value=sv,
                             sweep_interactions=sweep_interactions,
                             black_values=black_values, black_labels=black_labels)
+        if include_reference_row:
+            xs = {**xs, 'Sample Average': _reference_x(df, x_vars, columns, sweep_var=sweep_var,
+                                                         sweep_label=sweep_label, sweep_value=sv,
+                                                         sweep_interactions=sweep_interactions)}
 
         if boot_coefs is not None:
             _, cell_estimates, contrast_results, did = _bootstrap_estimates(xs, beta, boot_coefs, link, contrasts, did_cells)
