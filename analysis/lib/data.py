@@ -30,9 +30,9 @@ def load_sample(size, impute = False):
 
     df['slope'] = 100 * df['slope']  # convert to percent slope
     df['mean_hwy_construction'] = df.groupby('city')['hwy'].transform('mean')
-    df['pct_black_owner'] = np.where(df['owner'] != 0, df['black_homeowners'] / (df['owner'] * df['numprec']), 0)
+    df['pct_black_owner'] = np.where(df['owner'] != 0, df['black_homeowners'] / (df['owner'] * df['serial']), 0)
     df['black_homeowners_indicator'] = np.where(df['black_homeowners'] > 0, 1, 0)
-    df['homeowners'] = df['owner'] * df['numprec']
+    df['homeowners'] = df['owner'] * df['serial']
 
     df['mblack_1945def'] = np.where(df['pct_black'] >= 0.6, 1, 0)
     df['mblack_50_pct'] = np.where(df['pct_black'] >= 0.5, 1, 0)
