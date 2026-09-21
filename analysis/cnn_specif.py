@@ -1,103 +1,113 @@
 import sys
 from pathlib import Path
 import numpy as np
+import pandas as pd
 import statsmodels.api as sm
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from analysis.lib.data import (
-    load_sample, restrict_to_discretionary, merge_cnn_probs, split_by_candidates, compute_characteristic_access, assign_highway_exposure, widen_highways, city_specific_shares, compute_shares,
+    load_sample, restrict_to_discretionary, merge_cnn_probs, split_by_candidates, compute_characteristic_access, assign_highway_exposure, widen_highways, city_specific_shares, compute_shares, high_access_indicator
 )
 from analysis.lib.bootstrap import bootstrap_lpm_table, fit_ols
 from analysis.lib.specs import (
-    HOUSING_VARS, HH_CONTROLS, LOG_DIST_HWY, GEO_CONTROLS, CNN_LOGIT, RESIDENTIAL, HWY_ACCESS,
+    CONTINUOUS_EXPOSURE, HOUSING_VARS, HH_CONTROLS, LOG_DIST_HWY, GEO_CONTROLS, CNN_LOGIT, RESIDENTIAL, HWY_ACCESS,
     build_spec, leaveout_except, core_spec, sweep_interactions_spec, black_definition_note,
 )
 from analysis.lib.marginal_effects import (
-    export_predicted_outcomes_table, predicted_outcomes_from_fit, predicted_outcomes_by_stratum_from_fit,
+    export_predicted_outcomes_table, predicted_outcomes_from_fit, predicted_outcomes_by_stratum_from_fit, export_predicted_outcomes_table
 )
-from analysis.lib.estimators import (fit_ppml_conley, fit_ppml_firth)
+from analysis.lib.estimators import (fit_ppml_conley, fit_ppml_firth, fit_ppml_firth_conley)
 from data_code.candidates import get_candidate_dict
-from helpers.latex_formatting import export_single_regression, export_multiple_regressions, format_regression_results
+from helpers.latex_formatting import export_single_regression, export_multiple_regressions, format_regression_results, export_single_regression
 
 cell_width = 150
-df = load_sample(cell_width, impute = True)
+df = load_sample(cell_width, impute = False)
 df = merge_cnn_probs(df, f'predicted_activation-model1_{cell_width}*.csv', dataroot='cnn/')
-df = compute_characteristic_access(df, 'hwy_40', 'hwy_access', decay_m = 300, max_dist_m = 900)
+df = df[df['zoning_change'] != 1]
+df = compute_characteristic_access(df, 'hwy_40', 'hwy_access', decay_m = 500, max_dist_m = 1000)
+df = compute_characteristic_access(df, 'hwy_40', 'hwy_access_wide', decay_m = 1500, max_dist_m = 3000)
 
-df = restrict_to_discretionary(df)
-df = compute_characteristic_access(df, 'pct_black', 'dem_access', decay_m = 300, max_dist_m = 3000)
-df = df[df['imputed'] == 0]
-
-# df = assign_highway_exposure(df, high_exposure_threshold = 900, low_exposure_threshold = 2100)
-# df = widen_highways(df, buffer_m = 150)
+df_disc = restrict_to_discretionary(df)
+df_disc = compute_characteristic_access(df_disc, 'share_black', 'dem_access', decay_m = 300, max_dist_m = 3000)
 
 candidate_dict = get_candidate_dict(cell_width)
-dir_sample, ind_sample = split_by_candidates(df, candidate_dict)
+dir_sample, ind_sample = split_by_candidates(df_disc, candidate_dict)
+sweep_values = ind_sample['logit_normalized'].quantile([0.25, 0.50, 0.75, 0.90]).tolist()
+sweep_cols = {sweep_values[0]: '25th Percentile',
+                sweep_values[1] : '50th Percentile',
+                sweep_values[2] : '75th Percentile',
+                sweep_values[3] : '90th Percentile'}
 
-LOGIT_LO, LOGIT_HI = ind_sample['logit_normalized'].quantile(0.01), ind_sample['logit_normalized'].quantile(0.99)
-ind_sample['logit_normalized'] = ind_sample['logit_normalized'].clip(LOGIT_LO, LOGIT_HI)
-
-sweep_values = ind_sample.loc[ind_sample['hwy'] == 1, 'logit_normalized'].quantile([0.25, 0.50, 0.75]).tolist()
 
 ind_sample = compute_shares(ind_sample)
 ind_sample = compute_characteristic_access(ind_sample, 'share_black', 'dem_access', decay_m = 300, max_dist_m = 3000)
-ind_sample = city_specific_shares(ind_sample, quantile=0.25)
+for city in ind_sample['city'].unique():
+    city_mean = ind_sample.loc[ind_sample['city'] == city, 'dem_access'].mean()
+    city_std = ind_sample.loc[ind_sample['city'] == city, 'dem_access'].std()
+    ind_sample.loc[ind_sample['city'] == city, 'dem_access'] = (ind_sample.loc[ind_sample['city'] == city, 'dem_access'] - city_mean)/ city_std
 
-CORE = core_spec(ind_sample, '40pct')
-LOGIT_INTERACTIONS = sweep_interactions_spec(ind_sample, '40pct', 'logit_normalized', 'CNN Logit')
-# include_city_dummies=False: city FE forced separate identification of each city's
-# Residential x Black cell, and Atlanta's (both) and Louisville's (Residential x Black)
-# cells have ZERO hwy==1 events -- complete separation no estimator can fix. Pooling
-# across cities instead gives every cell nonzero events (e.g. that same Louisville cell
-# goes from 0/138 to 4/567 pooled). "Black" itself is redefinable by other levers, so a
-# separate per-city effect isn't central here -- Conley spatial SEs below replace the
-# now-dropped city clustering (3 cities is too few to cluster on anyway).
-x_vars, columns = build_spec(ind_sample, CORE, CNN_LOGIT, LOGIT_INTERACTIONS, HOUSING_VARS, LOG_DIST_HWY, HH_CONTROLS, GEO_CONTROLS, HWY_ACCESS, include_city_dummies=False)
-model = fit_ppml_conley(ind_sample, x_vars, columns, y_var='hwy', cutoff_m=1500)
+### Black == proximity to Black homeowners
+print('black homeowners access')
+ind_sample = compute_characteristic_access(ind_sample, 'share_black_homeowners', 'black_homeowners_access', decay_m = 300, max_dist_m = 3000)
+for city in ind_sample['city'].unique():
+    city_mean = ind_sample.loc[ind_sample['city'] == city, 'black_homeowners_access'].mean()
+    city_std = ind_sample.loc[ind_sample['city'] == city, 'black_homeowners_access'].std()
+    ind_sample.loc[ind_sample['city'] == city, 'black_homeowners_access'] = (ind_sample.loc[ind_sample['city'] == city, 'black_homeowners_access'] - city_mean)/ city_std
+
+CORE = core_spec(ind_sample, 'black_homeowners_access')
+LOGIT_INTERACTIONS = sweep_interactions_spec(ind_sample, 'black_homeowners_access', 'logit_normalized', 'Est. Highway Suitability')
+x_vars, columns = build_spec(ind_sample, [CORE[1]], CNN_LOGIT, HOUSING_VARS, LOG_DIST_HWY, HH_CONTROLS, GEO_CONTROLS, HWY_ACCESS, include_city_dummies=False)
+model = fit_ppml_conley(ind_sample, x_vars, columns, y_var='hwy', cutoff_m=1000)
 print(format_regression_results(model))
 
-suitability_bins = [-np.inf] + sweep_values + [np.inf]
-suitability_bin_labels = [
-    'Below P25 (of highway squares)', 'P25-P50', 'P50-P75', 'Above P75 (of highway squares)'
-]
-predicted_outcomes_by_suitability = predicted_outcomes_by_stratum_from_fit(
-    model, ind_sample, x_vars, columns, sweep_var='logit_normalized', bins=suitability_bins,
-    sweep_label='CNN Logit', sweep_interactions=LOGIT_INTERACTIONS,
-    bin_labels=suitability_bin_labels, link='log',
-)
+keep = [label for _, label in CORE + CNN_LOGIT]
 
-# # --- run for both specs ---
-# sweep_values = [ind_sample['logit_hwy'].mean()]
-# cells = marginal_effects_table(ind_sample, x_vars, columns, ind_beta_i, ind_boot_coefs_i, sweep_var='logit_hwy', sweep_label='CNN Logit', sweep_values = sweep_values, sweep_interactions=LOGIT_INTERACTIONS)
+x_vars, columns = build_spec(ind_sample, CORE, CNN_LOGIT, HOUSING_VARS, LOG_DIST_HWY, HH_CONTROLS, GEO_CONTROLS, HWY_ACCESS, include_city_dummies=False)
+model = fit_ppml_conley(ind_sample, x_vars, columns, y_var='hwy', cutoff_m=1000)
+table = format_regression_results(model)
+notes = "Estimates from a Poisson pseudo-maximum likelihood model (PPML) regression of an indicator for highway construction from 1940-1959 on the covariates listed, as well as controls for housing, geographic, and demographic characteristics. The sample is restricted to squares that are outside the highway corridor. Residential is a binary variable indicating whether the grid square is zoned for residential use. " \
+"Exposure to Black Homeowners is a location-specific weighted average of the share of Black homeowners in each square. Weights are exponential decay function of the straight-line distance between squares and set to zero beyond a distance of 3,000 meters. This measure is normalized within each city to account for city-level differences in Black homeownership and concentration. " \
+"Standard errors, reported in parenthesis, are \\textcite{conley_gmm_1999} spatial HAC standard errors with a 1,000-meter distance cutoff. *** p < 0.01, ** p < 0.05, * p < 0.1" 
+table = table.rename(index={
+    'Black': 'Exposure to Black Homeowners',
+    'Residential x Black': 'Residential x Exposure to Black Homeowners',
+    'Logit': 'Est. Highway Suitability',
+    'Residential x Logit': 'Residential x Est. Highway Suitability',
+    'Black x Logit': 'Exposure to Black Homeowners x Est. Highway Suitability',
+    'Residential x Black x Logit': 'Residential x Exposure to Black Homeowners x Est. Highway Suitability',
+})
 
-# keep = [label for _, label in CORE_VARS + CNN_LOGIT + LOGIT_INTERACTIONS]
+notes = "Predicted outcomes from the PPML in Table \\ref{tab:outside_corridor_black_homeowners}, evaluated separately for Residential/Non-Residential areas and neighborhoods at the 25th/85th percentile of Exposure to Black Homeowners. All other covariates are held constant at their own values and reported values are averaged across observations "\
+"and can be interpreted as average marginal effects. Standard errors are computed via the delta method from the spatial covariance matrix. The Protection Effect is the difference in predicted rates between Residential and Non-Residential areas at each level of exposure to Black Homeowners. *** p < 0.01, ** p < 0.05, * p < 0.1" 
+LO, HI = ind_sample['black_homeowners_access'].quantile([0.25, 0.85])
+table = predicted_outcomes_from_fit(model, ind_sample, x_vars, columns, link = 'log', eval_at = 'ame', black_values = [LO, HI], black_labels = ['Low Exposure', 'High Exposure'])
+export_predicted_outcomes_table(table, caption = 'Predicted Highway Construction by Zoning Designation and Exposure to Black Homeowners', label = 'tab:predicted_outcomes_black_homeowners', notes = notes)
 
-# notes = "This table contains estimates of the impact of residential zoning and majority-Black status on the likelihood of highway placement. The sample is restricted to grid squares that are outside of " \
-# "the existing highway corridor. Standard errors are reported in parenthesis and estimated using a bootstrap procedure with 1,000 draws. The model includes controls for housing, geographic, and demographic characteristics, as well as city fixed effects. " \
-# "This model also includes a measure of a square's geographic suitability for highway placement, as estimated by a CNN model. * p<0.10, ** p<0.05, *** p<0.01"
-# export_single_regression(indir_results, caption = 'Determinants of Highway Placement - Outside Highway Corridor with Uninteracted CNN Logit', label = 'tab:indirect_results_no_interaction', leaveout = leaveout_except(columns, keep=keep), widthmultiplier=0.6, notes = notes)
+notes = "Predicted outcomes from the PPML in Table \\ref{tab:outside_corridor_black_homeowners}, evaluated separately for Residential/Non-Residential areas and neighborhoods at the 25th/85th percentile of Exposure to Black Homeowners. All covariates other than Est. Highway Suitability are held constant at their own values " \
+"while predictions are reported at the 25th, 50th, 75th, and 90th percentile of the distribution of Highway Suitability values. "\
+"Standard errors are computed via the delta method from the spatial covariance matrix. The Protection Effect is the difference in predicted rates between Residential and Non-Residential areas at each level of exposure to Black Homeowners. *** p < 0.01, ** p < 0.05, * p < 0.1" 
+table = predicted_outcomes_from_fit(model, ind_sample, x_vars, columns, link = 'log', eval_at = 'ame', black_values = [LO, HI], black_labels = ['Low Exposure', 'High Exposure'], sweep_var = 'logit_normalized', sweep_label = 'Est. Highway Suitability', sweep_values = sweep_values, sweep_interactions = [])
+export_predicted_outcomes_table(table, caption = 'Predicted Highway Construction by Zoning Designation and Exposure to Black Homeowners: Suitability Sweep', label = 'tab:predicted_outcomes_black_homeowners_sweep', column_labels = sweep_cols, notes = notes)
 
-# notes = "This table contains estimates of the imapct of residential zoning and majority-Black status on the likelihood of highway placement. The sample is restricted to grid squares that are inside of " \
-# "the existing highway corridor. Standard errors are reported in parenthesis and estimated using a bootstrap procedure with 1,000 draws. The model includes controls for housing, geographic, and demographic characteristics, as well as city fixed effects. " \
-# "This model also includes a measure of a square's geographic suitability for highway placement, as estimated by a CNN model, as well as the interaction between this estimated logit and the variables of interest. * p<0.10, ** p<0.05, *** p<0.01" 
-# export_single_regression(dir_results_interaction, caption = 'Determinants of Highway Placement - Inside Highway Corridor with Interacted CNN Logit', label = 'tab:direct_results', leaveout = leaveout_except(columns, keep=keep), widthmultiplier=0.6, notes = notes)
+no_black = ind_sample[ind_sample['black_homeowners'] == 0]
+x_vars, columns = build_spec(no_black, CORE, CNN_LOGIT, HOUSING_VARS, LOG_DIST_HWY, HH_CONTROLS, GEO_CONTROLS, HWY_ACCESS, include_city_dummies=False)
+model = fit_ppml_conley(no_black, x_vars, columns, y_var='hwy', cutoff_m=1000)
+table = format_regression_results(model)
+notes = "Estimates from a Poisson pseudo-maximum likelihood model (PPML) regression of an indicator for highway construction from 1940-1959 on the covariates listed, as well as controls for housing, geographic, and demographic characteristics. The sample is restricted to squares that are outside the highway corridor and have no Black homoeowners. Residential is a binary variable indicating whether the grid square is zoned for residential use. " \
+"Exposure to Black Homeowners is a location-specific weighted average of the share of Black homeowners in each square. Weights are exponential decay function of the straight-line distance between squares and set to zero beyond a distance of 3,000 meters. This measure is normalized within each city to account for city-level differences in Black homeownership and concentration. " \
+"Standard errors, reported in parenthesis, are \\textcite{conley_gmm_1999} spatial HAC standard errors with a 1,000-meter distance cutoff. *** p < 0.01, ** p < 0.05, * p < 0.1" 
+table = table.rename(index={
+    'Black': 'Exposure to Black Homeowners',
+    'Residential x Black': 'Residential x Exposure to Black Homeowners',
+    'Logit': 'Est. Highway Suitability',
+    'Residential x Logit': 'Residential x Est. Highway Suitability',
+    'Black x Logit': 'Exposure to Black Homeowners x Est. Highway Suitability',
+    'Residential x Black x Logit': 'Residential x Exposure to Black Homeowners x Est. Highway Suitability',
+})
+export_single_regression(table, caption = 'Effect of Exposure to Black Homeowners on Highway Placement: Squares with Zero Black Homeowners', label = 'tab:outside_corridor_black_homeowners_no_black', leaveout = leaveout_except(columns, keep=keep), widthmultiplier=0.6, notes = notes)
 
-# notes = "This table contains estimates of the impact of residential zoning and majority-Black status on the likelihood of highway placement. The sample is restricted to grid squares that are outside of " \
-# "the existing highway corridor. Standard errors are reported in parenthesis and estimated using a bootstrap procedure with 1,000 draws. The model includes controls for housing, geographic, and demographic characteristics, as well as city fixed effects. " \
-# "This model also includes a measure of a square's geographic suitability for highway placement, as estimated by a CNN model, as well as the interaction between this estimated logit and the variables of interest. * p<0.10, ** p<0.05, *** p<0.01" 
-# export_single_regression(indir_results_interaction, caption= 'Determinants of Highway Placement - Outside Highway Corridor with Interacted CNN Logit', label = 'tab:indirect_results', leaveout = leaveout_except(columns, keep=keep), widthmultiplier=0.6, notes = notes)
-
-# notes = "This table contains predicted outcomes for each square in the sample based on their residential and majority-Black status, holding all other variables at their mean. The marginal effect of residential zoning and majority-Black status " \
-# "is calculated as the difference in predicted outcomes between squares with and without these characteristics. These marginal effects are calculated based on the coefficients reported in Table \\ref{tab:indirect_results}. * p<0.10, ** p<0.05, *** p<0.01"
-# col_name = ['Mean Logit Value']
-# column_labels = dict(zip(sweep_values, col_name))
-# export_marginal_effects_table(cells, caption = 'Marginal Effects of Residential Zoning and Majority-Black Status on Highway Placement - Outside Highway Corridor', label = 'tab:marginal_effects_indir', column_labels = column_labels, widthmultiplier=0.6, notes = notes)
-
-# sweep_values = ind_sample['logit_hwy'].quantile([0.10, 0.25, 0.50, 0.75, 0.90]).tolist()
-# col_name = ['10th Percentile', '25th Percentile', '50th Percentile', '75th Percentile', '90th Percentile']
-# column_labels = dict(zip(sweep_values, col_name))
-# cells = marginal_effects_table(ind_sample, x_vars, columns, ind_beta_i, ind_boot_coefs_i, sweep_var='logit_hwy', sweep_label='CNN Logit', sweep_values = sweep_values, sweep_interactions=LOGIT_INTERACTIONS)
-# notes = "This table contains predicted outcomes for each square in the sample based on their residential and majority-Black status, holding all variables except for the CNN Logit at their mean. Each column contains " \
-# "the results of a different prediction where the CNN logit is varied across its quantiles. The marginal effect of residential zoning and majority-Black status " \
-# "is calculated as the difference in predicted outcomes between squares with and without these characteristics. These marginal effects are calculated based on the coefficients reported in Table \\ref{tab:indirect_results}. * p<0.10, ** p<0.05, *** p<0.01"
-# export_marginal_effects_table(cells, caption="Marginal Effects of Residential Zoning and Majority-Black Status - CNN Quantiles", label='tab:marginal_effects_sweep', column_labels = column_labels, widthmultiplier = 1, notes=notes)
+LO, HI = no_black['black_homeowners_access'].quantile([0.25, 0.85])
+notes = "Predicted outcomes from the PPML in Table \\ref{tab:outside_corridor_black_homeowners_no_black}, evaluated separately for Residential/Non-Residential areas and neighborhoods at the 25th/85th percentile of Exposure to Black Homeowners. All other covariates are held constant at their own values and reported values are averaged across observations "\
+"and can be interpreted as average marginal effects. Standard errors are computed via the delta method from the spatial covariance matrix. The Protection Effect is the difference in predicted rates between Residential and Non-Residential areas at each level of exposure to Black Homeowners. *** p < 0.01, ** p < 0.05, * p < 0.1" 
+table = predicted_outcomes_from_fit(model, no_black, x_vars, columns, link = 'log', eval_at = 'ame', black_values = [LO, HI], black_labels = ['Low Exposure', 'High Exposure'])
+export_predicted_outcomes_table(table, caption = 'Predicted Highway Construction by Zoning Designation and Exposure to Black Homeowners: Squares with Zero Black Homeowners', label = 'tab:predicted_outcomes_black_homeowners_no_black', notes = notes)
