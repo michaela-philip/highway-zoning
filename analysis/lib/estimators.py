@@ -4,6 +4,7 @@ from types import SimpleNamespace
 import statsmodels.api as sm
 from scipy.spatial.distance import cdist
 from helpers.latex_formatting import format_regression_results
+from scipy.special import expit
 from scipy.stats import norm
 
 def fit_ppml_conley(df, x_vars, columns, y_var='hwy',
@@ -75,13 +76,15 @@ def fit_ppml_conley(df, x_vars, columns, y_var='hwy',
     )
 
 
-def _conley_inner(X, mu, resid, coords, cutoff_m):
+def _conley_inner(X, w, resid, coords, cutoff_m):
     """
     Compute Conley sandwich standard errors.
-    Separated so it can be reused for LPM (pass mu=ones) or PPML.
+    Separated so it can be reused across estimators: w is the per-row bread weight (W_i in
+    (X'WX)^-1) and resid the score residual, which is y - mu for every canonical-link GLM
+    used here. Pass w=ones for LPM, w=mu for PPML (Poisson-log), w=p*(1-p) for logit.
     """
     X      = np.asarray(X)
-    mu     = np.asarray(mu)
+    w      = np.asarray(w)
     resid  = np.asarray(resid)
     coords = np.asarray(coords)
     n, k   = X.shape
@@ -103,8 +106,8 @@ def _conley_inner(X, mu, resid, coords, cutoff_m):
                 weights[:, :, np.newaxis] * Xe[np.newaxis, :, :]
             ).sum(axis=1)
 
-        # PPML bread: (X'WX)^-1 where W = diag(mu)
-        XWX   = X.T @ (mu[:, np.newaxis] * X)
+        # bread: (X'WX)^-1 where W = diag(w)
+        XWX   = X.T @ (w[:, np.newaxis] * X)
         outer = np.linalg.inv(XWX)
 
         V  = outer @ inner @ outer
@@ -290,3 +293,170 @@ def _firth_irls(X, y, maxiter=200, tol=1e-8):
         W = mu
         V = np.linalg.inv(X.T @ (W[:, None] * X))
     return beta, mu, V, n_iter
+
+def fit_logit_firth(df, x_vars, columns, y_var='hwy', maxiter=200, tol=1e-8):
+    """
+    Logit with Firth's bias-reduction penalty (Firth 1993; Heinze & Schemper 2002,
+    "A solution to the problem of separation in logistic regression", Stat. Med.) -- the
+    standard rare-events/separation fix for a binary outcome, and the same estimator as
+    R's logistf. Same motivation as fit_ppml_firth (few events per parameter, quasi-complete
+    separation), but on the logit scale, which is the conventional model for a 0/1 outcome.
+
+    Implementation: Newton-Raphson on Firth's modified score
+    U*(b) = X'(y - p + h*(1/2 - p)), where h_i = p_i(1-p_i) * x_i'(X'WX)^-1 x_i is row
+    i's leverage. Note this is NOT fit_ppml_firth's z* = z + 0.5*h/W recipe: that form
+    holds for Poisson because its third/second cumulant ratio is 1, whereas for Bernoulli
+    it's (1 - 2p), giving the h*(1/2 - p) term. See _firth_logit_newton below.
+
+    Returns the same SimpleNamespace shape as fit_ppml_firth (.params, .bse, .pvalues,
+    .rsquared, .nobs, .V, .mu, .X, .y, .n_iter), with .mu = fitted probabilities and .V
+    the model-based Firth covariance (X'WX)^-1. rsquared is McFadden's pseudo R^2, using
+    the unpenalized log-likelihood at the Firth estimate. Use link='logit' in
+    analysis.lib.marginal_effects.predicted_outcomes(_from_fit).
+    """
+    y = df[y_var].values.astype(float)
+    X = np.column_stack([np.ones(len(df)), df[x_vars].values.astype(float)])
+
+    beta, p, V, n_iter = _firth_logit_newton(X, y, maxiter=maxiter, tol=tol)
+
+    assert len(beta) == len(columns), (
+        f"len(beta)={len(beta)} != len(columns)={len(columns)}"
+    )
+
+    se = np.sqrt(np.diag(V))
+    z = beta / se
+    pval = 2 * (1 - norm.cdf(np.abs(z)))
+
+    return SimpleNamespace(
+        params   = pd.Series(beta, index=columns),
+        bse      = pd.Series(se, index=columns),
+        pvalues  = pd.Series(pval, index=columns),
+        rsquared = _mcfadden_rsq(y, X, beta),
+        nobs     = float(len(y)),
+        V        = V,
+        mu       = p,
+        X        = X,
+        y        = y,
+        n_iter   = n_iter,
+    )
+
+
+def fit_logit_firth_conley(df, x_vars, columns, y_var='hwy', maxiter=200, tol=1e-8,
+                           cutoff_m=1500, coords=None):
+    """
+    Firth-bias-reduced logit point estimate (fit_logit_firth) with Conley spatial-HAC SEs
+    -- the logit counterpart of fit_ppml_firth_conley. The logit score residual is y - p,
+    and the bread weight is p(1-p) instead of PPML's mu. Same caveat as
+    fit_ppml_firth_conley: the plain-score sandwich is evaluated at the Firth-corrected
+    estimate, which is the standard practical approximation (the penalty's contribution
+    is O(1/n)), not an exact variance for the Firth estimator under spatial dependence.
+
+    Returns the same SimpleNamespace shape as fit_logit_firth, with .V the Conley
+    covariance.
+    """
+    y = df[y_var].values.astype(float)
+    X = np.column_stack([np.ones(len(df)), df[x_vars].values.astype(float)])
+
+    beta, p, _, n_iter = _firth_logit_newton(X, y, maxiter=maxiter, tol=tol)
+
+    if coords is None:
+        coords = np.column_stack([
+            df.geometry.centroid.x.values,
+            df.geometry.centroid.y.values,
+        ])
+
+    se, V = _conley_inner(X, p * (1 - p), y - p, coords, cutoff_m)
+
+    assert len(beta) == len(columns), (
+        f"len(beta)={len(beta)} != len(columns)={len(columns)}"
+    )
+
+    z = beta / se
+    pval = 2 * (1 - norm.cdf(np.abs(z)))
+
+    return SimpleNamespace(
+        params   = pd.Series(beta, index=columns),
+        bse      = pd.Series(se, index=columns),
+        pvalues  = pd.Series(pval, index=columns),
+        rsquared = _mcfadden_rsq(y, X, beta),
+        nobs     = float(len(y)),
+        V        = V,
+        mu       = p,
+        X        = X,
+        y        = y,
+        n_iter   = n_iter,
+    )
+
+
+def _logit_loglik(y, eta):
+    """Bernoulli log-likelihood on the logit scale, written overflow-safely."""
+    return float(np.sum(y * eta - np.logaddexp(0, eta)))
+
+
+def _mcfadden_rsq(y, X, beta):
+    """McFadden pseudo R^2 against an intercept-only logit (whose MLE is p = mean(y))."""
+    # Same spurious BLAS RuntimeWarnings as _firth_irls -- see there.
+    with np.errstate(divide='ignore', over='ignore', invalid='ignore'):
+        eta = X @ beta
+    ybar = y.mean()
+    ll_null = float(np.sum(y * np.log(ybar) + (1 - y) * np.log(1 - ybar)))
+    return 1 - _logit_loglik(y, eta) / ll_null
+
+
+def _firth_logit_newton(X, y, maxiter=200, tol=1e-8, max_step=5.0, max_halvings=25):
+    """
+    Newton-Raphson for Firth-penalized logit, following logistf's algorithm: step
+    delta = (X'WX)^-1 U*(b), with U* = X'(y - p + h*(1/2 - p)); cap the step's largest
+    element at max_step; and halve it until the penalized log-likelihood
+    l(b) + 0.5*log|X'WX| doesn't decrease. Starts at b = 0 (p = 1/2 everywhere), as
+    logistf does. Returns (beta, p, V, n_iter), with V = (X'WX)^-1 at the converged beta.
+
+    Convergence uses the same relative-change criterion as _firth_irls (see its
+    docstring for why).
+    """
+    n, k = X.shape
+    beta = np.zeros(k)
+
+    # Same spurious BLAS RuntimeWarnings as _firth_irls -- see there.
+    with np.errstate(divide='ignore', over='ignore', invalid='ignore'):
+
+        def state(b):
+            eta = X @ b
+            p = expit(eta)
+            W = p * (1 - p)
+            XtWX = X.T @ (W[:, None] * X)
+            _, logdet = np.linalg.slogdet(XtWX)
+            return eta, p, W, XtWX, _logit_loglik(y, eta) + 0.5 * logdet
+
+        eta, p, W, XtWX, pll = state(beta)
+        for n_iter in range(1, maxiter + 1):
+            XtWX_inv = np.linalg.inv(XtWX)
+            h = W * np.einsum('ij,jk,ik->i', X, XtWX_inv, X)  # weighted hat-matrix diagonal
+            U_star = X.T @ (y - p + h * (0.5 - p))
+            delta = XtWX_inv @ U_star
+
+            largest = np.max(np.abs(delta))
+            if largest > max_step:
+                delta *= max_step / largest
+
+            for _ in range(max_halvings):
+                beta_new = beta + delta
+                new = state(beta_new)
+                if new[-1] >= pll - 1e-12:
+                    break
+                delta /= 2
+
+            rel_change = np.max(np.abs(beta_new - beta) / (np.abs(beta) + 1))
+            beta = beta_new
+            eta, p, W, XtWX, pll = new
+            if rel_change < tol:
+                break
+        else:
+            raise RuntimeError(
+                f"Firth-corrected logit did not converge in {maxiter} iterations "
+                f"(final relative change {rel_change:.2e}, target {tol:.2e}). "
+                f"Final beta: {np.round(beta, 3).tolist()}."
+            )
+
+        V = np.linalg.inv(XtWX)
+    return beta, p, V, n_iter

@@ -1,5 +1,6 @@
 import numpy as np
 import pandas as pd
+from scipy.special import expit
 from scipy.stats import norm
 
 from analysis.lib.specs import RESIDENTIAL_LABEL, BLACK_LABEL, INTERACTION_LABEL
@@ -207,8 +208,17 @@ def _predict(X, beta, link):
     """
     with np.errstate(divide='ignore', over='ignore', invalid='ignore'):
         eta = X.values.astype(float) @ np.asarray(beta, dtype=float)
-    mu = np.exp(eta) if link == 'log' else eta
-    return float(np.mean(mu))
+    return float(np.mean(_inverse_link(eta, link)))
+
+
+def _inverse_link(eta, link):
+    """Mean function for each supported link: identity (LPM), log (PPML), logit."""
+    if link == 'log':
+        with np.errstate(over='ignore'):
+            return np.exp(eta)
+    if link == 'logit':
+        return expit(eta)
+    return eta
 
 
 def _did_value(predictions, did_cells):
@@ -270,14 +280,16 @@ def _gradient(x, beta, link):
     for MEM, n=len(df) for AME):
       LPM (link='identity'): gradient of predict(x_i) = x_i        -> mean_i(x_i)
       PPML (link='log'):     gradient of predict(x_i) = exp(x_i'b) * x_i -> mean_i(...)
+      Logit (link='logit'):  gradient of predict(x_i) = p_i(1-p_i) * x_i -> mean_i(...)
     Shared by _delta_estimates and any caller that needs to combine gradients across
     cells/groups computed from different (sub)samples -- e.g. comparing a contrast
     computed on one subgroup of df against the same contrast computed on another."""
     Xv = x.values.astype(float)
-    if link == 'log':
+    if link in ('log', 'logit'):
         with np.errstate(divide='ignore', over='ignore', invalid='ignore'):
-            mu = np.exp(Xv @ np.asarray(beta, dtype=float))
-        return (mu[:, None] * Xv).mean(axis=0)
+            mu = _inverse_link(Xv @ np.asarray(beta, dtype=float), link)
+        dmu = mu if link == 'log' else mu * (1 - mu)
+        return (dmu[:, None] * Xv).mean(axis=0)
     return Xv.mean(axis=0)
 
 
@@ -424,7 +436,8 @@ def predicted_outcomes(df, x_vars, columns, beta, boot_coefs=None, cov=None,
                   p-values come from the delta method.
     Passing neither returns point estimates only.
 
-    Set link='log' for a PPML/exponential-mean fit, link='identity' (default) for
+    Set link='log' for a PPML/exponential-mean fit, link='logit' for a logit fit (e.g.
+    analysis.lib.estimators.fit_logit_firth(_conley)), link='identity' (default) for
     OLS/LPM.
 
     Optionally sweep a third variable interacted with Residential/Black (e.g. a CNN
@@ -449,7 +462,7 @@ def predicted_outcomes(df, x_vars, columns, beta, boot_coefs=None, cov=None,
     Returns {cell label: (point estimate, SE or None, bootstrap draws or None)} etc.
     when not sweeping, or {sweep value: {...that same dict...}} when sweep_var is given.
     """
-    assert link in ('identity', 'log')
+    assert link in ('identity', 'log', 'logit')
     assert eval_at in ('mean', 'median', 'ame')
     assert boot_coefs is None or cov is None, "pass at most one of boot_coefs / cov"
 
