@@ -1,0 +1,27 @@
+\begin{table}[h]
+\centering
+\caption{Effect of Exposure to Black Residents on Highway Placement: Indicator for Black Residents}
+\label{tab:results/black_share_indicator}
+\begin{threeparttable}
+\begin{tabular*}{0.8\textwidth}{@{\extracolsep{\fill}}l*{2}{r}}
+\toprule
+ & (1) & (2) \\
+\midrule
+Residential & \makecell[tr]{-0.531 \\ (0.380)} & \makecell[tr]{-0.631 \\ (0.386)} \\
+Exposure to Black Residents & \makecell[tr]{0.907{***} \\ (0.246)} & \makecell[tr]{0.832{**} \\ (0.256)} \\
+Residential x Exposure to Black Residents & \makecell[tr]{-1.097{**} \\ (0.361)} & \makecell[tr]{-1.330{**} \\ (0.420)} \\
+Est. Highway Suitability & \makecell[tr]{1.519{***} \\ (0.168)} & \makecell[tr]{1.577{***} \\ (0.218)} \\
+Black x Any Black Residents & \makecell[tr]{-0.567{**} \\ (0.196)} & \makecell[tr]{-0.495{**} \\ (0.184)} \\
+Residential x High Suitability &  & \makecell[tr]{1.399 \\ (1.413)} \\
+Black x High Suitability &  & \makecell[tr]{-0.318 \\ (1.057)} \\
+Residential x Black x High Suitability &  & \makecell[tr]{3.223 \\ (1.983)} \\
+R-squared & 0.292 & 0.302 \\
+Observations & 5236 & 5236 \\
+\bottomrule
+\end{tabular*}
+\begin{tablenotes}[flushleft]
+\footnotesize
+\item Estimates from a Firth's bias-reduced logistic regression model of an indicator for highway construction from 1940-1959 on the covariates listed, as well as controls for housing, geographic, demographic characteristics, and an indicator for the presence of Black residents. The sample is restricted to squares that are outside the highway corridor. Residential is a binary variable indicating whether 75\% or more of the square is zoned for residential use. Exposure to Black Residents is a location-specific weighted average of the share of Black homeowners in each square. Weights are computed by an exponential decay function of the straight-line distance between squares and set to zero beyond a distance of 3,000 meters. This measure is normalized within each city to account for city-level differences in Black homeownership and concentration. Standard errors, reported in parenthesis, are \textcite{conley_gmm_1999} spatial HAC standard errors with a 1,000-meter distance cutoff. Estimates in column (1) contain an uninteracted measure of highway suitability calculated by a convolutional neural network. Estimates in column (2) include the interaction between the coefficients of interest and a linear spline. *** p < 0.01, ** p < 0.05, * p < 0.1
+\end{tablenotes}
+\end{threeparttable}
+\end{table}

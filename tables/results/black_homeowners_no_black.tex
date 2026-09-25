@@ -1,0 +1,26 @@
+\begin{table}[h]
+\centering
+\caption{Effect of Exposure to Black Homeowners on Highway Placement: Squares with Zero Black Homeowners}
+\label{tab:results/black_homeowners_no_black}
+\begin{threeparttable}
+\begin{tabular*}{0.8\textwidth}{@{\extracolsep{\fill}}l*{2}{r}}
+\toprule
+ & (1) & (2) \\
+\midrule
+Residential & \makecell[tr]{-0.979{**} \\ (0.306)} & \makecell[tr]{-0.978{**} \\ (0.314)} \\
+Exposure to Black Homeowners & \makecell[tr]{0.706{**} \\ (0.228)} & \makecell[tr]{0.676{**} \\ (0.237)} \\
+Residential x Exposure to Black Homeowners & \makecell[tr]{-0.688 \\ (0.389)} & \makecell[tr]{-0.877 \\ (0.485)} \\
+Est. Highway Suitability & \makecell[tr]{1.598{***} \\ (0.176)} & \makecell[tr]{1.690{***} \\ (0.230)} \\
+Residential x High Suitability &  & \makecell[tr]{0.106 \\ (1.291)} \\
+Black x High Suitability &  & \makecell[tr]{0.313 \\ (0.865)} \\
+Residential x Black x High Suitability &  & \makecell[tr]{1.077 \\ (1.536)} \\
+R-squared & 0.286 & 0.295 \\
+Observations & 4412 & 4412 \\
+\bottomrule
+\end{tabular*}
+\begin{tablenotes}[flushleft]
+\footnotesize
+\item Estimates from a Firth's bias-reduced logistic regression of an indicator for highway construction from 1940-1959 on the covariates listed, as well as controls for housing, geographic, and demographic characteristics. The sample is restricted to squares that are outside the highway corridor and have no Black homoeowners. Residential is a binary variable indicating whether 75\% or more of the square is zoned for residential use. Exposure to Black Homeowners is a location-specific weighted average of the share of Black homeowners in each square. Weights are omputed by an exponential decay function of the straight-line distance between squares and set to zero beyond a distance of 3,000 meters. This measure is normalized within each city to account for city-level differences in Black homeownership and concentration. Standard errors, reported in parenthesis, are \textcite{conley_gmm_1999} spatial HAC standard errors with a 1,000-meter distance cutoff. Estimates in column (1) contain an uninteracted measure of highway suitability calculated by a convolutional neural network. Estimates in column (2) include the interaction between the coefficients of interest and a linear spline. *** p < 0.01, ** p < 0.05, * p < 0.1
+\end{tablenotes}
+\end{threeparttable}
+\end{table}
