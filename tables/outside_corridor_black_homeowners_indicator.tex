@@ -1,0 +1,27 @@
+\begin{table}[h]
+\centering
+\caption{Effect of Exposure to Black Homeowners on Highway Placement: Indicator for Black Homeowners}
+\label{tab:outside_corridor_black_homeowners_indicator}
+\begin{threeparttable}
+\begin{tabular*}{0.8\textwidth}{@{\extracolsep{\fill}}l*{2}{r}}
+\toprule
+ & (1) & (2) \\
+\midrule
+Residential & \makecell[tr]{-0.653 \\ (0.356)} & \makecell[tr]{-0.683 \\ (0.351)} \\
+Exposure to Black Homeowners & \makecell[tr]{0.844{***} \\ (0.234)} & \makecell[tr]{0.818{***} \\ (0.242)} \\
+Residential x Exposure to Black Homeowners & \makecell[tr]{-0.925{*} \\ (0.396)} & \makecell[tr]{-1.173{*} \\ (0.489)} \\
+Est. Highway Suitability & \makecell[tr]{1.520{***} \\ (0.166)} & \makecell[tr]{1.565{***} \\ (0.209)} \\
+Black x Any Black Homeowners & \makecell[tr]{-0.951{***} \\ (0.233)} & \makecell[tr]{-0.902{***} \\ (0.232)} \\
+Residential x High Suitability &  & \makecell[tr]{0.838 \\ (1.297)} \\
+Black x High Suitability &  & \makecell[tr]{-0.055 \\ (0.833)} \\
+Residential x Black x High Suitability &  & \makecell[tr]{1.909 \\ (1.559)} \\
+R-squared & 0.294 & 0.302 \\
+Observations & 5236 & 5236 \\
+\bottomrule
+\end{tabular*}
+\begin{tablenotes}[flushleft]
+\footnotesize
+\item Estimates from a Firth's bias-reduced logistic regression model of an indicator for highway construction from 1940-1959 on the covariates listed, as well as controls for housing, geographic, demographic characteristics, and an indicator for the presence of Black homeowners. The sample is restricted to squares that are outside the highway corridor. Residential is a binary variable indicating whether 75\% or more of the square is zoned for residential use. Exposure to Black Homeowners is a location-specific weighted average of the share of Black homeowners in each square. Weights are computed by an exponential decay function of the straight-line distance between squares and set to zero beyond a distance of 3,000 meters. This measure is normalized within each city to account for city-level differences in Black homeownership and concentration. Standard errors, reported in parenthesis, are \textcite{conley_gmm_1999} spatial HAC standard errors with a 1,000-meter distance cutoff. Estimates in column (1) contain an uninteracted measure of highway suitability calculated by a convolutional neural network. Estimates in column (2) include the interaction between the coefficients of interest and a linear spline. *** p < 0.01, ** p < 0.05, * p < 0.1
+\end{tablenotes}
+\end{threeparttable}
+\end{table}

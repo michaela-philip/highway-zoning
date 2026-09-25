@@ -1,0 +1,24 @@
+\begin{table}[h]
+\centering
+\caption{Predicted Highway Construction by Zoning Designation and Exposure to Black Homeowners with Linear Spline}
+\label{tab:predicted_outcomes/black_homeowners_logitinteractions}
+\begin{threeparttable}
+\begin{tabular*}{0.6\textwidth}{@{\extracolsep{\fill}}l*{1}{r}}
+\toprule
+ & Estimate \\
+\midrule
+Low Exposure Non-Residential & \makecell[tr]{0.017 \\ (0.006)} \\
+Low Exposure Residential & \makecell[tr]{0.018 \\ (0.005)} \\
+High Exposure Non-Residential & \makecell[tr]{0.026 \\ (0.006)} \\
+High Exposure Residential & \makecell[tr]{0.010 \\ (0.003)} \\
+Low Exposure Protection effect & \makecell[tr]{-0.001 \\ (0.008)} \\
+High Exposure Protection effect & \makecell[tr]{0.016{***} \\ (0.006)} \\
+Disparate Protection (Black Protection - White Protection) & \makecell[tr]{0.017{***} \\ (0.006)} \\
+\bottomrule
+\end{tabular*}
+\begin{tablenotes}[flushleft]
+\footnotesize
+\item Predicted outcomes from the Firth's bias-reduced logistic regression in Column 2 of Table \ref{tab:outside_corridor_black_homeowners}, evaluated separately for Residential/Non-Residential areas and neighborhoods at the 25th/75th percentile of Exposure to Black Homeowners. All other covariates are held constant at their own values and reported values are averaged across observations and can be interpreted as average marginal effects. Standard errors are computed via the delta method from the spatial covariance matrix. The Protection Effect is the difference in predicted rates between Residential and Non-Residential areas at each level of exposure to Black Homeowners. *** p < 0.01, ** p < 0.05, * p < 0.1
+\end{tablenotes}
+\end{threeparttable}
+\end{table}
