@@ -39,10 +39,11 @@ def group_summary_table(df, group_var, group_labels, rows):
 
 
 sample = load_sample().rename(columns=RENAME)
+sample = sample[sample['zoning_change'] != 1]
 sample = sample.dropna(subset='Residents')
 
 # --- whole-sample summary statistics ---
-whole_sample_rows = ['Residents', 'Households', 'Median Rent', 'Median Home Value', 'Percent Black',
+whole_sample_rows = ['Residents', 'Households', 'Median Rent', 'Median Home Value', 'Percent Black', 'Share of Black Residents',
                       'Highway Present (1940)', 'Highway Present (1959)', 'Highway Constructed (1940-1959)',
                       'Residential']
 sum_stats = pd.DataFrame({
@@ -54,16 +55,16 @@ notes = "This table contains summary statistics for the full sample of grid squa
 export_table(sum_stats, caption='Sample Grid Summary Statistics', label='tab:summary_stats', notes = notes)
 
 # --- summary statistics by zoning designation ---
-zoning_rows = ['Residents', 'Households', 'Median Rent', 'Median Home Value', 'Percent Black',
+zoning_rows = ['Residents', 'Households', 'Median Rent', 'Median Home Value', 'Percent Black', 'Share of Black Residents',
                'Highway Present (1940)', 'Highway Present (1959)', 'Highway Constructed (1940-1959)']
 zoning_table = group_summary_table(sample, 'Residential', {0: 'Industrial', 1: 'Residential'}, zoning_rows)
 notes = "This table contains summary statistics for the full sample of grid squares, split by zoning designation. The table reports the mean and standard deviation (in parentheses) for each variable, as well as the total number of households in each zoning category."
 export_table(zoning_table, caption='Summary Statistics by Zoning Designation', label='tab:summary_stats_zone', notes = notes)
 
 # --- summary statistics by racial designation ---
-race_rows = ['Residents', 'Households', 'Median Rent', 'Median Home Value', 'Residential',
+race_rows = ['Residents', 'Households', 'Median Rent', 'Median Home Value', 'Percent Black', 'Share of Black Residents', 'Residential',
              'Highway Present (1940)', 'Highway Present (1959)', 'Highway Constructed (1940-1959)']
-race_table = group_summary_table(sample, 'mblack_1945def', {0: 'White', 1: 'Black'}, race_rows)
+race_table = group_summary_table(sample, 'mblack_mean_share', {0: 'White', 1: 'Black'}, race_rows)
 notes = "This table contains summary statistics for the full sample of grid squares, split by racial designation. The table reports the mean and standard deviation (in parentheses) for each variable, as well as the total number of households in each racial category."
 export_table(race_table, caption='Summary Statistics by Racial Designation', label='tab:summary_stats_race', notes = notes)
 
