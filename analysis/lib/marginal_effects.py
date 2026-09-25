@@ -355,7 +355,7 @@ def _stars(p):
 
 
 def _print_table(sv, sweep_label, eval_at, cell_estimates, contrast_results, did=None,
-                  did_row_label='Disparate protection (DiD)'):
+                  did_row_label='Disparate protection (DiD)', link='identity'):
     if sv is None:
         sv_str = ""
     elif sv == 'own':
@@ -376,7 +376,42 @@ def _print_table(sv, sweep_label, eval_at, cell_estimates, contrast_results, did
             ci_lo, ci_hi = np.percentile(boot, [2.5, 97.5])
             print(f"{label:30} {pred:12.4f} {se:8.4f} [{ci_lo:.4f}, {ci_hi:.4f}]")
         elif se is not None:
-            print(f"{label:30} {pred:12.4f} {se:8.4f} [{pred - 1.96 * se:.4f}, {pred + 1.96 * se:.4f}]")
+            if link == 'log' and pred > 0:
+                # Under a log link, a cell prediction is mean_i(exp(x_i'beta)) -- always
+                # strictly positive -- but the plain symmetric CI (pred +/- 1.96*se) is a
+                # normal approximation on the unbounded real line, and routinely dips
+                # below zero when se is large relative to pred (small/thin cells) even
+                # though the true quantity can't be negative. Building the interval on
+                # log(pred) instead (se_log = se/pred, standard delta-method step) and
+                # exponentiating back gives an always-nonnegative, appropriately
+                # asymmetric interval. Contrasts/DiD are genuine differences that CAN be
+                # negative, so they intentionally keep the plain symmetric interval
+                # (see the "Key Contrasts" loop below) -- this only applies to raw cells.
+                se_log = se / pred
+                with np.errstate(over='ignore'):
+                    ci_lo = np.exp(np.log(pred) - 1.96 * se_log)
+                    ci_hi = np.exp(np.log(pred) + 1.96 * se_log)
+                if not np.isfinite(ci_hi):
+                    # degenerate case: pred is so close to 0 that se/pred overflows on
+                    # exponentiating back -- fall back to the symmetric interval, still
+                    # clipped at 0 since we know that bound is real regardless of link.
+                    ci_lo, ci_hi = max(pred - 1.96 * se, 0.0), pred + 1.96 * se
+            elif link == 'logit' and 0.0 < pred < 1.0:
+                # Same issue, both bounds: a logit-link cell prediction is a probability
+                # in (0, 1), but the plain symmetric CI has no knowledge of either wall
+                # and routinely dips below 0 or exceeds 1 for thin cells. Delta-method
+                # step on the log-odds scale (se_logit = se / (pred*(1-pred))) keeps the
+                # interval inside (0, 1) after transforming back with expit.
+                se_logit = se / (pred * (1 - pred))
+                logit_pred = np.log(pred / (1 - pred))
+                with np.errstate(over='ignore'):
+                    ci_lo = expit(logit_pred - 1.96 * se_logit)
+                    ci_hi = expit(logit_pred + 1.96 * se_logit)
+                if not (np.isfinite(ci_lo) and np.isfinite(ci_hi)):
+                    ci_lo, ci_hi = max(pred - 1.96 * se, 0.0), min(pred + 1.96 * se, 1.0)
+            else:
+                ci_lo, ci_hi = pred - 1.96 * se, pred + 1.96 * se
+            print(f"{label:30} {pred:12.4f} {se:8.4f} [{ci_lo:.4f}, {ci_hi:.4f}]")
         else:
             print(f"{label:30} {pred:12.4f} {'--':>8} {'(no SE available)':>20}")
 
@@ -489,7 +524,7 @@ def predicted_outcomes(df, x_vars, columns, beta, boot_coefs=None, cov=None,
             _, cell_estimates, contrast_results, did = _point_estimates(xs, beta, link, contrasts, did_cells)
 
         if verbose:
-            _print_table(sv, sweep_label, eval_at, cell_estimates, contrast_results, did)
+            _print_table(sv, sweep_label, eval_at, cell_estimates, contrast_results, did, link=link)
 
         all_results[sv] = {'cells': cell_estimates, 'contrasts': contrast_results, 'did': did}
 
@@ -573,7 +608,8 @@ def predicted_outcomes_by_stratum_from_fit(res, df, x_vars, columns, sweep_var, 
             sweep_interactions=sweep_interactions or [], verbose=False, **kwargs,
         )['own']
         if verbose:
-            _print_table(f"{b} (n={len(sub)})", sweep_label, 'ame', out['cells'], out['contrasts'], out['did'])
+            _print_table(f"{b} (n={len(sub)})", sweep_label, 'ame', out['cells'], out['contrasts'], out['did'],
+                          link=kwargs.get('link', 'identity'))
         results[b] = out
     return results
 
