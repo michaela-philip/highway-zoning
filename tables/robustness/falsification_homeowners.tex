@@ -7,17 +7,20 @@
 \toprule
  & Coefficient \\
 \midrule
-Residential & \makecell[tr]{-0.875{**} \\ (0.338)} \\
-Exposure to Homeowners & \makecell[tr]{-0.027 \\ (0.262)} \\
-Residential x Exposure to Homeowners & \makecell[tr]{0.033 \\ (0.267)} \\
-Est. Highway Suitability & \makecell[tr]{1.339{***} \\ (0.145)} \\
-R-squared & 0.039 \\
+Residential & \makecell[tr]{-1.086{**} \\ (0.356)} \\
+Exposure to Homeowners & \makecell[tr]{0.077 \\ (0.268)} \\
+Residential x Exposure to Homeowners & \makecell[tr]{0.027 \\ (0.247)} \\
+Est. Highway Suitability & \makecell[tr]{1.398{***} \\ (0.193)} \\
+Residential x High Suitability & \makecell[tr]{1.485 \\ (0.800)} \\
+Black x High Suitability & \makecell[tr]{0.127 \\ (0.466)} \\
+Residential x Black x High Suitability & \makecell[tr]{-0.157 \\ (0.605)} \\
+R-squared & 0.269 \\
 Observations & 5236 \\
 \bottomrule
 \end{tabular*}
 \begin{tablenotes}[flushleft]
 \footnotesize
-\item Estimates from a Poisson pseudo-maximum likelihood model (PPML) regression of an indicator for highway construction from 1940-1959 on the covariates listed, as well as controls for housing, geographic, and demographic characteristics. The sample is restricted to squares that are outside the highway corridor. Residential is a binary variable indicating whether the grid square is zoned for residential use. Exposure to Homeowners is a location-specific weighted average of the share of homeowners in each square. Weights are exponential decay function of the straight-line distance between squares and set to zero beyond a distance of 3,000 meters. This measure is normalized within each city to account for city-level differences. Standard errors, reported in parenthesis, are \textcite{conley_gmm_1999} spatial HAC standard errors with a 1,000-meter distance cutoff. *** p < 0.01, ** p < 0.05, * p < 0.1
+\item Estimates from a Firth's bias-reduced logistic regression of an indicator for highway construction from 1940-1959 on the covariates listed, as well as controls for housing, geographic, and demographic characteristics. The sample is restricted to squares that are outside the highway corridor. Residential is a binary variable indicating whether the grid square is zoned for residential use. Exposure to Homeowners is a location-specific weighted average of the share of homeowners in each square. Weights are exponential decay function of the straight-line distance between squares and set to zero beyond a distance of 3,000 meters. This measure is normalized within each city to account for city-level differences. Standard errors, reported in parenthesis, are \textcite{conley_gmm_1999} spatial HAC standard errors with a 1,000-meter distance cutoff. *** p < 0.01, ** p < 0.05, * p < 0.1
 \end{tablenotes}
 \end{threeparttable}
 \end{table}
