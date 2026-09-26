@@ -3,7 +3,7 @@
 \caption{Predicted Highway Construction by Zoning Designation and Exposure to Black Residents}
 \label{tab:predicted_outcomes/black_share}
 \begin{threeparttable}
-\begin{tabular}{lr@{\hspace{1.2em}}}
+\begin{tabular*}{1\textwidth}{@{\extracolsep{\fill}}lr@{\hspace{1.2em}}}
 \toprule
  & Estimate \\
 \midrule
@@ -30,7 +30,7 @@ High Exposure & 0.014\rlap{$^{**}$} \\
 \textbf{Disparate Protection} & \textbf{0.016}\rlap{$^{***}$} \\
 (High Exposure $-$ Low Exposure) & (0.005) \\
 \bottomrule
-\end{tabular}
+\end{tabular*}
 \begin{tablenotes}[flushleft]
 \footnotesize
 \item Predicted outcomes from the Firth's bias-reduced logistic regression in Column 1 of Table \ref{tab:results/black_share_indicator}, evaluated separately for Residential/Non-Residential areas and neighborhoods at the 25th/75th percentile of Exposure to Black Residents. All other covariates are held constant at their own values and reported values are averaged across observations and can be interpreted as average marginal effects. Standard errors are computed via the delta method from the spatial covariance matrix. The Protection Effect is the difference in predicted rates between Residential and Non-Residential areas at each level of exposure to Black Residents. *** p < 0.01, ** p < 0.05, * p < 0.1

@@ -3,11 +3,11 @@
 \caption{Predicted Highway Construction - Suitability Sweep}
 \label{tab:predicted_outcomes/black_share_sweep}
 \begin{threeparttable}
-\begin{tabular}{lr@{\hspace{1.2em}}r@{\hspace{1.2em}}r@{\hspace{1.2em}}r@{\hspace{1.2em}}r@{\hspace{1.2em}}}
+\begin{tabular*}{1\textwidth}{@{\extracolsep{\fill}}lr@{\hspace{1.2em}}r@{\hspace{1.2em}}r@{\hspace{1.2em}}r@{\hspace{1.2em}}r@{\hspace{1.2em}}}
 \toprule
- & \multicolumn{5}{c}{Est. Highway Suitability} \\
+ & \multicolumn{5}{c}{Est. Highway Suitability (Percentile)} \\
 \cmidrule(l){2-6}
- & -0.28 & 0.62 & 1.56 & 2.04 & 2.52 \\
+ & 10th & 25th & 50th & 75th & 90th \\
 \midrule
 \textit{Panel A: Predicted Probability} & & & & & \\
 \addlinespace[2pt]
@@ -32,7 +32,7 @@ High Exposure & 0.004\rlap{$^{*}$} & 0.015\rlap{$^{*}$} & 0.055\rlap{$^{**}$} & 
 \textbf{Disparate Protection} & \textbf{0.005}\rlap{$^{***}$} & \textbf{0.018}\rlap{$^{***}$} & \textbf{0.065}\rlap{$^{***}$} & \textbf{0.113}\rlap{$^{***}$} & \textbf{0.175}\rlap{$^{***}$} \\
 (High Exposure $-$ Low Exposure) & (0.002) & (0.006) & (0.022) & (0.040) & (0.062) \\
 \bottomrule
-\end{tabular}
+\end{tabular*}
 \begin{tablenotes}[flushleft]
 \footnotesize
 \item Predicted outcomes from the Firth's bias-reduced logistic regression in Column 1 of Table \ref{tab:results/black_share_indicator}, evaluated separately for Residential/Non-Residential areas and neighborhoods at the 25th/75th percentile of Exposure to Black Residents. All covariates other than Est. Highway Suitability are held constant at their own values while predictions are reported at the 25th, 50th, 75th, and 90th percentile of the distribution of Highway Suitability values for squares containing a highway. Standard errors are computed via the delta method from the spatial covariance matrix. The Protection Effect is the difference in predicted rates between Residential and Non-Residential areas at each level of exposure to Black Residents. *** p < 0.01, ** p < 0.05, * p < 0.1
