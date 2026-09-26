@@ -1,30 +1,67 @@
 import sys
 from pathlib import Path
+import numpy as np
+import pandas as pd
+import statsmodels.api as sm
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from helpers.latex_formatting import export_single_regression
-from analysis.lib.data import load_sample, restrict_to_discretionary
-from analysis.lib.bootstrap import fit_ols
+from analysis.lib.data import (
+    load_sample, restrict_to_discretionary, merge_cnn_probs, split_by_candidates, compute_characteristic_access, assign_highway_exposure, widen_highways, city_specific_shares, compute_shares, high_access_indicator
+)
+from analysis.lib.bootstrap import bootstrap_lpm_table, fit_ols
 from analysis.lib.specs import (
-    CORE_VARS, HOUSING_VARS, GEO_CONTROLS, LOG_DIST_HWY, HH_CONTROLS,
-    build_spec, leaveout_except,
+    CONTINUOUS_EXPOSURE, HOUSING_VARS, HH_CONTROLS, LOG_DIST_HWY, GEO_CONTROLS, CNN_LOGIT, RESIDENTIAL, HWY_ACCESS,
+    build_spec, leaveout_except, core_spec, sweep_interactions_spec, black_definition_note,
 )
-
-df = load_sample()
-
-x_vars, columns = build_spec(df, CORE_VARS, HOUSING_VARS, GEO_CONTROLS, LOG_DIST_HWY, HH_CONTROLS)
-
-results_wholesample, *_ = fit_ols(df, x_vars, columns)
-notes = "This table contains estimates of the impact of residential zoning and majority-Black status on the likelihood of highway placement using a linear probability model on the full sample of grid squares. " \
-"Standard errors are reported in parenthesis and estimated using OLS. The model includes controls for housing, geographic, and demographic characteristics, as well as city fixed effects." \
-
-keep = [label for _, label in CORE_VARS + HOUSING_VARS + GEO_CONTROLS + LOG_DIST_HWY + HH_CONTROLS]
-
-export_single_regression(
-    results_wholesample,
-    caption='Determinants of Highway Placement - Control Variables Only',
-    label='tab:wholesample_results_no_cnn',
-    widthmultiplier=0.7,
-    leaveout=leaveout_except(columns, keep=[label for _, label in CORE_VARS]),
-    notes = notes
+from analysis.lib.marginal_effects import (
+    export_predicted_outcomes_table, predicted_outcomes_from_fit, predicted_outcomes_by_stratum_from_fit, export_predicted_outcomes_table
 )
+from analysis.lib.estimators import (fit_ppml_conley, fit_ppml_firth, fit_ppml_firth_conley, fit_logit_firth, fit_logit_firth_conley)
+from data_code.candidates import get_candidate_dict
+from helpers.latex_formatting import export_single_regression, export_multiple_regressions, format_regression_results, export_single_regression
+
+cell_width = 150
+df = load_sample(cell_width, impute = False)
+df = merge_cnn_probs(df, f'predicted_activation-model5_{cell_width}*.csv', dataroot='cnn/')
+df = df[df['zoning_change'] != 1]
+df['Residential'] = np.where(df['pct_res'] >= 0.75, 1, 0)
+df = compute_characteristic_access(df, 'hwy_40', 'hwy_access', decay_m = 600, max_dist_m = 1500)
+df = compute_characteristic_access(df, 'hwy_40', 'hwy_access_wide', decay_m = 1500, max_dist_m = 5000)
+
+df_disc = restrict_to_discretionary(df)
+
+candidate_dict = get_candidate_dict(cell_width)
+dir_sample, ind_sample = split_by_candidates(df_disc, candidate_dict)
+sweep_values = ind_sample.loc[ind_sample['hwy'] == 1, 'logit_normalized'].quantile([0.10, 0.25, 0.50, 0.75, 0.90]).tolist()
+sweep_cols = {sweep_values[0]: '10th Percentile',
+                sweep_values[1] : '25th Percentile',
+                sweep_values[2] : '50th Percentile',
+                sweep_values[3] : '75th Percentile',
+                sweep_values[4] : '90th Percentile'}
+
+
+ind_sample = compute_shares(ind_sample)
+ind_sample = compute_characteristic_access(ind_sample, 'share_black', 'dem_access', decay_m = 600, max_dist_m = 3000)
+for city in ind_sample['city'].unique():
+    city_mean = ind_sample.loc[ind_sample['city'] == city, 'dem_access'].mean()
+    city_std = ind_sample.loc[ind_sample['city'] == city, 'dem_access'].std()
+    ind_sample.loc[ind_sample['city'] == city, 'dem_access'] = (ind_sample.loc[ind_sample['city'] == city, 'dem_access'] - city_mean)/ city_std
+
+CORE = core_spec(ind_sample, 'dem_access')
+x_vars, columns = build_spec(ind_sample, [CORE[0]], [CORE[1]], CNN_LOGIT, HOUSING_VARS, LOG_DIST_HWY, HH_CONTROLS, GEO_CONTROLS, HWY_ACCESS, include_city_dummies=False)
+model = fit_logit_firth_conley(ind_sample, x_vars, columns, y_var='hwy', cutoff_m=1500)
+keep = [label for _, label in CORE + CNN_LOGIT]
+table1 = format_regression_results(model)
+print(table1)
+table1 = table1.rename(index={
+    'Black': 'Exposure to Black Population',
+    'Residential x Black': 'Residential x Exposure to Black Population',
+    'Logit': 'Est. Highway Suitability',
+    'Residential x Logit': 'Residential x Est. Highway Suitability',
+    'Black x Logit': 'Exposure to Black Population x Est. Highway Suitability',
+    'Residential x Black x Logit': 'Residential x Exposure to Black Population x Est. Highway Suitability',
+})
+notes = "Estimates from a Firth's bias-reduced logistic regression model of an indicator for highway construction from 1940-1959 on the covariates listed, as well as controls for housing, geographic, and demographic characteristics. The sample is restricted to squares that are outside the highway corridor. Residential is a binary variable indicating whether 75\\% or more of the square is zoned for residential use. " \
+"Exposure to Black Homeowners is a location-specific weighted average of the share of Black homeowners in each square. Weights are computed by an exponential decay function of the straight-line distance between squares and set to zero beyond a distance of 3,000 meters. This measure is normalized within each city to account for city-level differences in Black population and concentration. " \
+"Standard errors, reported in parenthesis, are \\textcite{conley_gmm_1999} spatial HAC standard errors with a 1,500-meter distance cutoff.  *** p < 0.01, ** p < 0.05, * p < 0.1" 
+export_single_regression(table1, caption = 'Effect of Zoning and Exposure to Black Residents on Highway Placement', label = 'tab:results/uninteracted_spec', notes = notes, leaveout = leaveout_except(columns, keep=keep), widthmultiplier = 0.6)
