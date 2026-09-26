@@ -1,0 +1,41 @@
+\begin{table}[h]
+\centering
+\caption{Predicted Highway Construction with Linear Spline}
+\label{tab:predicted_outcomes/mblack_mean_pct_logitinteraction}
+\begin{threeparttable}
+\begin{tabular*}{1\textwidth}{@{\extracolsep{\fill}}lr@{\hspace{1.2em}}r@{\hspace{1.2em}}r@{\hspace{1.2em}}r@{\hspace{1.2em}}r@{\hspace{1.2em}}}
+\toprule
+ & \multicolumn{5}{c}{Est. Highway Suitability} \\
+\cmidrule(l){2-6}
+ & -0.31 & 0.54 & 1.51 & 2.03 & 2.48 \\
+\midrule
+\textit{Panel A: Predicted Probability} & & & & & \\
+\addlinespace[2pt]
+White & & & & & \\
+\quad Non-Residential & 0.007 & 0.027 & 0.109 & 0.206 & 0.325 \\
+ & (0.003) & (0.010) & (0.038) & (0.071) & (0.106) \\[4pt]
+\quad Residential & 0.005 & 0.009 & 0.019 & 0.028 & 0.039 \\
+ & (0.002) & (0.004) & (0.022) & (0.042) & (0.070) \\[4pt]
+Black & & & & & \\
+\quad Non-Residential & 0.001 & 0.294 & 0.996 & 1.000 & 1.000 \\
+ & (0.002) & (0.457) & (0.030) & (0.001) & (0.000) \\[4pt]
+\quad Residential & 0.000 & 0.059 & 0.943 & 0.998 & 1.000 \\
+ & (0.000) & (0.052) & (0.116) & (0.007) & (0.001) \\[4pt]
+\midrule
+\textit{Panel B: Protection Effect} & & & & & \\
+\addlinespace[2pt]
+White & 0.003 & 0.018\rlap{$^{*}$} & 0.090\rlap{$^{*}$} & 0.177\rlap{$^{**}$} & 0.286\rlap{$^{**}$} \\
+ & (0.003) & (0.010) & (0.047) & (0.089) & (0.139) \\[4pt]
+Black & 0.001 & 0.234 & 0.053 & 0.002 & 0.000 \\
+ & (0.002) & (0.446) & (0.113) & (0.007) & (0.000) \\[4pt]
+\addlinespace[2pt]
+\textbf{Disparate Protection} & \textbf{$-$0.002} & \textbf{0.216} & \textbf{$-$0.037} & \textbf{$-$0.175}\rlap{$^{**}$} & \textbf{$-$0.286}\rlap{$^{**}$} \\
+(Black $-$ White) & (0.003) & (0.448) & (0.115) & (0.088) & (0.138) \\
+\bottomrule
+\end{tabular*}
+\begin{tablenotes}[flushleft]
+\footnotesize
+\item Predicted outcomes from the Firth's bias-reduced logistic regression in Column 2 of Table \ref{tab:results/mblack_mean_pct}, evaluated separately for Residential/Non-Residential areas and neighborhoods classified as Majority Black or White. All covariates other than Est. Highway Suitability are held constant at their own values while predictions are reported at the 25th, 50th, 75th, and 90th percentile of the distribution of Highway Suitability values for squares containing a highway. Standard errors are computed via the delta method from the spatial covariance matrix. The Protection Effect is the difference in predicted rates between Residential and Non-Residential for both Black and White neighborhoods. . *** p < 0.01, ** p < 0.05, * p < 0.1
+\end{tablenotes}
+\end{threeparttable}
+\end{table}

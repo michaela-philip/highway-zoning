@@ -1,0 +1,26 @@
+\begin{table}[h]
+\centering
+\caption{Effect of Majority Black status on Highway Placement}
+\label{tab:results/mblack_mean_pct}
+\begin{threeparttable}
+\begin{tabular*}{1.0\textwidth}{@{\extracolsep{\fill}}l*{2}{r}}
+\toprule
+ & (1) & (2) \\
+\midrule
+Residential & \makecell[tr]{-0.715 \\ (0.376)} & \makecell[tr]{-0.675 \\ (0.379)} \\
+Black & \makecell[tr]{-0.001 \\ (0.535)} & \makecell[tr]{-0.114 \\ (0.511)} \\
+Residential x Black & \makecell[tr]{-0.562 \\ (0.561)} & \makecell[tr]{-1.020 \\ (0.534)} \\
+Est. Highway Suitability & \makecell[tr]{1.566{***} \\ (0.214)} & \makecell[tr]{1.583{***} \\ (0.221)} \\
+Residential x High Suitability &  & \makecell[tr]{-0.814 \\ (0.846)} \\
+Black x High Suitability &  & \makecell[tr]{5.626 \\ (4.503)} \\
+Residential x Black x High Suitability &  & \makecell[tr]{0.120 \\ (4.555)} \\
+R-squared & 0.274 & 0.287 \\
+Observations & 4351 & 4351 \\
+\bottomrule
+\end{tabular*}
+\begin{tablenotes}[flushleft]
+\footnotesize
+\item Estimates from a Firth's bias-reduced logistic regression model of an indicator for highway construction from 1940-1959 on the covariates listed, as well as controls for housing, geographic, and demographic characteristics. The sample is restricted to squares that are outside the highway corridor. Residential is a binary variable indicating whether 75\% or more of the square is zoned for residential use. Black is an indicator for a square having a share of the city's Black population that is greater than the city's average share. Standard errors, reported in parenthesis, are \textcite{conley_gmm_1999} spatial HAC standard errors with a 1,000-meter distance cutoff. Estimates in column (1) contain an uninteracted measure of highway suitability calculated by a convolutional neural network. Estimates in column (2) include the interaction between the coefficients of interest and a linear spline. *** p < 0.01, ** p < 0.05, * p < 0.1
+\end{tablenotes}
+\end{threeparttable}
+\end{table}
