@@ -131,7 +131,7 @@ notes = "Predicted outcomes from the Firth's bias-reduced logistic regression in
 "while predictions are reported at the 25th, 50th, 75th, and 90th percentile of the distribution of Highway Suitability values for squares containing a highway. Standard errors are computed via the delta method from the spatial covariance matrix. The Protection Effect is the difference in predicted rates between Residential and Non-Residential areas at each level of exposure to Black Residents. *** p < 0.01, ** p < 0.05, * p < 0.1" 
 table = predicted_outcomes_from_fit(model, ind_sample, x_vars, columns, link = 'logit', eval_at = 'ame', black_values = [ind_sample['dem_access'].quantile(0.25), ind_sample['dem_access'].quantile(0.75)], black_labels = ['Low Exposure', 'High Exposure'], 
                                     sweep_interactions = [], sweep_var = 'logit_normalized', sweep_label = 'Est. Highway Suitability', sweep_values = sweep_values)
-export_predicted_outcomes_table(table, caption = 'Predicted Highway Construction - Suitability Sweep', label = 'tab:predicted_outcomes/black_share_sweep', notes = notes)
+export_predicted_outcomes_table(table, caption = 'Predicted Highway Construction - Suitability Sweep', label = 'tab:predicted_outcomes/black_share_sweep', notes = notes, column_labels = sweep_cols)
 
 x_vars, columns = build_spec(ind_sample, CORE, CNN_LOGIT, LOGIT_INTERACTIONS, HOUSING_VARS, LOG_DIST_HWY, HH_CONTROLS, GEO_CONTROLS, HWY_ACCESS, include_city_dummies=False)
 model = fit_logit_firth_conley(ind_sample, x_vars, columns, y_var='hwy', cutoff_m=1500)
