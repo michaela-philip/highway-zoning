@@ -655,7 +655,7 @@ def predicted_outcomes_by_stratum_from_fit(res, df, x_vars, columns, sweep_var, 
 
 
 def export_predicted_outcomes_table(results, caption, label,
-                                     widthmultiplier=None,
+                                     widthmultiplier=1,
                                      notes=None, column_labels=None,
                                      black_labels=None,
                                      column_group='Est. Highway Suitability'):

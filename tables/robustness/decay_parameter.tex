@@ -1,0 +1,26 @@
+\begin{table}[h]
+\centering
+\caption{Robustness Check: Varying Decay Parameters for Exposure to Black Population}
+\label{tab:robustness/decay_parameter}
+\begin{threeparttable}
+\begin{tabular*}{1.0\textwidth}{@{\extracolsep{\fill}}l*{4}{r}}
+\toprule
+ & 300 & 600 & 1200 & 1800 \\
+\midrule
+Residential & \makecell[tr]{-0.829{*} \\ (0.380)} & \makecell[tr]{-0.634 \\ (0.396)} & \makecell[tr]{-0.626 \\ (0.418)} & \makecell[tr]{-0.697 \\ (0.405)} \\
+Black & \makecell[tr]{0.214 \\ (0.194)} & \makecell[tr]{0.710{**} \\ (0.266)} & \makecell[tr]{1.234{***} \\ (0.367)} & \makecell[tr]{1.429{***} \\ (0.410)} \\
+Residential x Black & \makecell[tr]{-1.174{**} \\ (0.389)} & \makecell[tr]{-1.525{***} \\ (0.413)} & \makecell[tr]{-1.898{***} \\ (0.496)} & \makecell[tr]{-2.019{***} \\ (0.541)} \\
+Est. Highway Suitability & \makecell[tr]{1.302{***} \\ (0.190)} & \makecell[tr]{1.332{***} \\ (0.192)} & \makecell[tr]{1.354{***} \\ (0.193)} & \makecell[tr]{1.360{***} \\ (0.193)} \\
+Residential x High Suitability & \makecell[tr]{2.334{*} \\ (1.106)} & \makecell[tr]{1.985 \\ (1.095)} & \makecell[tr]{2.024 \\ (1.122)} & \makecell[tr]{2.228{*} \\ (1.127)} \\
+Black x High Suitability & \makecell[tr]{7.449{*} \\ (3.062)} & \makecell[tr]{7.471{*} \\ (3.147)} & \makecell[tr]{7.650{*} \\ (3.338)} & \makecell[tr]{7.636{*} \\ (3.366)} \\
+Residential x Black x High Suitability & \makecell[tr]{-5.214 \\ (3.512)} & \makecell[tr]{-5.313 \\ (3.618)} & \makecell[tr]{-5.074 \\ (3.943)} & \makecell[tr]{-4.662 \\ (4.059)} \\
+R-squared & 0.288 & 0.303 & 0.321 & 0.327 \\
+Observations & 5236 & 5236 & 5236 & 5236 \\
+\bottomrule
+\end{tabular*}
+\begin{tablenotes}[flushleft]
+\footnotesize
+\item Estimates from a Firth's bias-reduced logistic regression model of an indicator for highway construction from 1940-1959 on the covariates listed, as well as controls for housing, geographic, and demographic characteristics. The sample is restricted to squares that are outside the highway corridor. Residential is a binary variable indicating whether 75\% or more of the square is zoned for residential use. Exposure to Black Population is a location-specific weighted average of the share of Black residents in each square. Weights are computed by an exponential decay function of the straight-line distance between squares and set to zero beyond a distance of 3,000 meters. Each column represents a separate regression estimated with a different decay parameter. This measure is normalized within each city to account for city-level differences in Black population and concentration. Standard errors, reported in parenthesis, are \textcite{conley_gmm_1999} spatial HAC standard errors with a 1,500-meter distance cutoff. *** p < 0.01, ** p < 0.05, * p < 0.1
+\end{tablenotes}
+\end{threeparttable}
+\end{table}
