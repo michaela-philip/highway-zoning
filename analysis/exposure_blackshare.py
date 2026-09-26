@@ -55,6 +55,11 @@ CORE = core_spec(ind_sample, 'dem_access')
 LOGIT_INTERACTIONS = sweep_interactions_spec(ind_sample, 'dem_access', 'logit_above_knot', 'High Suitability')
 x_vars, columns = build_spec(ind_sample, CORE, CNN_LOGIT, HOUSING_VARS, LOG_DIST_HWY, HH_CONTROLS, GEO_CONTROLS, HWY_ACCESS, include_city_dummies=False)
 model = fit_logit_firth_conley(ind_sample, x_vars, columns, y_var='hwy', cutoff_m=1500)
+notes = "Predicted outcomes from the Firth's bias-reduced logistic regression in Column 1 of Table \\ref{tab:results/black_share}, evaluated separately for Residential/Non-Residential areas and neighborhoods at the 25th/75th percentile of Exposure to Black Residents. All covariates other than Est. Highway Suitability are held constant at their own values, including the indicator for the presence of any Black residents, " \
+"while predictions are reported at the 25th, 50th, 75th, and 90th percentile of the distribution of Highway Suitability values for squares containing a highway. Standard errors are computed via the delta method from the spatial covariance matrix. The Protection Effect is the difference in predicted rates between Residential and Non-Residential areas at each level of exposure to Black Residents. *** p < 0.01, ** p < 0.05, * p < 0.1"
+table = predicted_outcomes_from_fit(model, ind_sample, x_vars, columns, link = 'logit', eval_at = 'ame', black_values = [ind_sample['dem_access'].quantile(0.25), ind_sample['dem_access'].quantile(0.75)], black_labels = ['Low Exposure', 'High Exposure'], sweep_interactions = LOGIT_INTERACTIONS, sweep_var = 'logit_normalized', sweep_label = 'High Suitability', sweep_values = sweep_values)
+export_predicted_outcomes_table(table, caption = 'Predicted Highway Construction ', label = 'tab:predicted_outcomes/black_share_sweep', notes = notes)
+
 keep = [label for _, label in CORE + CNN_LOGIT + LOGIT_INTERACTIONS]
 table1 = format_regression_results(model)
 print(table1)
@@ -68,6 +73,12 @@ table1 = table1.rename(index={
 })
 x_vars, columns = build_spec(ind_sample, CORE, CNN_LOGIT, LOGIT_INTERACTIONS, HOUSING_VARS, LOG_DIST_HWY, HH_CONTROLS, GEO_CONTROLS, HWY_ACCESS, include_city_dummies=False)
 model = fit_logit_firth_conley(ind_sample, x_vars, columns, y_var='hwy', cutoff_m=1500)
+notes = "Predicted outcomes from the Firth's bias-reduced logistic regression in Column 2 of Table \\ref{tab:results/black_share}, evaluated separately for Residential/Non-Residential areas and neighborhoods at the 25th/75th percentile of Exposure to Black Residents. All covariates other than Est. Highway Suitability are held constant at their own values, including the indicator for the presence of any Black residents, " \
+"while predictions are reported at the 25th, 50th, 75th, and 90th percentile of the distribution of Highway Suitability values for squares containing a highway. Standard errors are computed via the delta method from the spatial covariance matrix. The Protection Effect is the difference in predicted rates between Residential and Non-Residential areas at each level of exposure to Black Residents. *** p < 0.01, ** p < 0.05, * p < 0.1"
+table = predicted_outcomes_from_fit(model, ind_sample, x_vars, columns, link = 'logit', eval_at = 'ame', black_values = [ind_sample['dem_access'].quantile(0.25), ind_sample['dem_access'].quantile(0.75)], black_labels = ['Low Exposure', 'High Exposure'], sweep_interactions = LOGIT_INTERACTIONS, sweep_var = 'logit_normalized', sweep_label = 'High Suitability', sweep_values = sweep_values)
+export_predicted_outcomes_table(table, caption = 'Predicted Highway Construction ', label = 'tab:predicted_outcomes/black_share_sweep_logitinteraction', notes = notes)
+
+
 keep = [label for _, label in CORE + CNN_LOGIT + LOGIT_INTERACTIONS]
 table2 = format_regression_results(model)
 print(table2)
@@ -85,6 +96,7 @@ notes = "Estimates from a Firth's bias-reduced logistic regression model of an i
 "Exposure to Black Population is a location-specific weighted average of the share of Black residents in each square. Weights are computed by an exponential decay function of the straight-line distance between squares and set to zero beyond a distance of 3,000 meters. This measure is normalized within each city to account for city-level differences in Black population and concentration. " \
 "Standard errors, reported in parenthesis, are \\textcite{conley_gmm_1999} spatial HAC standard errors with a 1,000-meter distance cutoff. Estimates in column (1) contain an uninteracted measure of highway suitability calculated by a convolutional neural network. Estimates in column (2) include the interaction between the coefficients of interest and a linear spline. *** p < 0.01, ** p < 0.05, * p < 0.1" 
 export_multiple_regressions(table, caption = 'Effect of Exposure to Black Residents on Highway Placement', label = 'tab:results/black_share', notes = notes, leaveout = leaveout_except(columns, keep=keep), widthmultiplier = 0.8)
+
 
 BLACK_INTERACTION = sweep_interactions_spec(ind_sample, 'dem_access', 'any_black', 'Any Black Residents')
 BLACK_INTERACTION = [BLACK_INTERACTION[1]]
@@ -125,7 +137,7 @@ model = fit_logit_firth_conley(ind_sample, x_vars, columns, y_var='hwy', cutoff_
 notes = "Predicted outcomes from the Firth's bias-reduced logistic regression in Column 1 of Table \\ref{tab:results/black_share_indicator}, evaluated separately for Residential/Non-Residential areas and neighborhoods at the 25th/75th percentile of Exposure to Black Residents. All other covariates are held constant at their own values and reported values are averaged across observations "\
 "and can be interpreted as average marginal effects. Standard errors are computed via the delta method from the spatial covariance matrix. The Protection Effect is the difference in predicted rates between Residential and Non-Residential areas at each level of exposure to Black Residents. *** p < 0.01, ** p < 0.05, * p < 0.1" 
 table = predicted_outcomes_from_fit(model, ind_sample, x_vars, columns, link = 'logit', eval_at = 'ame', black_values = [ind_sample['dem_access'].quantile(0.25), ind_sample['dem_access'].quantile(0.75)], black_labels = ['Low Exposure', 'High Exposure'])
-export_predicted_outcomes_table(table, caption = 'Predicted Highway Construction - Black Indicator', label = 'tab:predicted_outcomes/black_share', notes = notes)
+export_predicted_outcomes_table(table, caption = 'Predicted Highway Construction - Black Indicator', label = 'tab:predicted_outcomes/black_share_indicator', notes = notes)
 
 notes = "Predicted outcomes from the Firth's bias-reduced logistic regression in Column 1 of Table \\ref{tab:results/black_share_indicator}, evaluated separately for Residential/Non-Residential areas and neighborhoods at the 25th/75th percentile of Exposure to Black Residents. All covariates other than Est. Highway Suitability are held constant at their own values " \
 "while predictions are reported at the 25th, 50th, 75th, and 90th percentile of the distribution of Highway Suitability values for squares containing a highway. Standard errors are computed via the delta method from the spatial covariance matrix. The Protection Effect is the difference in predicted rates between Residential and Non-Residential areas at each level of exposure to Black Residents. *** p < 0.01, ** p < 0.05, * p < 0.1" 
@@ -148,9 +160,22 @@ export_predicted_outcomes_table(table, caption = 'Predicted Highway Construction
 
 x_vars, columns = build_spec(ind_sample, CORE, CNN_LOGIT, LOGIT_INTERACTIONS, BLACK_INTERACTION, HOUSING_VARS, LOG_DIST_HWY, HH_CONTROLS, GEO_CONTROLS, HWY_ACCESS, include_city_dummies=False)
 model = fit_logit_firth_conley(ind_sample, x_vars, columns, y_var='hwy', cutoff_m=1500)
-notes = "Predicted outcomes from the Firth's bias-reduced logistic regression in Column 2 of Table \\ref{tab:results/black_share_indicator}, evaluated separately for Residential/Non-Residential areas and neighborhoods at the 25th/75th percentile of Exposure to Black Residents. All covariates other than Est. Highway Suitability are held constant at their own values, including the indicator for the presence of any Black residents, " \
-"while predictions are reported at the 25th, 50th, 75th, and 90th percentile of the distribution of Highway Suitability values for squares containing a highway. Standard errors are computed via the delta method from the spatial covariance matrix. The Protection Effect is the difference in predicted rates between Residential and Non-Residential areas at each level of exposure to Black Residents. *** p < 0.01, ** p < 0.05, * p < 0.1"
-table = predicted_outcomes_from_fit(model, ind_sample, x_vars, columns, link = 'logit', eval_at = 'ame', black_values = [ind_sample['dem_access'].quantile(0.25), ind_sample['dem_access'].quantile(0.75)], black_labels = ['Low Exposure', 'High Exposure'],
-                                    sweep_interactions = LOGIT_INTERACTIONS, sweep_var = 'logit_normalized', sweep_label = 'Est. Highway Suitability', sweep_values = sweep_values,
-                                    extra_sweeps = [('any_black', 'Any Black Residents', 'own', BLACK_INTERACTION)])
-export_predicted_outcomes_table(table, caption = 'Predicted Highway Construction - Black Indicator and Linear Spline', label = 'tab:predicted_outcomes/black_share_sweep_logitinteraction_anyblack', notes = notes, column_labels = sweep_cols)
+# notes = "Predicted outcomes from the Firth's bias-reduced logistic regression in Column 2 of Table \\ref{tab:results/black_share_indicator}, evaluated separately for Residential/Non-Residential areas and neighborhoods at the 25th/75th percentile of Exposure to Black Residents. All covariates other than Est. Highway Suitability are held constant at their own values, including the indicator for the presence of any Black residents, " \
+# "while predictions are reported at the 25th, 50th, 75th, and 90th percentile of the distribution of Highway Suitability values for squares containing a highway. Standard errors are computed via the delta method from the spatial covariance matrix. The Protection Effect is the difference in predicted rates between Residential and Non-Residential areas at each level of exposure to Black Residents. *** p < 0.01, ** p < 0.05, * p < 0.1"
+# table = predicted_outcomes_from_fit(model, ind_sample, x_vars, columns, link = 'logit', eval_at = 'ame', black_values = [ind_sample['dem_access'].quantile(0.25), ind_sample['dem_access'].quantile(0.75)], black_labels = ['Low Exposure', 'High Exposure'],
+#                                     sweep_interactions = LOGIT_INTERACTIONS, sweep_var = 'logit_normalized', sweep_label = 'Est. Highway Suitability', sweep_values = sweep_values,
+#                                     extra_sweeps = [('any_black', 'Any Black Residents', 'own', BLACK_INTERACTION)])
+# export_predicted_outcomes_table(table, caption = 'Predicted Highway Construction - Black Indicator and Linear Spline', label = 'tab:predicted_outcomes/black_share_sweep_logitinteraction_anyblack', notes = notes, column_labels = sweep_cols)
+
+predicted_outcomes_by_stratum_from_fit(
+    model, ind_sample, x_vars, columns,
+    sweep_var='any_black', bins=[-0.5, 0.5, 1.5], sweep_label='Any Black Residents',
+    sweep_interactions=BLACK_INTERACTION,
+    link='logit',
+    black_values=[ind_sample['dem_access'].quantile(0.25), ind_sample['dem_access'].quantile(0.75)],
+    black_labels=['Low Exposure', 'High Exposure'],
+    extra_sweeps=[('logit_normalized', 'High Suitability', 'own', LOGIT_INTERACTIONS)],
+)
+notes = "Predicted outcomes from the Firth's bias-reduced logistic regression in Column 2 of Table \\ref{tab:results/black_share_indicator}, evaluated separately for Residential/Non-Residential areas and neighborhoods at the 25th/75th percentile of Exposure to Black Residents. Covariates other than are held constant at their own values while the indicator for presence of Black residents is varied and " \
+"predictions are reported at the 25th, 50th, 75th, and 90th percentile of the distribution of Highway Suitability values for squares containing a highway. Standard errors are computed via the delta method from the spatial covariance matrix. The Protection Effect is the difference in predicted rates between Residential and Non-Residential areas at each level of exposure to Black Residents. *** p < 0.01, ** p < 0.05, * p < 0.1"
+export_predicted_outcomes_table(table, caption = 'Predicted Highway Construction - Black Indicator and Linear Spline', label = 'tab:predicted_outcomes/black_share_sweep_logitinteraction_anyblack_bystratum', notes = notes, column_labels = sweep_cols)
