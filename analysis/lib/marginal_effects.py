@@ -56,9 +56,31 @@ def _black_cells(black_values, black_labels):
 # shared building blocks
 # --------------------------------------------------------------------------
 
+def _apply_third_var(x, label, sv, interactions, row_label, col_label, residential, black):
+    """Set x[label] = sv and recompute each (var, label) pair in `interactions`
+    consistently with it, based on which of row_label/col_label the label's ' x '-joined
+    tokens reference. Shared by _cell_vectors' primary sweep, its extra_sweeps, and
+    _reference_x, so "how a third variable interacted with Residential/Black gets
+    recomputed when Residential/Black are (counterfactually) set" has one
+    implementation regardless of which third variable it is or how many there are."""
+    x[label] = sv
+    for _, lbl in interactions:
+        tokens = lbl.split(' x ')
+        has_row, has_col = row_label in tokens, col_label in tokens
+        if has_row and has_col:
+            x[lbl] = residential * black * sv
+        elif has_row:
+            x[lbl] = residential * sv
+        elif has_col:
+            x[lbl] = black * sv
+        else:
+            raise ValueError(f"{lbl!r} doesn't reference {row_label!r} or {col_label!r}")
+
+
 def _cell_vectors(df, x_vars, columns, eval_at='mean',
                    sweep_var=None, sweep_label=None, sweep_value=None,
-                   sweep_interactions=None, black_values=(0, 1), black_labels=('White', 'Black')):
+                   sweep_interactions=None, extra_sweeps=None,
+                   black_values=(0, 1), black_labels=('White', 'Black')):
     """
     Build the regressor matrix (pd.DataFrame, columns=`columns`) for each of the four
     Residential x Black cells. Requires columns to include the labels 'Residential',
@@ -102,9 +124,20 @@ def _cell_vectors(df, x_vars, columns, eval_at='mean',
     Residential is always binary (0/1). black_values/black_labels let Black be reported
     at two representative levels of a continuous measure instead of literal 0/1 -- see
     the module comment above CELLS for the tradeoffs.
+
+    extra_sweeps: for a SECOND (third, ...) variable interacted with Residential/Black
+    that also needs recomputing, on top of sweep_var -- e.g. a "Black x Any Black
+    Residents" moderator term alongside a suitability sweep, where the two need
+    different treatment (suitability takes each of sweep_values in turn; "Any Black
+    Residents" stays at each row's own real value throughout). A list of
+    (var, label, value, interactions) tuples, each handled exactly like
+    sweep_var/sweep_label/sweep_value/sweep_interactions -- value is a fixed number or
+    'own' (own only valid under eval_at='ame'), interactions is the (var, label) pairs
+    to recompute (or [] if var isn't interacted with Residential/Black at all).
     """
     row_label, col_label, inter_label = RESIDENTIAL_LABEL, BLACK_LABEL, INTERACTION_LABEL
     cells, _, _ = _black_cells(black_values, black_labels)
+    extra_sweeps = extra_sweeps or []
 
     varying_labels = {row_label, col_label, inter_label}
     if sweep_var is not None:
@@ -120,6 +153,15 @@ def _cell_vectors(df, x_vars, columns, eval_at='mean',
             )
         varying_labels.add(sweep_label)
         varying_labels.update(lbl for _, lbl in sweep_interactions)
+
+    for var2, label2, _, interactions2 in extra_sweeps:
+        if interactions2 is None:
+            raise ValueError(
+                f"extra_sweeps entry for {var2!r} has interactions=None -- pass [] if "
+                f"{var2!r} isn't interacted with Residential/Black in this model at all"
+            )
+        varying_labels.add(label2)
+        varying_labels.update(lbl for _, lbl in interactions2)
 
     other_pairs = [(v, c) for v, c in zip(x_vars, columns[1:]) if c not in varying_labels]
     other_raw = [v for v, _ in other_pairs]
@@ -145,25 +187,17 @@ def _cell_vectors(df, x_vars, columns, eval_at='mean',
         x[inter_label] = residential * black
         if sweep_var is not None and sweep_value is not None:
             sv = df[sweep_var].values if sweep_value == 'own' else sweep_value
-            x[sweep_label] = sv
-            for _, lbl in sweep_interactions:
-                tokens = lbl.split(' x ')
-                has_row, has_col = row_label in tokens, col_label in tokens
-                if has_row and has_col:
-                    x[lbl] = residential * black * sv
-                elif has_row:
-                    x[lbl] = residential * sv
-                elif has_col:
-                    x[lbl] = black * sv
-                else:
-                    raise ValueError(f"{lbl!r} in sweep_interactions doesn't reference {row_label!r} or {col_label!r}")
+            _apply_third_var(x, sweep_label, sv, sweep_interactions, row_label, col_label, residential, black)
+        for var2, label2, value2, interactions2 in extra_sweeps:
+            sv2 = df[var2].values if value2 == 'own' else value2
+            _apply_third_var(x, label2, sv2, interactions2, row_label, col_label, residential, black)
         return x
 
     return {label: make_x(res, blk) for label, (res, blk) in cells.items()}
 
 
 def _reference_x(df, x_vars, columns, sweep_var=None, sweep_label=None, sweep_value=None,
-                  sweep_interactions=None):
+                  sweep_interactions=None, extra_sweeps=None):
     """
     Regressor matrix using every row's OWN real value for everything, including
     Residential/Black -- no cell is forced. Optionally forces just the sweep variable to
@@ -172,27 +206,25 @@ def _reference_x(df, x_vars, columns, sweep_var=None, sweep_label=None, sweep_va
     alongside the 4 (forced) cells -- the 'Sample Average' row from
     predicted_outcomes(..., include_reference_row=True). Always AME-style (real rows),
     regardless of the cells' own eval_at, since the point is an unforced baseline.
+
+    extra_sweeps entries with value == 'own' need no action here -- the per-row raw
+    column set above is already that row's real product, which is exactly what 'own'
+    means; only a fixed (non-'own') value forces a recompute, same as sweep_value.
     """
     row_label, col_label = RESIDENTIAL_LABEL, BLACK_LABEL
     x = pd.DataFrame(0.0, index=df.index, columns=columns)
     for raw, friendly in zip(x_vars, columns[1:]):
         x[friendly] = df[raw].values
     x['Intercept'] = 1.0
+    residential, black = x[row_label].values, x[col_label].values
 
     if sweep_var is not None and sweep_value is not None:
-        residential, black = x[row_label].values, x[col_label].values
-        x[sweep_label] = sweep_value
-        for _, lbl in (sweep_interactions or []):
-            tokens = lbl.split(' x ')
-            has_row, has_col = row_label in tokens, col_label in tokens
-            if has_row and has_col:
-                x[lbl] = residential * black * sweep_value
-            elif has_row:
-                x[lbl] = residential * sweep_value
-            elif has_col:
-                x[lbl] = black * sweep_value
-            else:
-                raise ValueError(f"{lbl!r} in sweep_interactions doesn't reference {row_label!r} or {col_label!r}")
+        _apply_third_var(x, sweep_label, sweep_value, sweep_interactions or [],
+                          row_label, col_label, residential, black)
+    for var2, label2, value2, interactions2 in (extra_sweeps or []):
+        if value2 == 'own':
+            continue
+        _apply_third_var(x, label2, value2, interactions2 or [], row_label, col_label, residential, black)
     return x
 
 
@@ -439,7 +471,7 @@ def _print_table(sv, sweep_label, eval_at, cell_estimates, contrast_results, did
 def predicted_outcomes(df, x_vars, columns, beta, boot_coefs=None, cov=None,
                         link='identity', eval_at='mean',
                         sweep_var=None, sweep_label=None, sweep_values=None,
-                        sweep_interactions=None,
+                        sweep_interactions=None, extra_sweeps=None,
                         black_values=(0, 1), black_labels=('White', 'Black'),
                         include_reference_row=False, verbose=True):
     """
@@ -477,7 +509,9 @@ def predicted_outcomes(df, x_vars, columns, beta, boot_coefs=None, cov=None,
     Optionally sweep a third variable interacted with Residential/Black (e.g. a CNN
     logit/probability) across sweep_values, evaluating every cell/contrast at each value
     -- see _cell_vectors for the sweep_var/sweep_label/sweep_values/sweep_interactions
-    arguments.
+    arguments. extra_sweeps handles any additional such variables that need their own
+    (possibly different, e.g. 'own' instead of a swept value) treatment at the same time
+    -- see _cell_vectors's extra_sweeps docs.
 
     black_values/black_labels: (0, 1)/('White', 'Black') by default. Pass e.g.
     black_values=(df['dem_access'].quantile(0.1), df['dem_access'].quantile(0.9)),
@@ -508,12 +542,13 @@ def predicted_outcomes(df, x_vars, columns, beta, boot_coefs=None, cov=None,
     for sv in sweep_grid:
         xs = _cell_vectors(df, x_vars, columns, eval_at=eval_at,
                             sweep_var=sweep_var, sweep_label=sweep_label, sweep_value=sv,
-                            sweep_interactions=sweep_interactions,
+                            sweep_interactions=sweep_interactions, extra_sweeps=extra_sweeps,
                             black_values=black_values, black_labels=black_labels)
         if include_reference_row:
             xs = {**xs, 'Sample Average': _reference_x(df, x_vars, columns, sweep_var=sweep_var,
                                                          sweep_label=sweep_label, sweep_value=sv,
-                                                         sweep_interactions=sweep_interactions)}
+                                                         sweep_interactions=sweep_interactions,
+                                                         extra_sweeps=extra_sweeps)}
 
         if boot_coefs is not None:
             _, cell_estimates, contrast_results, did = _bootstrap_estimates(xs, beta, boot_coefs, link, contrasts, did_cells)
