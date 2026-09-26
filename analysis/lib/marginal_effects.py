@@ -71,6 +71,21 @@ def _apply_third_var(x, label, sv, interactions, row_label, col_label, residenti
     if label in x.columns:
         x[label] = sv
     for _, lbl in interactions:
+        if lbl not in x.columns:
+            # Unlike the bare `label` above (which legitimately may not be its own
+            # regressor -- e.g. a moderator entered only interacted), every entry in
+            # `interactions` is supposed to be one of this model's actual fitted
+            # columns. If it isn't, the caller passed a sweep_interactions/extra_sweeps
+            # block that doesn't match the model actually fit (e.g. LOGIT_INTERACTIONS
+            # passed to a spec that doesn't include it) -- silently writing it would
+            # create a phantom extra column and either break the beta-length matmul or,
+            # worse, silently pad the frame without complaint. Fail loudly instead.
+            raise ValueError(
+                f"{lbl!r} in sweep_interactions/extra_sweeps isn't a column in this "
+                "model's `columns` -- pass the interactions block that was actually "
+                "built into x_vars/columns for this fit (or [] if this third variable "
+                "isn't interacted with Residential/Black in this model at all)"
+            )
         tokens = lbl.split(' x ')
         has_row, has_col = row_label in tokens, col_label in tokens
         if has_row and has_col:
