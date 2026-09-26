@@ -3,19 +3,34 @@
 \caption{Predicted Highway Construction by Zoning Designation and Exposure to Black Homeowners: Squares with Zero Black Homeowners}
 \label{tab:results/predicted_outcomes_black_homeowners_no_black}
 \begin{threeparttable}
-\begin{tabular*}{0.6\textwidth}{@{\extracolsep{\fill}}l*{1}{r}}
+\begin{tabular}{lr@{\hspace{1.2em}}}
 \toprule
  & Estimate \\
 \midrule
-Low Exposure Non-Residential & \makecell[tr]{0.019 \\ (0.007)} \\
-Low Exposure Residential & \makecell[tr]{0.014 \\ (0.004)} \\
-High Exposure Non-Residential & \makecell[tr]{0.029 \\ (0.008)} \\
-High Exposure Residential & \makecell[tr]{0.012 \\ (0.003)} \\
-Low Exposure Protection effect & \makecell[tr]{0.005 \\ (0.007)} \\
-High Exposure Protection effect & \makecell[tr]{0.018{**} \\ (0.007)} \\
-Disparate Protection (Black Protection - White Protection) & \makecell[tr]{0.012{***} \\ (0.004)} \\
+\textit{Panel A: Predicted Probability} & \\
+\addlinespace[2pt]
+Low Exposure & \\
+\quad Non-Residential & 0.019 \\
+ & (0.007) \\[4pt]
+\quad Residential & 0.014 \\
+ & (0.004) \\[4pt]
+High Exposure & \\
+\quad Non-Residential & 0.029 \\
+ & (0.008) \\[4pt]
+\quad Residential & 0.012 \\
+ & (0.003) \\[4pt]
+\midrule
+\textit{Panel B: Protection Effect} & \\
+\addlinespace[2pt]
+Low Exposure & 0.005 \\
+ & (0.007) \\[4pt]
+High Exposure & 0.018\rlap{$^{**}$} \\
+ & (0.007) \\[4pt]
+\addlinespace[2pt]
+\textbf{Disparate Protection} & \textbf{0.012}\rlap{$^{***}$} \\
+(High Exposure $-$ Low Exposure) & (0.004) \\
 \bottomrule
-\end{tabular*}
+\end{tabular}
 \begin{tablenotes}[flushleft]
 \footnotesize
 \item Predicted outcomes from the Firth's bias-reduced logistic regression in Column 2 ofTable \ref{tab:black_homeowners_no_black}, evaluated separately for Residential/Non-Residential areas and neighborhoods at the 25th/75th percentile of Exposure to Black Homeowners. All other covariates are held constant at their own values and reported values are averaged across observations and can be interpreted as average marginal effects. Standard errors are computed via the delta method from the spatial covariance matrix. The Protection Effect is the difference in predicted rates between Residential and Non-Residential areas at each level of exposure to Black Homeowners. *** p < 0.01, ** p < 0.05, * p < 0.1

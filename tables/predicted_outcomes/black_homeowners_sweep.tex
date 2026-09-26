@@ -3,19 +3,36 @@
 \caption{Predicted Highway Construction by Zoning Designation and Exposure to Black Homeowners: Suitability Sweep}
 \label{tab:predicted_outcomes/black_homeowners_sweep}
 \begin{threeparttable}
-\begin{tabular*}{0.6\textwidth}{@{\extracolsep{\fill}}l*{5}{r}}
+\begin{tabular}{lr@{\hspace{1.2em}}r@{\hspace{1.2em}}r@{\hspace{1.2em}}r@{\hspace{1.2em}}r@{\hspace{1.2em}}}
 \toprule
- & 10th Percentile & 25th Percentile & 50th Percentile & 75th Percentile & 90th Percentile \\
+ & \multicolumn{5}{c}{Est. Highway Suitability (Percentile)} \\
+\cmidrule(l){2-6}
+ & 10th & 25th & 50th & 75th & 90th \\
 \midrule
-Low Exposure Non-Residential & \makecell[tr]{0.005 \\ (0.002)} & \makecell[tr]{0.017 \\ (0.008)} & \makecell[tr]{0.067 \\ (0.028)} & \makecell[tr]{0.126 \\ (0.050)} & \makecell[tr]{0.222 \\ (0.083)} \\
-Low Exposure Residential & \makecell[tr]{0.004 \\ (0.002)} & \makecell[tr]{0.016 \\ (0.005)} & \makecell[tr]{0.063 \\ (0.018)} & \makecell[tr]{0.119 \\ (0.035)} & \makecell[tr]{0.212 \\ (0.062)} \\
-High Exposure Non-Residential & \makecell[tr]{0.007 \\ (0.003)} & \makecell[tr]{0.028 \\ (0.009)} & \makecell[tr]{0.103 \\ (0.030)} & \makecell[tr]{0.186 \\ (0.053)} & \makecell[tr]{0.310 \\ (0.082)} \\
-High Exposure Residential & \makecell[tr]{0.003 \\ (0.001)} & \makecell[tr]{0.011 \\ (0.003)} & \makecell[tr]{0.043 \\ (0.013)} & \makecell[tr]{0.084 \\ (0.026)} & \makecell[tr]{0.156 \\ (0.050)} \\
-Low Exposure Protection effect & \makecell[tr]{0.000 \\ (0.002)} & \makecell[tr]{0.001 \\ (0.008)} & \makecell[tr]{0.004 \\ (0.030)} & \makecell[tr]{0.006 \\ (0.051)} & \makecell[tr]{0.010 \\ (0.078)} \\
-High Exposure Protection effect & \makecell[tr]{0.005{*} \\ (0.003)} & \makecell[tr]{0.017{**} \\ (0.008)} & \makecell[tr]{0.060{**} \\ (0.026)} & \makecell[tr]{0.102{**} \\ (0.043)} & \makecell[tr]{0.154{**} \\ (0.060)} \\
-Disparate Protection (Black Protection - White Protection) & \makecell[tr]{0.004{**} \\ (0.002)} & \makecell[tr]{0.016{***} \\ (0.006)} & \makecell[tr]{0.056{***} \\ (0.020)} & \makecell[tr]{0.095{***} \\ (0.036)} & \makecell[tr]{0.144{**} \\ (0.056)} \\
+\textit{Panel A: Predicted Probability} & & & & & \\
+\addlinespace[2pt]
+Low Exposure & & & & & \\
+\quad Non-Residential & 0.005 & 0.017 & 0.067 & 0.126 & 0.222 \\
+ & (0.002) & (0.008) & (0.028) & (0.050) & (0.083) \\[4pt]
+\quad Residential & 0.004 & 0.016 & 0.063 & 0.119 & 0.212 \\
+ & (0.002) & (0.005) & (0.018) & (0.035) & (0.062) \\[4pt]
+High Exposure & & & & & \\
+\quad Non-Residential & 0.007 & 0.028 & 0.103 & 0.186 & 0.310 \\
+ & (0.003) & (0.009) & (0.030) & (0.053) & (0.082) \\[4pt]
+\quad Residential & 0.003 & 0.011 & 0.043 & 0.084 & 0.156 \\
+ & (0.001) & (0.003) & (0.013) & (0.026) & (0.050) \\[4pt]
+\midrule
+\textit{Panel B: Protection Effect} & & & & & \\
+\addlinespace[2pt]
+Low Exposure & 0.000 & 0.001 & 0.004 & 0.006 & 0.010 \\
+ & (0.002) & (0.008) & (0.030) & (0.051) & (0.078) \\[4pt]
+High Exposure & 0.005\rlap{$^{*}$} & 0.017\rlap{$^{**}$} & 0.060\rlap{$^{**}$} & 0.102\rlap{$^{**}$} & 0.154\rlap{$^{**}$} \\
+ & (0.003) & (0.008) & (0.026) & (0.043) & (0.060) \\[4pt]
+\addlinespace[2pt]
+\textbf{Disparate Protection} & \textbf{0.004}\rlap{$^{**}$} & \textbf{0.016}\rlap{$^{***}$} & \textbf{0.056}\rlap{$^{***}$} & \textbf{0.095}\rlap{$^{***}$} & \textbf{0.144}\rlap{$^{**}$} \\
+(High Exposure $-$ Low Exposure) & (0.002) & (0.006) & (0.020) & (0.036) & (0.056) \\
 \bottomrule
-\end{tabular*}
+\end{tabular}
 \begin{tablenotes}[flushleft]
 \footnotesize
 \item Predicted outcomes from the Firth's bias-reduced logistic regression in Column 1 of Table \ref{tab:results/black_homeowners}, evaluated separately for Residential/Non-Residential areas and neighborhoods at the 25th/85th percentile of Exposure to Black Homeowners. All covariates other than Est. Highway Suitability are held constant at their own values while predictions are reported at the 10th, 25th, 50th, 75th, and 90th percentile of the distribution of Highway Suitability values for squares containing a highway. Standard errors are computed via the delta method from the spatial covariance matrix. The Protection Effect is the difference in predicted rates between Residential and Non-Residential areas at each level of exposure to Black Homeowners. *** p < 0.01, ** p < 0.05, * p < 0.1
