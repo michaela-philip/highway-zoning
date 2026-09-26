@@ -4,7 +4,6 @@ from scipy.special import expit
 from scipy.stats import norm
 
 from analysis.lib.specs import RESIDENTIAL_LABEL, BLACK_LABEL, INTERACTION_LABEL
-from helpers.latex_formatting import export_table
 
 # Residential is always binary (0/1) here -- it's a discrete zoning category. Black is
 # binary (0/1) by DEFAULT, but can be reported at two representative levels of a
@@ -615,53 +614,111 @@ def predicted_outcomes_by_stratum_from_fit(res, df, x_vars, columns, sweep_var, 
 
 
 def export_predicted_outcomes_table(results, caption, label,
-                                     widthmultiplier=0.6,
+                                     widthmultiplier=None,
                                      notes=None, column_labels=None,
-                                     black_labels=('White', 'Black')):
+                                     black_labels=None,
+                                     column_group='Est. Highway Suitability'):
     """Export output from predicted_outcomes() / predicted_outcomes_from_fit() --
     {'cells': ..., 'contrasts': ..., 'did': ...}, or {sweep value: {...}} when swept.
 
-    Pass the same black_labels used to generate `results` so the DiD row reads
-    correctly -- e.g. black_labels=('Low Black Access', 'High Black Access')."""
+    Layout: Panel A reports the predicted rate for each Residential x Black cell, grouped
+    under the two Black levels; Panel B the two protection effects (Non-Residential minus
+    Residential) and, in bold, their difference. SEs sit on their own line below each
+    estimate, and significance stars are \\rlap'd so decimal points stay aligned.
+
+    black_labels defaults to the labels already embedded in `results` (e.g. 'Low
+    Exposure'/'High Exposure'); pass it only to override them in the DiD row.
+    column_group is the spanning header over the sweep columns (ignored when not swept;
+    None drops it). widthmultiplier=None keeps the table at its natural width; a number
+    stretches it to that fraction of \\textwidth. Needs booktabs + threeparttable."""
     def stars(p):
-        if p is None: return ''
-        return ('{***}' if p < 0.01 else '{**}' if p < 0.05
-                else '{*}' if p < 0.10 else '')
+        if p is None or np.isnan(p): return ''
+        s = '***' if p < 0.01 else '**' if p < 0.05 else '*' if p < 0.10 else ''
+        return f'\\rlap{{$^{{{s}}}$}}' if s else ''
 
-    def fmt(point, se, p):
-        if se is None:
-            return f"{point:.3f}"
-        return (f"\\makecell[tr]{{{point:.3f}{stars(p)} "
-                f"\\\\ ({se:.3f})}}")
+    def num(x, bold=False):
+        s = f'{x:.3f}'.replace('-', '$-$')
+        return f'\\textbf{{{s}}}' if bold else s
 
-    def build_column(sv_results):
-        rows = {}
-
-        for lbl, (point, se, _) in sv_results['cells'].items():
-            rows[lbl] = fmt(point, se, None)
-
-        for clabel, (diff, se, p) in sv_results['contrasts'].items():
-            rows[clabel] = fmt(diff, se, p)
-
-        did_val, did_se, did_p = sv_results['did']
-        did_key = f'Disparate Protection ({black_labels[1]} Protection - {black_labels[0]} Protection)'
-        rows[did_key] = fmt(did_val, did_se, did_p)
-
-        return rows
-
-    is_sweep = all(
-        isinstance(v, dict) and 'cells' in v
-        for v in results.values()
-    )
+    is_sweep = all(isinstance(v, dict) and 'cells' in v for v in results.values())
     if is_sweep:
-        cols = {
-            (column_labels or {}).get(k, k): build_column(v)
-            for k, v in results.items()
-        }
+        col_results = list(results.values())
+        headers = [(column_labels or {}).get(k, f'{k:.2f}' if isinstance(k, float) else str(k))
+                   for k in results]
     else:
-        cols = {'Estimate': build_column(results)}
+        col_results = [results]
+        headers = ['Estimate']
+    ncol = len(col_results)
+    # '10th Percentile', '25th Percentile', ... -> '10th', '25th', ... under a
+    # '<column_group> (Percentile)' spanning header, so the columns stay narrow
+    if is_sweep and column_group and all(h.endswith(' Percentile') for h in headers):
+        headers = [h[:-len(' Percentile')] for h in headers]
+        column_group = f'{column_group} (Percentile)'
 
-    row_order = list(next(iter(cols.values())).keys())
-    table = pd.DataFrame(cols).reindex(row_order)
-    table.index.name = None
-    export_table(table, caption, label, widthmultiplier, notes)
+    # Black levels come from the contrast keys ('<level> Protection effect'), in (lo, hi) order.
+    contrast_keys = list(col_results[0]['contrasts'])
+    levels = [k[:-len(' Protection effect')] for k in contrast_keys]
+    lo_lbl, hi_lbl = black_labels or levels
+
+    def rows(label, getter, bold=False, indent=True, sublabel=''):
+        """Estimate line plus (when there are SEs) a parenthesized SE line; `sublabel`
+        goes in the SE line's label cell, to split a long label over both lines."""
+        vals = [getter(r) for r in col_results]
+        pad = '\\quad ' if indent else ''
+        lbl = f'\\textbf{{{label}}}' if bold else label
+        est = ' & '.join(num(v[0], bold) + stars(v[2]) for v in vals)
+        out = [f'{pad}{lbl} & {est} \\\\']
+        if any(v[1] is not None for v in vals):
+            ses = ' & '.join('' if v[1] is None else f'({v[1]:.3f})' for v in vals)
+            out.append(f'{sublabel} & {ses} \\\\[4pt]')
+        return out
+
+    def cell(key):
+        return lambda r: (*r['cells'][key][:2], None)
+
+    # panel titles sit in the label column (not a full-width \multicolumn, which would
+    # dump any extra width into the last numeric column of a narrow table)
+    def panel(title):
+        return [f'\\textit{{{title}}}' + ' &' * ncol + ' \\\\', '\\addlinespace[2pt]']
+
+    body = panel('Panel A: Predicted Probability')
+    for lvl in levels:
+        body.append(f'{lvl}' + ' &' * ncol + ' \\\\')
+        for zone in ('Non-Residential', 'Residential'):
+            body += rows(zone, cell(f'{lvl} {zone}'))
+    if 'Sample Average' in col_results[0]['cells']:
+        body += rows('Sample Average', cell('Sample Average'), indent=False)
+    body += ['\\midrule'] + panel('Panel B: Protection Effect')
+    for lvl, ck in zip(levels, contrast_keys):
+        body += rows(lvl, lambda r, k=ck: r['contrasts'][k], indent=False)
+    body.append('\\addlinespace[2pt]')
+    body += rows('Disparate Protection', lambda r: r['did'], bold=True, indent=False,
+                 sublabel=f'({hi_lbl} $-$ {lo_lbl})')
+    body[-1] = body[-1].replace('\\\\[4pt]', '\\\\')
+
+    head = []
+    if is_sweep and column_group:
+        head += [f' & \\multicolumn{{{ncol}}}{{c}}{{{column_group}}} \\\\',
+                 f'\\cmidrule(l){{2-{ncol + 1}}}']
+    head.append(' & ' + ' & '.join(headers) + ' \\\\')
+
+    # extra right padding on each numeric column leaves room for the \rlap'd stars
+    colspec = 'l' + 'r@{\\hspace{1.2em}}' * ncol
+    if widthmultiplier is None:
+        begin, end = f'\\begin{{tabular}}{{{colspec}}}', '\\end{tabular}'
+    else:
+        begin = f'\\begin{{tabular*}}{{{widthmultiplier}\\textwidth}}{{@{{\\extracolsep{{\\fill}}}}{colspec}}}'
+        end = '\\end{tabular*}'
+
+    notes_block = []
+    if notes:
+        items = [f'\\item {n}' for n in ([notes] if isinstance(notes, str) else notes)]
+        notes_block = ['\\begin{tablenotes}[flushleft]', '\\footnotesize', *items, '\\end{tablenotes}']
+
+    text = '\n'.join([
+        '\\begin{table}[h]', '\\centering', f'\\caption{{{caption}}}', f'\\label{{{label}}}',
+        '\\begin{threeparttable}', begin, '\\toprule', *head, '\\midrule', *body,
+        '\\bottomrule', end, *notes_block, '\\end{threeparttable}', '\\end{table}',
+    ]) + '\n'
+    with open('tables/' + label.split(':')[-1] + '.tex', 'w') as f:
+        f.write(text)
