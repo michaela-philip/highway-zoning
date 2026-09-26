@@ -57,13 +57,19 @@ def _black_cells(black_values, black_labels):
 # --------------------------------------------------------------------------
 
 def _apply_third_var(x, label, sv, interactions, row_label, col_label, residential, black):
-    """Set x[label] = sv and recompute each (var, label) pair in `interactions`
-    consistently with it, based on which of row_label/col_label the label's ' x '-joined
-    tokens reference. Shared by _cell_vectors' primary sweep, its extra_sweeps, and
-    _reference_x, so "how a third variable interacted with Residential/Black gets
-    recomputed when Residential/Black are (counterfactually) set" has one
-    implementation regardless of which third variable it is or how many there are."""
-    x[label] = sv
+    """Set x[label] = sv (only if the bare third variable is itself a column in this
+    model -- e.g. a CNN logit entered additively as well as interacted; skip it if the
+    model only includes it interacted, e.g. a moderator like "Any Black Residents" that
+    was never added as its own regressor, since setting a label that isn't an existing
+    column would silently create a phantom extra one instead of overwriting anything)
+    and recompute each (var, label) pair in `interactions` consistently with it, based
+    on which of row_label/col_label the label's ' x '-joined tokens reference. Shared by
+    _cell_vectors' primary sweep, its extra_sweeps, and _reference_x, so "how a third
+    variable interacted with Residential/Black gets recomputed when Residential/Black
+    are (counterfactually) set" has one implementation regardless of which third
+    variable it is or how many there are."""
+    if label in x.columns:
+        x[label] = sv
     for _, lbl in interactions:
         tokens = lbl.split(' x ')
         has_row, has_col = row_label in tokens, col_label in tokens
