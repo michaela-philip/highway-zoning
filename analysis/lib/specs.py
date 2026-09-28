@@ -101,13 +101,25 @@ GEO_CONTROLS = [
     ('elevation', 'Elevation'),
 ]
 
+HWY_40 = [
+    ('hwy_40', 'Intersected by 1940 Highway'),
+]
+
 HH_CONTROLS = [
     ('owner', 'Percent Owner-Occupied'),
-    ('numprec', 'Number of Residents'),
+    ('log_numprec', 'Log(Number of Residents)'),
+]
+
+HH_RACE_CONTROLS = [
+    ('owner', 'Percent Owner-Occupied'),
+    ('log_numprec', 'Log(Number of Residents)'),
+    ('log_black_residents', 'Log(Black Residents)'),
 ]
 
 LOG_DIST_HWY = [
-    ('log_dist_to_hwy', 'Log(Distance to Highway)'),
+    ('dist_to_hwy', 'Distance to Highway'),
+    ('dist_to_hwy_sq', 'Distance to Highway^2'),
+    # ('log_dist_to_hwy', 'Log(Distance to Highway)'),
 ]
 
 CNN_PROB = [

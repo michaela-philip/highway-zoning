@@ -8,7 +8,7 @@ from scipy.spatial import KDTree
 from scipy.spatial.distance import cdist
 import shapely.geometry
 
-def load_sample(size, impute = False):
+def load_sample(size=150, impute = False):
     """Load the grid-square sample and construct the variables used across specifications."""
     path=f'data/output/sample_{size}.pkl'
     df = pd.read_pickle(path)
@@ -27,6 +27,12 @@ def load_sample(size, impute = False):
     df['log_dist_to_rr'] = np.log(df['dist_to_rr'])
     df['log_dist_to_rr_sq'] = df['log_dist_to_rr'] ** 2
     df['log_dist_to_hwy'] = np.log(df['dist_to_hwy'])
+    df['dist_to_hwy_sq'] = df['dist_to_hwy'] ** 2
+    df['log_numprec'] = np.log(df['numprec'])
+    df['Residentialxlog_numprec'] = df['Residential'] * df['log_numprec']
+    df['log_black_residents'] = np.log((df['numprec'] * df['pct_black']) + 0.00001)
+    df['owner'] = 100 * df['owner']
+    df['Residential'] = np.where(df['pct_res'] >= 0.75, 1, 0)
 
     df['slope'] = 100 * df['slope']  # convert to percent slope
     df['mean_hwy_construction'] = df.groupby('city')['hwy'].transform('mean')
@@ -38,8 +44,11 @@ def load_sample(size, impute = False):
     df['mblack_50_pct'] = np.where(df['pct_black'] >= 0.5, 1, 0)
     df['mblack_40_pct'] = np.where(df['pct_black'] >= 0.4, 1, 0)
     df['mixed_black'] = np.where((df['pct_black'] >= 0.3) & (df['pct_black'] < 0.8), 1, 0)
-    df['mblack_mean_pct'] = np.where(df['pct_black'] >= df['pct_black'].mean(), 1, 0)
-    df['mblack_mean_share'] = np.where(df['share_black'] >= df['share_black'].mean(), 1, 0)
+    for city in df['city'].unique():
+        df.loc[df['city'] == city, 'mblack_mean_pct'] = np.where(df.loc[df['city'] == city, 'pct_black'] >= df.loc[df['city'] == city, 'pct_black'].mean(), 1, 0)
+        df.loc[df['city'] == city, 'mblack_mean_share'] = np.where(df.loc[df['city'] == city, 'share_black'] >= df.loc[df['city'] == city, 'share_black'].mean(), 1, 0)
+    # df['mblack_mean_pct'] = np.where(df['pct_black'] >= df['pct_black'].mean(), 1, 0)
+    # df['mblack_mean_share'] = np.where(df['share_black'] >= df['share_black'].mean(), 1, 0)
     df['log_black'] = np.log(df['pct_black'] + 0.000001)
     df['any_black'] = np.where(df['black_pop'] != 0, 1, 0)
     return df

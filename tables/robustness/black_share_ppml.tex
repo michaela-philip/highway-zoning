@@ -1,0 +1,26 @@
+\begin{table}[h]
+\centering
+\caption{Effect of Exposure to Black Residents on Highway Placement}
+\label{tab:robustness/black_share_ppml}
+\begin{threeparttable}
+\begin{tabular*}{0.8\textwidth}{@{\extracolsep{\fill}}l*{2}{r}}
+\toprule
+ & (1) & (2) \\
+\midrule
+Residential & \makecell[tr]{-0.346 \\ (0.364)} & \makecell[tr]{-0.526 \\ (0.358)} \\
+Exposure to Black Population & \makecell[tr]{0.459{*} \\ (0.224)} & \makecell[tr]{0.461{*} \\ (0.218)} \\
+Residential x Exposure to Black Population & \makecell[tr]{-0.980{**} \\ (0.344)} & \makecell[tr]{-1.194{***} \\ (0.360)} \\
+Est. Highway Suitability & \makecell[tr]{1.347{***} \\ (0.126)} & \makecell[tr]{1.488{***} \\ (0.180)} \\
+Residential x High Suitability &  & \makecell[tr]{1.161 \\ (0.699)} \\
+Black x High Suitability &  & \makecell[tr]{-0.918 \\ (0.660)} \\
+Residential x Black x High Suitability &  & \makecell[tr]{3.554{***} \\ (0.987)} \\
+R-squared & 0.323 & 0.339 \\
+Observations & 5236 & 5236 \\
+\bottomrule
+\end{tabular*}
+\begin{tablenotes}[flushleft]
+\footnotesize
+\item Estimates from a Firth's bias-reduced Poisson Pseudo Maximum Likelihood regression model of an indicator for highway construction from 1940-1959 on the covariates listed, as well as controls for housing, geographic, and demographic characteristics. The sample is restricted to squares that are outside the highway corridor. Residential is a binary variable indicating whether 75\% or more of the square is zoned for residential use. Exposure to Black Population is a location-specific weighted average of the share of Black residents in each square. Weights are computed by an exponential decay function of the straight-line distance between squares and set to zero beyond a distance of 3,000 meters. This measure is normalized within each city to account for city-level differences in Black population and concentration. Standard errors, reported in parenthesis, are \textcite{conley_gmm_1999} spatial HAC standard errors with a 1,500-meter distance cutoff. Estimates in column (1) contain an uninteracted measure of highway suitability calculated by a convolutional neural network. Estimates in column (2) include the interaction between the coefficients of interest and a linear spline. *** p < 0.01, ** p < 0.05, * p < 0.1
+\end{tablenotes}
+\end{threeparttable}
+\end{table}

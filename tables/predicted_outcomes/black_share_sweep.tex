@@ -12,30 +12,30 @@
 \textit{Panel A: Predicted Probability} & & & & & \\
 \addlinespace[2pt]
 Low Exposure & & & & & \\
-\quad Non-Residential & 0.003 & 0.013 & 0.053 & 0.101 & 0.183 \\
- & (0.002) & (0.007) & (0.023) & (0.042) & (0.069) \\[4pt]
-\quad Residential & 0.005 & 0.018 & 0.068 & 0.128 & 0.225 \\
- & (0.002) & (0.006) & (0.021) & (0.038) & (0.063) \\[4pt]
+\quad Non-Residential & 0.004 & 0.013 & 0.045 & 0.085 & 0.164 \\
+ & (0.002) & (0.006) & (0.021) & (0.040) & (0.076) \\[4pt]
+\quad Residential & 0.005 & 0.018 & 0.065 & 0.125 & 0.240 \\
+ & (0.002) & (0.006) & (0.020) & (0.040) & (0.082) \\[4pt]
 High Exposure & & & & & \\
-\quad Non-Residential & 0.006 & 0.024 & 0.090 & 0.164 & 0.278 \\
- & (0.003) & (0.008) & (0.027) & (0.048) & (0.076) \\[4pt]
-\quad Residential & 0.002 & 0.009 & 0.038 & 0.074 & 0.139 \\
- & (0.001) & (0.003) & (0.011) & (0.022) & (0.043) \\[4pt]
+\quad Non-Residential & 0.006 & 0.022 & 0.077 & 0.146 & 0.281 \\
+ & (0.003) & (0.008) & (0.025) & (0.049) & (0.098) \\[4pt]
+\quad Residential & 0.003 & 0.010 & 0.035 & 0.068 & 0.130 \\
+ & (0.001) & (0.003) & (0.010) & (0.020) & (0.042) \\[4pt]
 \midrule
 \textit{Panel B: Protection Effect} & & & & & \\
 \addlinespace[2pt]
-Low Exposure & $-$0.001 & $-$0.004 & $-$0.016 & $-$0.027 & $-$0.043 \\
- & (0.002) & (0.008) & (0.028) & (0.049) & (0.077) \\[4pt]
-High Exposure & 0.004\rlap{$^{*}$} & 0.014\rlap{$^{*}$} & 0.052\rlap{$^{**}$} & 0.089\rlap{$^{**}$} & 0.138\rlap{$^{**}$} \\
- & (0.002) & (0.007) & (0.025) & (0.041) & (0.060) \\[4pt]
+Low Exposure & $-$0.002 & $-$0.006 & $-$0.021 & $-$0.039 & $-$0.075 \\
+ & (0.002) & (0.007) & (0.027) & (0.052) & (0.100) \\[4pt]
+High Exposure & 0.003 & 0.012\rlap{$^{*}$} & 0.041\rlap{$^{*}$} & 0.079\rlap{$^{*}$} & 0.151\rlap{$^{*}$} \\
+ & (0.002) & (0.007) & (0.023) & (0.044) & (0.085) \\[4pt]
 \addlinespace[2pt]
-\textbf{Disparate Protection} & \textbf{0.005}\rlap{$^{***}$} & \textbf{0.019}\rlap{$^{***}$} & \textbf{0.067}\rlap{$^{***}$} & \textbf{0.117}\rlap{$^{***}$} & \textbf{0.181}\rlap{$^{***}$} \\
-(High Exposure $-$ Low Exposure) & (0.002) & (0.006) & (0.022) & (0.039) & (0.061) \\
+\textbf{Disparate Protection} & \textbf{0.005}\rlap{$^{***}$} & \textbf{0.017}\rlap{$^{***}$} & \textbf{0.062}\rlap{$^{***}$} & \textbf{0.118}\rlap{$^{***}$} & \textbf{0.226}\rlap{$^{***}$} \\
+(High Exposure $-$ Low Exposure) & (0.002) & (0.006) & (0.020) & (0.040) & (0.083) \\
 \bottomrule
 \end{tabular*}
 \begin{tablenotes}[flushleft]
 \footnotesize
-\item Predicted outcomes from the Firth's bias-reduced logistic regression in Column 1 of Table \ref{tab:results/black_share}, evaluated separately for Residential/Non-Residential areas and neighborhoods at the 25th/75th percentile of Exposure to Black Residents. All covariates other than Est. Highway Suitability are held constant at their own values, including the indicator for the presence of any Black residents, while predictions are reported at the 25th, 50th, 75th, and 90th percentile of the distribution of Highway Suitability values for squares containing a highway. Standard errors are computed via the delta method from the spatial covariance matrix. The Protection Effect is the difference in predicted rates between Residential and Non-Residential areas at each level of exposure to Black Residents. *** p < 0.01, ** p < 0.05, * p < 0.1
+\item Predicted outcomes from the Firth's bias-reduced Poisson Pseudo Maximum Likelihood regression in Column 1 of Table \ref{tab:robustness/black_share_ppml}, evaluated separately for Residential/Non-Residential areas and neighborhoods at the 25th/75th percentile of Exposure to Black Residents. All covariates other than Est. Highway Suitability are held constant at their own values, including the indicator for the presence of any Black residents, while predictions are reported at the 25th, 50th, 75th, and 90th percentile of the distribution of Highway Suitability values for squares containing a highway. Standard errors are computed via the delta method from the spatial covariance matrix. The Protection Effect is the difference in predicted rates between Residential and Non-Residential areas at each level of exposure to Black Residents. *** p < 0.01, ** p < 0.05, * p < 0.1
 \end{tablenotes}
 \end{threeparttable}
 \end{table}

@@ -37,7 +37,7 @@ def _scale_bar(ax, length_m, label):
     ax.text(x + length_m / 2, y + 0.015 * (y1 - y0), label, ha='center', va='bottom', fontsize=9)
 
 
-def plot_access_map(sample, grid, value_col, path, colorbar_label,
+def plot_access_map(sample, grid, value_col, path, colorbar_label, hwy_40 = True, hwy = False,
                     clip_quantiles=(0.01, 0.99), scale_bar_m=2000, figsize=(6.5, 6.5),
                     excluded_label='Not in sample'):
     """
@@ -67,7 +67,10 @@ def plot_access_map(sample, grid, value_col, path, colorbar_label,
             excluded.plot(ax=ax, color=EXCLUDED_GRAY, edgecolor='face', linewidth=0.3)
         sample.plot(ax=ax, column=value_col, cmap=cmap, norm=norm, edgecolor='face', linewidth=0.3)
         # pre-1940 highways drawn on top, for orientation
-        grid[grid['hwy_40'] == 1].plot(ax=ax, color=HWY40_GRAY, edgecolor='face', linewidth=0.3)
+        if hwy_40 == True:
+            grid[grid['hwy_40'] == 1].plot(ax=ax, color=HWY40_GRAY, edgecolor='face', linewidth=0.3)
+        if hwy == True:
+            grid[grid['hwy'] == 1].plot(ax=ax, color=HWY40_GRAY, edgecolor='face', linewidth=0.3)
         ax.set_axis_off()
         ax.set_aspect('equal')
         if scale_bar_m:
@@ -79,10 +82,11 @@ def plot_access_map(sample, grid, value_col, path, colorbar_label,
         cbar.set_label(colorbar_label)
         cbar.outline.set_linewidth(0.5)
 
-        handles = [Patch(facecolor=HWY40_GRAY, label='Pre-1940 highway')]
-        if len(excluded):
-            handles.append(Patch(facecolor=EXCLUDED_GRAY, label=excluded_label))
-        ax.legend(handles=handles, loc='lower right', bbox_to_anchor=(1, 1), ncol=2, frameon=False, fontsize=9)
+        if hwy_40 == True:
+            handles = [Patch(facecolor=HWY40_GRAY, label='Pre-1940 highway')]
+            if len(excluded):
+                handles.append(Patch(facecolor=EXCLUDED_GRAY, label=excluded_label))
+            ax.legend(handles=handles, loc='lower right', bbox_to_anchor=(1, 1), ncol=2, frameon=False, fontsize=9)
 
         os.makedirs(os.path.dirname(path) or '.', exist_ok=True)
         fig.savefig(path, bbox_inches='tight', dpi=300)

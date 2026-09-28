@@ -22,13 +22,14 @@ from helpers.latex_formatting import export_single_regression, export_multiple_r
 
 cell_width = 150
 df = load_sample(cell_width, impute = False)
-df = merge_cnn_probs(df, f'predicted_activation-model1_{cell_width}*.csv', dataroot='cnn/')
+df = merge_cnn_probs(df, f'predicted_activation-model5_{cell_width}*.csv', dataroot='cnn/')
 df = df[df['zoning_change'] != 1]
+
 df = compute_characteristic_access(df, 'hwy_40', 'hwy_access', decay_m = 500, max_dist_m = 1000)
 df = compute_characteristic_access(df, 'hwy_40', 'hwy_access_wide', decay_m = 1500, max_dist_m = 3000)
 
 df_disc = restrict_to_discretionary(df)
-df_disc = compute_characteristic_access(df_disc, 'share_black', 'dem_access', decay_m = 300, max_dist_m = 3000)
+df_disc = compute_characteristic_access(df_disc, 'share_black', 'dem_access', decay_m = 600, max_dist_m = 3000)
 
 candidate_dict = get_candidate_dict(cell_width)
 dir_sample, ind_sample = split_by_candidates(df_disc, candidate_dict)
