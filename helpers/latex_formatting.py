@@ -11,7 +11,9 @@ def _extract_rsquared(results, r2_label):
     deviance-based pseudo R^2). Falls back to results.pseudo_rsquared('cs') -- present
     on an out-of-the-box statsmodels GLM result (e.g. sm.GLM(...).fit()), which has no
     .rsquared at all. `r2_label`, if given, always wins; otherwise defaults to
-    'R-squared' or 'Pseudo R-squared' to match whichever value was actually used."""
+    'R-squared' or 'Pseudo R-squared' to match whichever value was actually used, unless
+    results carries its own .r2_label (an analysis.lib.fit.Fit can)."""
+    r2_label = r2_label or getattr(results, 'r2_label', None)
     rsq = getattr(results, 'rsquared', None)
     if rsq is not None:
         return rsq, (r2_label or 'R-squared')
@@ -30,14 +32,13 @@ def format_regression_results(results, r2_label=None, x_vars=None, columns=None)
 
     `results` just needs .params/.bse/.pvalues/.nobs (see _extract_rsquared above for the
     R^2 row). That covers:
-      - the SimpleNamespace produced by bootstrap_results_to_namespace or returned by
-        analysis.lib.estimators.fit_ppml_conley, and
+      - an analysis.lib.fit.Fit, as returned by every estimator in analysis.lib.estimators
+        and analysis.lib.bootstrap, and
       - an out-of-the-box statsmodels result, e.g. sm.GLM(...).fit() or sm.OLS(...).fit().
 
     By default results.params/.bse/.pvalues are assumed already indexed by friendly
-    display labels with an 'Intercept'/'const' entry (true for everything produced via
-    analysis.lib.bootstrap's fit functions and fit_ppml_conley) -- that entry is dropped
-    automatically, wherever it falls.
+    display labels with an 'Intercept'/'const' entry (true for every Fit) -- that entry is
+    dropped automatically, wherever it falls.
 
     Pass x_vars/columns (as returned by analysis.lib.specs.build_spec) when `results`
     instead comes from a model fit directly on df[x_vars] -- e.g.

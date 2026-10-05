@@ -54,17 +54,6 @@ def load_sample(size=150, impute = False):
     return df
 
 
-def add_interaction(df, var_a, var_b, col=None):
-    """Return the name of the df column holding var_a * var_b, computing and caching it
-    on df (in place) if it isn't already present. Lets spec-building code (see
-    analysis.lib.specs.core_spec/sweep_interactions_spec) derive whatever interaction it
-    needs from a chosen base variable instead of every combination being precomputed."""
-    col = col or f'{var_a}x{var_b}'
-    if col not in df.columns:
-        df[col] = df[var_a] * df[var_b]
-    return col
-
-
 def restrict_to_discretionary(df):
     """Restrict to grid squares that are not part of the 1940 highway network and not
     adjacent to it, i.e. squares where placement in later decades was discretionary."""

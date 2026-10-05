@@ -1,32 +1,42 @@
 import numpy as np
-import pandas as pd
-from types import SimpleNamespace
 import statsmodels.api as sm
 from scipy.spatial.distance import cdist
-from helpers.latex_formatting import format_regression_results
 from scipy.special import expit
-from scipy.stats import norm
 
-def fit_ppml_conley(df, x_vars, columns, y_var='hwy',
-                    cutoff_m=1500, coords=None):
+from analysis.lib.fit import Fit
+
+# Every estimator here takes (df, spec, y_var=..., ...) and returns an analysis.lib.fit.Fit
+# -- see that module.
+
+
+def _design(df, spec, y_var):
+    """(y, X) for fitting: X = spec.design_matrix(df), intercept in column 0."""
+    return df[y_var].to_numpy(dtype=float), spec.design_matrix(df)
+
+
+def _centroids(df, coords):
+    if coords is not None:
+        return coords
+    return np.column_stack([df.geometry.centroid.x.values, df.geometry.centroid.y.values])
+
+
+def _poisson_pseudo_rsq(y, mu):
+    """Deviance-based pseudo R^2 against an intercept-only Poisson fit (whose MLE is
+    mu = mean(y) -- a single parameter estimated from n events is never separation-prone,
+    so the null model doesn't need bias reduction itself)."""
+    def deviance(m):
+        with np.errstate(divide='ignore', invalid='ignore'):
+            return 2 * (np.where(y > 0, y * np.log(y / m), 0.0) - (y - m)).sum()
+    return 1 - deviance(mu) / deviance(np.full_like(y, y.mean()))
+
+
+def fit_ppml_conley(df, spec, y_var='hwy', cutoff_m=1500, coords=None):
     """
-    Fit PPML and compute Conley spatial HAC standard errors.
-    Returns a SimpleNamespace compatible with format_regression_results.
-    
-    Parameters
-    ----------
-    df       : estimation sample
-    x_vars   : raw column names (no intercept)
-    columns  : friendly display names (no intercept, matches x_vars)
-    y_var    : outcome column
-    cutoff_m : Conley distance cutoff in meters
-    coords   : (n,2) coordinate array, or None to use df.geometry
+    Fit PPML and compute Conley spatial HAC standard errors (cutoff_m in meters; coords
+    an (n, 2) array, or None to use df.geometry's centroids).
     """
-    
-    y = df[y_var].values
-    X = np.column_stack([np.ones(len(df)), df[x_vars].values])
-    # X[:,0] is always the intercept — no ambiguity
-    
+    y, X = _design(df, spec, y_var)
+
     # --- fit ---
     model = sm.GLM(
         y, X,
@@ -38,42 +48,16 @@ def fit_ppml_conley(df, x_vars, columns, y_var='hwy',
     
     beta     = model.params        # length k+1, index 0 = intercept
     mu       = model.fittedvalues  # exp(Xb)
-    resid    = y - mu              # Poisson score residuals
-    
-    # --- Conley SEs ---
-    if coords is None:
-        coords = np.column_stack([
-            df.geometry.centroid.x.values,
-            df.geometry.centroid.y.values
-        ])
-    
-    se, V = _conley_inner(X, mu, resid, coords, cutoff_m)
-    
-    assert len(beta) == len(columns), (
-        f"len(beta)={len(beta)} != len(columns)={len(columns)}"
-    )
-    
-    z    = beta / se
-    pval = 2 * (1 - norm.cdf(np.abs(z)))
-    
-    # pseudo R-squared
+
+    _, V = _conley_inner(X, mu, y - mu, _centroids(df, coords), cutoff_m)
+
     try:
         rsq = model.pseudo_rsquared('cs')
     except Exception:
         rsq = None
-    
-    return SimpleNamespace(
-        params   = pd.Series(beta, index=columns),
-        bse      = pd.Series(se,   index=columns),
-        pvalues  = pd.Series(pval,      index=columns),
-        rsquared = rsq,
-        nobs     = float(len(y)),
-        V        = V,
-        mu         = mu,
-        X          = X,
-        y          = y,
-        model      = model,
-    )
+
+    return Fit.from_cov(spec, 'log', beta, V, len(y), rsquared=rsq,
+                        info={'mu': mu, 'model': model})
 
 
 def _conley_inner(X, w, resid, coords, cutoff_m):
@@ -95,7 +79,7 @@ def _conley_inner(X, w, resid, coords, cutoff_m):
     # These matmuls spuriously raise divide-by-zero/overflow RuntimeWarnings on some BLAS
     # backends (observed with Accelerate on macOS) whenever a regressor column is all-zero
     # for a chunk/the whole sample, with no actual NaN/Inf in the result -- see
-    # analysis/lib/marginal_effects.py's _predict for the same false positive.
+    # analysis/lib/marginal_effects.py's _cell_stats for the same false positive.
     with np.errstate(divide='ignore', over='ignore', invalid='ignore'):
         chunk_size = 500
         for i in range(0, n, chunk_size):
@@ -115,7 +99,7 @@ def _conley_inner(X, w, resid, coords, cutoff_m):
     return se, V
 
 
-def fit_ppml_firth(df, x_vars, columns, y_var='hwy', maxiter=200, tol=1e-8):
+def fit_ppml_firth(df, spec, y_var='hwy', maxiter=200, tol=1e-8):
     """
     Fit PPML (Poisson, log link) with Firth's bias-reduction correction (Firth 1993,
     generalized to the GLM family by Kosmidis & Firth 2009, "Bias reduction in
@@ -136,48 +120,16 @@ def fit_ppml_firth(df, x_vars, columns, y_var='hwy', maxiter=200, tol=1e-8):
     otherwise it's exactly standard IRLS. See Kosmidis & Firth (2009) section 3 for the
     canonical-link simplification used here (_firth_irls below).
 
-    Returns a SimpleNamespace compatible with format_regression_results and
-    predicted_outcomes_from_fit, same shape as fit_ppml_conley above: .params, .bse,
-    .pvalues, .rsquared, .nobs, .V (the Firth-corrected covariance -- model-based, not a
-    robust/cluster sandwich; layer one on top separately if you need it).
+    The Fit's covariance is the Firth-corrected one -- model-based, not a robust/cluster
+    sandwich (see fit_ppml_firth_conley for that).
     """
-    y = df[y_var].values.astype(float)
-    X = np.column_stack([np.ones(len(df)), df[x_vars].values.astype(float)])
-
+    y, X = _design(df, spec, y_var)
     beta, mu, V, n_iter = _firth_irls(X, y, maxiter=maxiter, tol=tol)
-
-    assert len(beta) == len(columns), (
-        f"len(beta)={len(beta)} != len(columns)={len(columns)}"
-    )
-
-    se = np.sqrt(np.diag(V))
-    z = beta / se
-    pval = 2 * (1 - norm.cdf(np.abs(z)))
-
-    # Deviance-based pseudo R^2 against a null (intercept-only) Poisson fit -- a single
-    # parameter estimated from n events is never separation-prone, so the null model
-    # doesn't need bias reduction itself.
-    null_model = sm.GLM(y, np.ones((len(y), 1)), family=sm.families.Poisson(link=sm.families.links.Log())).fit()
-    with np.errstate(divide='ignore', invalid='ignore'):
-        dev_terms = np.where(y > 0, y * np.log(y / mu), 0.0) - (y - mu)
-    deviance = 2 * dev_terms.sum()
-    rsq = 1 - deviance / null_model.deviance
-
-    return SimpleNamespace(
-        params   = pd.Series(beta, index=columns),
-        bse      = pd.Series(se, index=columns),
-        pvalues  = pd.Series(pval, index=columns),
-        rsquared = rsq,
-        nobs     = float(len(y)),
-        V        = V,
-        mu       = mu,
-        X        = X,
-        y        = y,
-        n_iter   = n_iter,
-    )
+    return Fit.from_cov(spec, 'log', beta, V, len(y), rsquared=_poisson_pseudo_rsq(y, mu),
+                        info={'mu': mu, 'n_iter': n_iter})
 
 
-def fit_ppml_firth_conley(df, x_vars, columns, y_var='hwy', maxiter=200, tol=1e-8,
+def fit_ppml_firth_conley(df, spec, y_var='hwy', maxiter=200, tol=1e-8,
                            cutoff_m=1500, coords=None):
     """
     Firth-bias-reduced point estimate (fit_ppml_firth) with Conley spatial-HAC SEs
@@ -196,47 +148,12 @@ def fit_ppml_firth_conley(df, x_vars, columns, y_var='hwy', maxiter=200, tol=1e-
     the correction is asymptotically negligible next to the leading-order sandwich
     variance, which is why this approximation is standard, but it is an approximation).
 
-    Returns the same SimpleNamespace shape as fit_ppml_conley/fit_ppml_firth.
     """
-    y = df[y_var].values.astype(float)
-    X = np.column_stack([np.ones(len(df)), df[x_vars].values.astype(float)])
-
+    y, X = _design(df, spec, y_var)
     beta, mu, _, n_iter = _firth_irls(X, y, maxiter=maxiter, tol=tol)
-    resid = y - mu
-
-    if coords is None:
-        coords = np.column_stack([
-            df.geometry.centroid.x.values,
-            df.geometry.centroid.y.values,
-        ])
-
-    se, V = _conley_inner(X, mu, resid, coords, cutoff_m)
-
-    assert len(beta) == len(columns), (
-        f"len(beta)={len(beta)} != len(columns)={len(columns)}"
-    )
-
-    z = beta / se
-    pval = 2 * (1 - norm.cdf(np.abs(z)))
-
-    null_model = sm.GLM(y, np.ones((len(y), 1)), family=sm.families.Poisson(link=sm.families.links.Log())).fit()
-    with np.errstate(divide='ignore', invalid='ignore'):
-        dev_terms = np.where(y > 0, y * np.log(y / mu), 0.0) - (y - mu)
-    deviance = 2 * dev_terms.sum()
-    rsq = 1 - deviance / null_model.deviance
-
-    return SimpleNamespace(
-        params   = pd.Series(beta, index=columns),
-        bse      = pd.Series(se, index=columns),
-        pvalues  = pd.Series(pval, index=columns),
-        rsquared = rsq,
-        nobs     = float(len(y)),
-        V        = V,
-        mu       = mu,
-        X        = X,
-        y        = y,
-        n_iter   = n_iter,
-    )
+    _, V = _conley_inner(X, mu, y - mu, _centroids(df, coords), cutoff_m)
+    return Fit.from_cov(spec, 'log', beta, V, len(y), rsquared=_poisson_pseudo_rsq(y, mu),
+                        info={'mu': mu, 'n_iter': n_iter})
 
 
 def _firth_irls(X, y, maxiter=200, tol=1e-8):
@@ -257,7 +174,7 @@ def _firth_irls(X, y, maxiter=200, tol=1e-8):
 
     # (n,k)@(k,) matmuls below spuriously raise divide-by-zero/overflow RuntimeWarnings on
     # some BLAS backends (observed with Accelerate on macOS) with no actual NaN/Inf in the
-    # result -- see analysis/lib/marginal_effects.py's _predict for the same false positive.
+    # result -- see analysis/lib/marginal_effects.py's _cell_stats for the same false positive.
     with np.errstate(divide='ignore', over='ignore', invalid='ignore'):
         for n_iter in range(1, maxiter + 1):
             eta = np.log(mu)
@@ -294,7 +211,7 @@ def _firth_irls(X, y, maxiter=200, tol=1e-8):
         V = np.linalg.inv(X.T @ (W[:, None] * X))
     return beta, mu, V, n_iter
 
-def fit_logit_firth(df, x_vars, columns, y_var='hwy', maxiter=200, tol=1e-8):
+def fit_logit_firth(df, spec, y_var='hwy', maxiter=200, tol=1e-8):
     """
     Logit with Firth's bias-reduction penalty (Firth 1993; Heinze & Schemper 2002,
     "A solution to the problem of separation in logistic regression", Stat. Med.) -- the
@@ -308,40 +225,17 @@ def fit_logit_firth(df, x_vars, columns, y_var='hwy', maxiter=200, tol=1e-8):
     holds for Poisson because its third/second cumulant ratio is 1, whereas for Bernoulli
     it's (1 - 2p), giving the h*(1/2 - p) term. See _firth_logit_newton below.
 
-    Returns the same SimpleNamespace shape as fit_ppml_firth (.params, .bse, .pvalues,
-    .rsquared, .nobs, .V, .mu, .X, .y, .n_iter), with .mu = fitted probabilities and .V
-    the model-based Firth covariance (X'WX)^-1. rsquared is McFadden's pseudo R^2, using
-    the unpenalized log-likelihood at the Firth estimate. Use link='logit' in
-    analysis.lib.marginal_effects.predicted_outcomes(_from_fit).
+    The Fit's covariance is the model-based Firth covariance (X'WX)^-1 and info['mu'] the
+    fitted probabilities. rsquared is McFadden's pseudo R^2, using the unpenalized
+    log-likelihood at the Firth estimate.
     """
-    y = df[y_var].values.astype(float)
-    X = np.column_stack([np.ones(len(df)), df[x_vars].values.astype(float)])
-
+    y, X = _design(df, spec, y_var)
     beta, p, V, n_iter = _firth_logit_newton(X, y, maxiter=maxiter, tol=tol)
-
-    assert len(beta) == len(columns), (
-        f"len(beta)={len(beta)} != len(columns)={len(columns)}"
-    )
-
-    se = np.sqrt(np.diag(V))
-    z = beta / se
-    pval = 2 * (1 - norm.cdf(np.abs(z)))
-
-    return SimpleNamespace(
-        params   = pd.Series(beta, index=columns),
-        bse      = pd.Series(se, index=columns),
-        pvalues  = pd.Series(pval, index=columns),
-        rsquared = _mcfadden_rsq(y, X, beta),
-        nobs     = float(len(y)),
-        V        = V,
-        mu       = p,
-        X        = X,
-        y        = y,
-        n_iter   = n_iter,
-    )
+    return Fit.from_cov(spec, 'logit', beta, V, len(y), rsquared=_mcfadden_rsq(y, X, beta),
+                        info={'mu': p, 'n_iter': n_iter})
 
 
-def fit_logit_firth_conley(df, x_vars, columns, y_var='hwy', maxiter=200, tol=1e-8,
+def fit_logit_firth_conley(df, spec, y_var='hwy', maxiter=200, tol=1e-8,
                            cutoff_m=1500, coords=None):
     """
     Firth-bias-reduced logit point estimate (fit_logit_firth) with Conley spatial-HAC SEs
@@ -351,41 +245,13 @@ def fit_logit_firth_conley(df, x_vars, columns, y_var='hwy', maxiter=200, tol=1e
     estimate, which is the standard practical approximation (the penalty's contribution
     is O(1/n)), not an exact variance for the Firth estimator under spatial dependence.
 
-    Returns the same SimpleNamespace shape as fit_logit_firth, with .V the Conley
-    covariance.
+    The Fit's covariance is the Conley covariance.
     """
-    y = df[y_var].values.astype(float)
-    X = np.column_stack([np.ones(len(df)), df[x_vars].values.astype(float)])
-
+    y, X = _design(df, spec, y_var)
     beta, p, _, n_iter = _firth_logit_newton(X, y, maxiter=maxiter, tol=tol)
-
-    if coords is None:
-        coords = np.column_stack([
-            df.geometry.centroid.x.values,
-            df.geometry.centroid.y.values,
-        ])
-
-    se, V = _conley_inner(X, p * (1 - p), y - p, coords, cutoff_m)
-
-    assert len(beta) == len(columns), (
-        f"len(beta)={len(beta)} != len(columns)={len(columns)}"
-    )
-
-    z = beta / se
-    pval = 2 * (1 - norm.cdf(np.abs(z)))
-
-    return SimpleNamespace(
-        params   = pd.Series(beta, index=columns),
-        bse      = pd.Series(se, index=columns),
-        pvalues  = pd.Series(pval, index=columns),
-        rsquared = _mcfadden_rsq(y, X, beta),
-        nobs     = float(len(y)),
-        V        = V,
-        mu       = p,
-        X        = X,
-        y        = y,
-        n_iter   = n_iter,
-    )
+    _, V = _conley_inner(X, p * (1 - p), y - p, _centroids(df, coords), cutoff_m)
+    return Fit.from_cov(spec, 'logit', beta, V, len(y), rsquared=_mcfadden_rsq(y, X, beta),
+                        info={'mu': p, 'n_iter': n_iter})
 
 
 def _logit_loglik(y, eta):
