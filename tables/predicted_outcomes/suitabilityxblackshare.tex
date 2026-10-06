@@ -1,0 +1,39 @@
+\begin{table}[h]
+\centering
+\caption{Predicted Highway Construction by Exposure to Black Residents}
+\label{tab:predicted_outcomes/suitabilityxblackshare}
+\begin{threeparttable}
+\begin{tabular*}{1\textwidth}{@{\extracolsep{\fill}}lr@{\hspace{1.2em}}}
+\toprule
+ & Estimate \\
+\midrule
+\textit{Panel A: Predicted Probability} & \\
+\addlinespace[2pt]
+Low Exposure & \\
+\quad 75th Percentile & 0.091 \\
+ & (0.031) \\[4pt]
+\quad 25th Percentile & 0.018 \\
+ & (0.007) \\[4pt]
+High Exposure & \\
+\quad 75th Percentile & 0.134 \\
+ & (0.030) \\[4pt]
+\quad 25th Percentile & 0.016 \\
+ & (0.004) \\[4pt]
+\midrule
+\textit{Panel B: Effect of Suitability} & \\
+\addlinespace[2pt]
+Low Exposure & 0.073\rlap{$^{***}$} \\
+ & (0.027) \\[4pt]
+High Exposure & 0.118\rlap{$^{***}$} \\
+ & (0.028) \\[4pt]
+\addlinespace[2pt]
+\textbf{Difference due to Exposure} & \textbf{0.045}\rlap{$^{**}$} \\
+(High Exposure $-$ Low Exposure) & (0.022) \\
+\bottomrule
+\end{tabular*}
+\begin{tablenotes}[flushleft]
+\footnotesize
+\item Predicted outcomes from the Firth's bias-reduced logistic regression in Table \ref{tab:results/suitabilityxblackshare}, evaluated for areas at the 25th and 75th percentile  of Highway Suitability and the 25th and 75th percentile of Exposure to Black Residents.All other covariates are held constant at their own values. The Effect of Suitability is the difference in predicted rates between areas at the 75th and 25th percentile of Highway Suitability. The Difference due to Exposure is the difference in the Effect of Suitability for areas at the 25th percentile of Exposure to Black Residents and those at the 75th percentile. Standard errors are computed via the delta method from the spatial covariance matrix.  *** p < 0.01, ** p < 0.05, * p < 0.1
+\end{tablenotes}
+\end{threeparttable}
+\end{table}
