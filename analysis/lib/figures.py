@@ -7,6 +7,9 @@ import numpy as np
 from matplotlib.colors import LinearSegmentedColormap, Normalize
 from matplotlib.lines import Line2D
 from matplotlib.patches import Patch
+from matplotlib.ticker import PercentFormatter
+
+from analysis.lib.marginal_effects import Sweep, predicted_outcomes
 
 # Paul Tol's sequential YlOrBr scheme (https://personal.sron.nl/~pault/) -- color-blind
 # safe, prints well in grayscale, and matches the Tol colors used in the paper.
@@ -109,122 +112,178 @@ def export_figure_tex(image_path, caption, label, notes=None, width=r'\textwidth
         f.write('\n'.join(lines) + '\n')
 
 
-# Paul Tol's vibrant blue/orange -- color-blind safe pair for the two `across` levels of a
-# predicted-outcomes plot; the difference between them is drawn in neutral black
+# Paul Tol's vibrant blue/orange -- color-blind safe pair for the two `across` levels of an
+# effect-curve plot; the difference between them is drawn in neutral black
 ACROSS_COLORS = ['#0077BB', '#EE7733']
 DIFF_COLOR = '#222222'
 
 
-def plot_predicted_outcomes(result, path=None, figsize=(7.5, 3.4), panels=('cells', 'effects'),
-                            column_group=None, ylabel=None, connect=None):
+def plot_effect_curves(fit, df, comparison, sweep_var, values=None, hold=None, eval_at='ame',
+                       path=None, xlabel=None, percent_x=False, title=None, ylabel=None,
+                       figsize=(5.5, 4.6)):
     """
-    Plot a marginal_effects.PredictedOutcomes as a figure that mirrors
-    export_predicted_outcomes_table: Panel A ('cells') the predicted outcome for each of the
-    four cells, Panel B ('effects') the effect at each `across` level and their difference,
-    each with its 95% CI (when the fit carried SEs). The table's columns (Sweep levels,
-    Strata bins, or the single 'Estimate') run along the x-axis; points at the same column
-    are dodged so their CIs don't overlap.
+    Plot a marginal_effects.Comparison as smooth curves over a continuous `sweep_var`:
+    the top panel shows the effect (first effect level minus second) at each of the two
+    `across` levels, labeled at their right ends; the bottom panel shows the difference
+    between them (second across level minus first) on its own scale, with a zero line.
 
-    Color identifies the `across` level; within Panel A, filled vs. hollow markers
-    distinguish the two `effect` levels, so nothing relies on color alone.
+    95% CIs: in the top panel each is drawn as a pair of thin dashed lines in its curve's
+    color rather than a filled band, so the two intervals stay readable where they
+    overlap; the difference, alone in its panel, gets a shaded band.
 
-    panels        which panels to draw, in order -- ('cells',), ('effects',), or both.
-    column_group  x-axis title (default: the Sweep/Strata title).
-    ylabel        Panel A y-axis label (default: 'Predicted Probability' under a logit
-                  link, else 'Predicted Outcome').
-    connect       join points across columns with lines (default: only when there's
-                  more than one column).
+    Runs predicted_outcomes once with a Sweep over `values` (default: 21 evenly spaced
+    points between the 2nd and 98th percentiles of df[sweep_var]) -- every point costs
+    four predictions, so trim `values` if bootstrap draws make that slow. hold / eval_at
+    are passed through. percent_x formats a 0-1 sweep variable as 0%-100%.
     Saves to `path` (use .pdf for a vector figure) and closes the figure if given;
     otherwise returns the figure.
     """
-    cmp = result.comparison
-    f = result.frame
-    cols = list(result.columns)
-    across, effect = list(cmp.across_levels), list(cmp.effect_levels)
-    lookup = {(r['column'], r['label']): r for _, r in f.iterrows()}
-    connect = len(cols) > 1 if connect is None else connect
+    cmp = comparison
+    if sweep_var.var in (cmp.effect.var, cmp.across.var):
+        raise ValueError(f"sweep_var {sweep_var.label!r} is the comparison's effect/across variable -- "
+                         "the comparison overrides it, so every point would be identical")
+    if values is None:
+        values = np.linspace(*df[sweep_var.var].quantile([0.02, 0.98]), 21)
+    values = np.asarray(values, dtype=float)
+    names = [f'x{i}' for i in range(len(values))]
+    res = predicted_outcomes(fit, df, cmp, columns=Sweep(sweep_var, dict(zip(names, values))),
+                             hold=hold, eval_at=eval_at, verbose=False)
+    f = res.frame
 
-    headers, xtitle = cols, column_group or result.column_title
-    # '10th Percentile', ... -> '10th', ... under a '<title> (Percentile)' axis label
-    if xtitle and all(h.endswith(' Percentile') for h in headers):
-        headers = [h[:-len(' Percentile')] for h in headers]
-        xtitle = f'{xtitle} (Percentile)'
-    x = np.arange(len(cols))
+    def curve(label):
+        r = f[f['label'] == label].set_index('column').loc[names]
+        return r['estimate'].to_numpy(), r['ci_lo'].to_numpy(), r['ci_hi'].to_numpy()
 
-    def series(ax, key, offset, color, marker, filled):
-        rows = [lookup[(c, key)] for c in cols]
-        est = np.array([r['estimate'] for r in rows])
-        lo = np.array([r['ci_lo'] for r in rows])
-        hi = np.array([r['ci_hi'] for r in rows])
-        xs = x + offset
-        if connect:
-            ax.plot(xs, est, color=color, lw=1.2, alpha=0.6, zorder=2)
+    across = list(cmp.across_levels)
+
+    def style(ax):
+        ax.set_xlim(values[0], values[-1])
+        ax.axhline(0, color='#888888', lw=0.8, ls='--', zorder=1.5)
+        ax.grid(axis='y', color='#EEEEEE', lw=0.6)
+        ax.set_axisbelow(True)
+        for side in ('top', 'right'):
+            ax.spines[side].set_visible(False)
+        if percent_x:
+            ax.xaxis.set_major_formatter(PercentFormatter(1, decimals=0))
+            if values[0] >= 0 and values[-1] <= 1:
+                ax.set_xticks([t for t in (0, 0.25, 0.5, 0.75, 1) if values[0] <= t <= values[-1]])
+
+    with matplotlib.rc_context(FIG_RC):
+        fig, (top, bot) = plt.subplots(2, 1, figsize=figsize, sharex=True,
+                                       gridspec_kw={'height_ratios': [2.2, 1], 'hspace': 0.25})
+        ends = []
+        for color, a in zip(ACROSS_COLORS, across):
+            est, lo, hi = curve(f'{a} {cmp.effect_name}')
+            top.plot(values, est, color=color, lw=2, zorder=3)
+            if np.isfinite(lo).any():
+                for bound in (lo, hi):
+                    top.plot(values, bound, color=color, lw=0.9, ls=(0, (4, 2)), alpha=0.85, zorder=2)
+            ends.append((est[-1], a))
+        style(top)
+        top.set_ylabel(ylabel or cmp.effect_name)
+        if title:
+            top.set_title(title, fontsize=10, loc='left')
+
+        # direct labels at the right end of each curve, nudged apart if they'd collide
+        y0, y1 = top.get_ylim()
+        min_gap = 0.07 * (y1 - y0)
+        (ya, la), (yb, lb) = sorted(ends)
+        if yb - ya < min_gap:
+            mid = (ya + yb) / 2
+            ya, yb = mid - min_gap / 2, mid + min_gap / 2
+        for y, lbl in ((ya, la), (yb, lb)):
+            top.annotate(lbl, (values[-1], y), xytext=(6, 0), textcoords='offset points',
+                         va='center', fontsize=9, color='#222222', annotation_clip=False)
+
+        est, lo, hi = curve(cmp.difference_name)
         if np.isfinite(lo).any():
-            ax.errorbar(xs, est, yerr=[est - lo, hi - est], fmt='none', ecolor=color,
-                        elinewidth=1.2, capsize=0, zorder=3)
-        ax.plot(xs, est, linestyle='none', marker=marker, markersize=6.5, color=color,
+            bot.fill_between(values, lo, hi, color=DIFF_COLOR, alpha=0.12, lw=0)
+        bot.plot(values, est, color=DIFF_COLOR, lw=2, zorder=3)
+        style(bot)
+        bot.set_title(f'{cmp.difference_name} ({across[1]} − {across[0]})', fontsize=10, loc='left')
+        bot.set_ylabel('Difference')
+        bot.set_xlabel(xlabel or sweep_var.label)
+        fig.align_ylabels([top, bot])
+
+        if path is None:
+            return fig
+        os.makedirs(os.path.dirname(path) or '.', exist_ok=True)
+        fig.savefig(path, bbox_inches='tight', dpi=300)
+        plt.close(fig)
+
+
+def plot_comparison(result, path=None, figsize=(5, 3.4), ylabel=None):
+    """
+    Plot a single-column marginal_effects.PredictedOutcomes (predicted_outcomes with
+    columns=None) -- the no-sweep counterpart of plot_effect_curves. Panel A shows the
+    predicted outcome in each of the four cells, Panel B the effect at each `across` level
+    and their difference against a zero line, all with 95% CIs (when the fit carried SEs).
+
+    Color identifies the `across` level; in Panel A filled vs. hollow markers distinguish
+    the two `effect` levels, and the difference is a black diamond, so nothing relies on
+    color alone. One legend sits under the figure, keyed by those encodings.
+
+    ylabel  Panel A y-axis label (default: 'Predicted Probability' under a logit link,
+            else 'Predicted Outcome').
+    Saves to `path` (use .pdf for a vector figure) and closes the figure if given;
+    otherwise returns the figure.
+    """
+    if len(result.columns) != 1:
+        raise ValueError(f"plot_comparison takes a single-column result (got {len(result.columns)} "
+                         "columns) -- for a sweep use plot_effect_curves")
+    cmp = result.comparison
+    col = result.columns[0]
+    rows = result.frame[result.frame['column'] == col].set_index('label')
+    across, effect = list(cmp.across_levels), list(cmp.effect_levels)
+
+    def point(ax, label, x, color, marker='o', filled=True):
+        r = rows.loc[label]
+        if np.isfinite(r['ci_lo']):
+            ax.errorbar(x, r['estimate'], yerr=[[r['estimate'] - r['ci_lo']], [r['ci_hi'] - r['estimate']]],
+                        fmt='none', ecolor=color, elinewidth=1.2, capsize=0, zorder=3)
+        ax.plot(x, r['estimate'], linestyle='none', marker=marker, markersize=6.5, color=color,
                 markerfacecolor=color if filled else 'white', markeredgewidth=1.4, zorder=4)
 
-    def style(ax, title):
+    def style(ax, title, ylab, n):
         ax.set_title(title, fontsize=10, loc='left')
-        ax.set_xticks(x)
-        ax.set_xticklabels(headers if len(cols) > 1 else [''])
-        pad = 0.5 if len(cols) > 1 else 0.35
-        ax.set_xlim(-pad, len(cols) - 1 + pad)
-        if xtitle and len(cols) > 1:
-            ax.set_xlabel(xtitle)
+        ax.set_ylabel(ylab)
+        ax.set_xticks([])
+        ax.set_xlim(-0.6, n - 0.4)
         ax.grid(axis='y', color='#E5E5E5', lw=0.6)
         ax.set_axisbelow(True)
         for side in ('top', 'right'):
             ax.spines[side].set_visible(False)
-        ax.tick_params(axis='x', length=0)
 
-    letters = iter('ABC')
     with matplotlib.rc_context(FIG_RC):
-        fig, axes = plt.subplots(1, len(panels), figsize=figsize, squeeze=False)
-        for ax, panel in zip(axes[0], panels):
-            if panel == 'cells':
-                width = 0.12
-                offsets = np.array([-1.5, -0.5, 0.5, 1.5]) * width
-                i = 0
-                for ai, a in enumerate(across):
-                    for ei, e in enumerate(effect):
-                        series(ax, f'{a} {e}', offsets[i], ACROSS_COLORS[ai], 'o', ei == 0)
-                        i += 1
-                if (f['kind'] == 'reference').any():
-                    ref = [lookup[(c, 'Sample Average')]['estimate'] for c in cols]
-                    ax.hlines(ref, x - 0.4, x + 0.4, color='#888888', lw=1, linestyles=':', zorder=1)
-                ax.set_ylabel(ylabel or ('Predicted Probability' if result.link == 'logit'
-                                         else 'Predicted Outcome'))
-                style(ax, f'{next(letters)}. Predicted Outcomes')
-            elif panel == 'effects':
-                width = 0.15
-                ax.axhline(0, color='#888888', lw=0.8, zorder=1)
-                for ai, a in enumerate(across):
-                    series(ax, f'{a} {cmp.effect_name}', (ai - 1) * width, ACROSS_COLORS[ai],
-                           'o', True)
-                series(ax, cmp.difference_name, width, DIFF_COLOR, 'D', True)
-                ax.set_ylabel(cmp.effect_name)
-                style(ax, f'{next(letters)}. {cmp.effect_name}')
-            else:
-                raise ValueError(f"unknown panel {panel!r} -- use 'cells' or 'effects'")
+        fig, (a1, a2) = plt.subplots(1, 2, figsize=figsize)
 
-        # one legend under the figure, keyed by encoding (color = across level, fill =
-        # effect level) rather than one entry per series
+        i = 0
+        for ai, a in enumerate(across):
+            for ei, e in enumerate(effect):
+                point(a1, f'{a} {e}', i, ACROSS_COLORS[ai], filled=(ei == 0))
+                i += 1
+        if 'Sample Average' in rows.index:
+            a1.axhline(rows.loc['Sample Average', 'estimate'], color='#888888', lw=1, ls=':', zorder=1)
+        style(a1, 'A. Predicted Outcomes',
+              ylabel or ('Predicted Probability' if result.link == 'logit' else 'Predicted Outcome'), 4)
+
+        a2.axhline(0, color='#888888', lw=0.8, zorder=1)
+        for ai, a in enumerate(across):
+            point(a2, f'{a} {cmp.effect_name}', ai, ACROSS_COLORS[ai])
+        point(a2, cmp.difference_name, 2, DIFF_COLOR, marker='D')
+        style(a2, f'B. {cmp.effect_name}', cmp.effect_name, 3)
+
         def key(color, marker='o', filled=True, **kw):
             return Line2D([], [], linestyle='none', marker=marker, markersize=6.5, color=color,
                           markerfacecolor=color if filled else 'white', markeredgewidth=1.4, **kw)
         handles = [key(ACROSS_COLORS[i], label=a) for i, a in enumerate(across)]
-        if 'cells' in panels:
-            handles += [key('#777777', filled=(i == 0), label=e) for i, e in enumerate(effect)]
-            if (f['kind'] == 'reference').any():
-                handles.append(Line2D([], [], color='#888888', lw=1, linestyle=':', label='Sample Average'))
-        if 'effects' in panels:
-            handles.append(key(DIFF_COLOR, 'D', label=f'{cmp.difference_name} ({across[1]} − {across[0]})'))
+        handles += [key('#777777', filled=(i == 0), label=e) for i, e in enumerate(effect)]
+        if 'Sample Average' in rows.index:
+            handles.append(Line2D([], [], color='#888888', lw=1, linestyle=':', label='Sample Average'))
+        handles.append(key(DIFF_COLOR, 'D', label=f'{cmp.difference_name} ({across[1]} − {across[0]})'))
         fig.tight_layout()
-        fig.legend(handles=handles, loc='upper center', bbox_to_anchor=(0.5, 0.0),
-                   ncol=min(len(handles), 4), frameon=False, fontsize=8.5,
-                   handletextpad=0.3, columnspacing=1.2)
+        fig.legend(handles=handles, loc='upper center', bbox_to_anchor=(0.5, 0.0), ncol=3,
+                   frameon=False, fontsize=8.5, handletextpad=0.3, columnspacing=1.2)
 
         if path is None:
             return fig
