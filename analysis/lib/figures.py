@@ -120,16 +120,19 @@ DIFF_COLOR = '#222222'
 
 def plot_effect_curves(fit, df, comparison, sweep_var, values=None, hold=None, eval_at='ame',
                        path=None, xlabel=None, percent_x=False, title=None, ylabel=None,
-                       figsize=(5.5, 4.6)):
+                       effect_ci=None, n_whiskers=4, figsize=(5.5, 4.6)):
     """
     Plot a marginal_effects.Comparison as smooth curves over a continuous `sweep_var`:
     the top panel shows the effect (first effect level minus second) at each of the two
     `across` levels, labeled at their right ends; the bottom panel shows the difference
     between them (second across level minus first) on its own scale, with a zero line.
 
-    95% CIs: in the top panel each is drawn as a pair of thin dashed lines in its curve's
-    color rather than a filled band, so the two intervals stay readable where they
-    overlap; the difference, alone in its panel, gets a shaded band.
+    95% CIs: the difference gets a shaded band. The two effects get none by default --
+    their intervals typically nest inside each other and are unreadable as bands or
+    outlines, and whether they overlap is the wrong test anyway (two overlapping CIs can
+    still differ significantly); the bottom panel is the right test. effect_ci='whiskers'
+    adds their CIs as vertical bars at `n_whiskers` evenly spaced points along the curves,
+    nudged apart so the two don't overlap.
 
     Runs predicted_outcomes once with a Sweep over `values` (default: 21 evenly spaced
     points between the 2nd and 98th percentiles of df[sweep_var]) -- every point costs
@@ -138,6 +141,7 @@ def plot_effect_curves(fit, df, comparison, sweep_var, values=None, hold=None, e
     Saves to `path` (use .pdf for a vector figure) and closes the figure if given;
     otherwise returns the figure.
     """
+    assert effect_ci in (None, 'whiskers')
     cmp = comparison
     if sweep_var.var in (cmp.effect.var, cmp.across.var):
         raise ValueError(f"sweep_var {sweep_var.label!r} is the comparison's effect/across variable -- "
@@ -145,6 +149,12 @@ def plot_effect_curves(fit, df, comparison, sweep_var, values=None, hold=None, e
     if values is None:
         values = np.linspace(*df[sweep_var.var].quantile([0.02, 0.98]), 21)
     values = np.asarray(values, dtype=float)
+    whisker_x = np.array([])
+    if effect_ci == 'whiskers':
+        # evenly spaced interior positions (e.g. 20/40/60/80% of the range), added to the
+        # grid so each whisker's CI is computed exactly there
+        whisker_x = np.linspace(values.min(), values.max(), n_whiskers + 2)[1:-1]
+        values = np.union1d(values, whisker_x)
     names = [f'x{i}' for i in range(len(values))]
     res = predicted_outcomes(fit, df, cmp, columns=Sweep(sweep_var, dict(zip(names, values))),
                              hold=hold, eval_at=eval_at, verbose=False)
@@ -175,9 +185,12 @@ def plot_effect_curves(fit, df, comparison, sweep_var, values=None, hold=None, e
         for color, a in zip(ACROSS_COLORS, across):
             est, lo, hi = curve(f'{a} {cmp.effect_name}')
             top.plot(values, est, color=color, lw=2, zorder=3)
-            if np.isfinite(lo).any():
-                for bound in (lo, hi):
-                    top.plot(values, bound, color=color, lw=0.9, ls=(0, (4, 2)), alpha=0.85, zorder=2)
+            if effect_ci == 'whiskers' and np.isfinite(lo).any():
+                idx = np.searchsorted(values, whisker_x)
+                nudge = (len(ends) - 0.5) * 0.012 * (values[-1] - values[0])
+                xs = values[idx] + nudge
+                top.vlines(xs, lo[idx], hi[idx], color=color, lw=1.2, zorder=2)
+                top.plot(xs, est[idx], linestyle='none', marker='o', markersize=4, color=color, zorder=4)
             ends.append((est[-1], a))
         style(top)
         top.set_ylabel(ylabel or cmp.effect_name)
@@ -197,7 +210,7 @@ def plot_effect_curves(fit, df, comparison, sweep_var, values=None, hold=None, e
 
         est, lo, hi = curve(cmp.difference_name)
         if np.isfinite(lo).any():
-            bot.fill_between(values, lo, hi, color=DIFF_COLOR, alpha=0.12, lw=0)
+            bot.fill_between(values, lo, hi, color=DIFF_COLOR, alpha=0.2, lw=0)
         bot.plot(values, est, color=DIFF_COLOR, lw=2, zorder=3)
         style(bot)
         bot.set_title(f'{cmp.difference_name} ({across[1]} − {across[0]})', fontsize=10, loc='left')
