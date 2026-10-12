@@ -227,27 +227,32 @@ def plot_effect_curves(fit, df, comparison, sweep_var, values=None, hold=None, e
         plt.close(fig)
 
 
-def plot_effect_gap(fit, df, effect, sweep_var, effect_levels=None, values=None, hold=None,
-                    eval_at='ame', path=None, xlabel=None, ylabel=None, title=None,
-                    show_levels=False, percent_x=False, figsize=None):
+def plot_predicted_curves(fit, df, effect, sweep_var, effect_levels=None, values=None, hold=None,
+                          eval_at='ame', path=None, xlabel=None, ylabel=None, title=None,
+                          ci=True, show_gap=False, percent_x=False, figsize=None):
     """
-    Plot how the gap between two levels of `effect` (first level minus second) changes
-    as a continuous `sweep_var` moves along the x-axis -- e.g. P(highway | high
-    suitability) - P(highway | low suitability) as Exposure to Black Population rises:
+    Plot the predicted outcome at each of two levels of `effect` as two lines over a
+    continuous `sweep_var` on the x-axis, so the vertical gap between the lines is the
+    effect -- e.g. P(highway) at high vs. low suitability as Exposure to Black Population
+    rises:
 
-        plot_effect_gap(fit, df, SUIT, DEM_ACCESS,
-                        effect_levels={'High Suitability': Q(0.75, hwy), 'Low Suitability': Q(0.25, hwy)})
+        plot_predicted_curves(fit, df, SUIT, DEM_ACCESS,
+                              effect_levels={'High Suitability': Q(0.75, hwy), 'Low Suitability': Q(0.25, hwy)})
 
     Unlike plot_effect_curves (which needs a two-level `across` and sweeps a third
-    variable), the swept variable here *is* the one the gap varies across. At each x every
-    row's sweep_var is set to x and its effect var to each level in turn; the gap and its
-    95% CI (bootstrap if fit.boot, else delta method) are drawn as a line + shaded band.
-    show_levels=True adds a top panel with the two predicted levels themselves.
+    variable), the swept variable here is the x-axis itself. At each x every row's
+    sweep_var is set to x and its effect var to each level in turn, and predictions are
+    averaged over rows (eval_at='ame'); any other Var keeps each row's own value unless
+    set in `hold`.
 
+    ci        shade each line's 95% CI (bootstrap if fit.boot, else delta method).
+              Overlapping bands don't mean the gap is insignificant -- show_gap=True adds
+              a bottom panel with the gap (first level minus second) and its own CI,
+              which is the right test.
     effect_levels  {name: value} (numbers or specs.Q), default effect.levels.
-    values         x grid (default 41 points from the 2nd to 98th percentile of sweep_var).
-    hold / eval_at as in predicted_outcomes. Saves to `path` and closes the figure if
-    given; otherwise returns the figure.
+    values    x grid (default 41 points from the 2nd to 98th percentile of sweep_var).
+    Saves to `path` (use .pdf for a vector figure) and closes the figure if given;
+    otherwise returns the figure.
     """
     _check_in_spec(fit.spec, effect, 'effect')
     _check_in_spec(fit.spec, sweep_var, 'sweep variable')
@@ -282,40 +287,40 @@ def plot_effect_gap(fit, df, effect, sweep_var, effect_levels=None, values=None,
             ax.xaxis.set_major_formatter(PercentFormatter(1, decimals=0))
 
     with matplotlib.rc_context(FIG_RC):
-        if show_levels:
+        if show_gap:
             fig, (top, bot) = plt.subplots(2, 1, figsize=figsize or (5.5, 4.6), sharex=True,
-                                           gridspec_kw={'height_ratios': [1.4, 1], 'hspace': 0.25})
-            for color, n in zip(ACROSS_COLORS, (n0, n1)):
-                est, lo, hi = out[n].T
-                if np.isfinite(lo).any():
-                    top.fill_between(values, lo, hi, color=color, alpha=0.15, lw=0)
-                top.plot(values, est, color=color, lw=2, zorder=3, label=n)
-            top.legend(frameon=False, fontsize=9)
-            style(top)
-            top.set_ylabel('Predicted Probability' if fit.link == 'logit' else 'Predicted Outcome')
-            if title:
-                top.set_title(title, fontsize=10, loc='left')
+                                           gridspec_kw={'height_ratios': [2, 1], 'hspace': 0.25})
         else:
-            fig, bot = plt.subplots(figsize=figsize or (5.5, 3.2))
+            fig, top = plt.subplots(figsize=figsize or (5.5, 3.6))
 
-        est, lo, hi = out['gap'].T
-        if np.isfinite(lo).any():
-            bot.fill_between(values, lo, hi, color=DIFF_COLOR, alpha=0.2, lw=0)
-        bot.plot(values, est, color=DIFF_COLOR, lw=2, zorder=3)
-        bot.axhline(0, color='#888888', lw=0.8, ls='--', zorder=1.5)
-        style(bot)
-        bot.set_ylabel(ylabel or 'Gap')
-        bot.set_title(title if title and not show_levels else f'{n0} − {n1}', fontsize=10, loc='left')
-        bot.set_xlabel(xlabel or sweep_var.label)
-        if show_levels:
+        for color, n in zip(ACROSS_COLORS, (n0, n1)):
+            est, lo, hi = out[n].T
+            if ci and np.isfinite(lo).any():
+                top.fill_between(values, lo, hi, color=color, alpha=0.15, lw=0)
+            top.plot(values, est, color=color, lw=2, zorder=3, label=n)
+        top.legend(frameon=False, fontsize=9)
+        style(top)
+        top.set_ylabel(ylabel or ('Predicted Probability' if fit.link == 'logit' else 'Predicted Outcome'))
+        if title:
+            top.set_title(title, fontsize=10, loc='left')
+
+        if show_gap:
+            est, lo, hi = out['gap'].T
+            if np.isfinite(lo).any():
+                bot.fill_between(values, lo, hi, color=DIFF_COLOR, alpha=0.2, lw=0)
+            bot.plot(values, est, color=DIFF_COLOR, lw=2, zorder=3)
+            bot.axhline(0, color='#888888', lw=0.8, ls='--', zorder=1.5)
+            style(bot)
+            bot.set_title(f'{n0} − {n1}', fontsize=10, loc='left')
+            bot.set_ylabel('Difference')
             fig.align_ylabels([top, bot])
+        (bot if show_gap else top).set_xlabel(xlabel or sweep_var.label)
 
         if path is None:
             return fig
         os.makedirs(os.path.dirname(path) or '.', exist_ok=True)
         fig.savefig(path, bbox_inches='tight', dpi=300)
         plt.close(fig)
-
 
 def plot_comparison(result, path=None, figsize=(5, 3.4), ylabel=None):
     """
