@@ -56,7 +56,7 @@ SUITABILITY = Comparison(effect = SUIT, effect_levels = effect_levels, across = 
                          effect_name='Effect of Suitability', difference_name='Effect of Race')
 
 # sweep across home values
-SWEEP = Sweep(HOUSING_VARS[0], percentile_levels([10, 25, 50, 75, 90]))
+SWEEP = Sweep(HOUSING_VARS[0], percentile_levels([10, 25, 50, 75, 90], where = lambda d: d['valueh_avail'] == 1))
 outcomes1 = predicted_outcomes(fit2, ind_sample, SUITABILITY, columns = SWEEP)
 notes = "Predicted outcomes from the Firth's bias-reduced logistic regression in column 1 of Table \\ref{tab:results/suitabilityxblackshare+xpctres}, " \
 "evaluated for areas differing in highway suitability and exposure to Black residents. High Suitability is defined as the 75th percentile of highway suitability" \

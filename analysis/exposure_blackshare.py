@@ -76,9 +76,6 @@ notes = "Predicted outcomes from the Firth's bias-reduced logistic regression in
 "Standard errors are computed via the delta method from the spatial covariance matrix. *** p < 0.01, ** p < 0.05, * p < 0.1"
 export_predicted_outcomes_table(outcomes1, caption = "Predicted Highway Construction by Exposure to Black Residents",
                          label = 'tab:predicted_outcomes/suitabilityxblackshare', notes = notes, widthmultiplier = 1)
-plot_comparison(outcomes1, path = 'figures/suitabilityxblackshare.pdf')
-export_figure_tex('figures/suitabilityxblackshare.pdf', caption = "Predicted Highway Construction by Exposure to Black Residents", 
-                  label = 'fig:predicted_outcomes/suitabilityxblackshare_fig')
 
 spec2 = Spec(CORE, PCT_RES, CONTROLS)
 fit2 = fit_logit_firth_conley(ind_sample, spec2, y_var='hwy', cutoff_m=1500)
@@ -118,8 +115,8 @@ notes = "Predicted outcomes from the Firth's bias-reduced logistic regression in
 "Standard errors are computed via the delta method from the spatial covariance matrix. *** p < 0.01, ** p < 0.05, * p < 0.1"
 export_predicted_outcomes_table(outcomes2, caption = "Predicted Highway Construction Rates by Exposure to Black Residents and Residential Zoning",
                         label = 'tab:predicted_outcomes/suitabilityxblackshare+pctres', notes = notes, widthmultiplier = 1)
-plot_effect_curves(fit2, ind_sample, SUITABILITY, sweep_var = PCT_RES, path = 'figures/predicted_outcomes_suitabilityxblackshare+pctres')
-export_figure_tex('figures/predicted_outcomes_suitabilityxblackshare+pctres', label = 'fig:predicted_outcomes_suitabilityxblackshare+pctres',
+plot_effect_curves(fit2, ind_sample, SUITABILITY, sweep_var = PCT_RES, path = 'figures/predicted_outcomes_suitabilityxblackshare+pctres.png')
+export_figure_tex('figures/predicted_outcomes_suitabilityxblackshare+pctres.png', label = 'fig:predicted_outcomes_suitabilityxblackshare+pctres',
                     caption = "Predicted Highway Construction Rates by Exposure to Black Residents and Residential Zoning")
 
 outcomes3 = predicted_outcomes(fit3, ind_sample, SUITABILITY, columns = SWEEP)
@@ -135,5 +132,5 @@ export_predicted_outcomes_table(outcomes3, caption = "Predicted Highway Construc
                         label = 'tab:predicted_outcomes/suitabilityxblacksharexpctres', notes = notes, widthmultiplier = 1)
 
 plot_predicted_curves(fit2, ind_sample, SUIT, sweep_var = DEM_ACCESS, effect_levels = effect_levels, path = 'figures/prob_curves_suitabilityxblackshare')
-export_figure_tex('figures/prob_curves_suitabilityxblackshare3', label = 'fig:prob_curves_suitabilityxblackshare', 
+export_figure_tex('figures/prob_curves_suitabilityxblackshare', label = 'fig:prob_curves_suitabilityxblackshare', 
                   caption = 'Predicted Highway Construction by Suitability and Exposure to Black Residents')
