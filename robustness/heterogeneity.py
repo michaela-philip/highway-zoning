@@ -2,23 +2,20 @@ import sys
 from pathlib import Path
 import numpy as np
 import pandas as pd
-import statsmodels.api as sm
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from analysis.lib.data import (
-    load_sample, restrict_to_discretionary, merge_cnn_probs, split_by_candidates, compute_characteristic_access, assign_highway_exposure, widen_highways, city_specific_shares, compute_shares, high_access_indicator
+    load_sample, restrict_to_discretionary, merge_cnn_probs, split_by_candidates, compute_characteristic_access, compute_shares
 )
-from analysis.lib.bootstrap import bootstrap_lpm_table, fit_ols
 from analysis.lib.specs import (
-    CONTINUOUS_EXPOSURE, HOUSING_VARS, HH_CONTROLS, LOG_DIST_HWY, GEO_CONTROLS, CNN_LOGIT, RESIDENTIAL, HWY_ACCESS,
-    build_spec, leaveout_except, core_spec, sweep_interactions_spec, black_definition_note,
+    Spec, interact, cross, labels, leaveout_except, percentile_levels,
+    RES, DEM_ACCESS, ANY_BLACK, SUIT, CNN_LOGIT, HOUSING_VARS, HH_CONTROLS, LOG_DIST_HWY, GEO_CONTROLS, HWY_ACCESS, PCT_RES, MBLACK_MEAN_SHARE,
 )
-from analysis.lib.marginal_effects import (
-    export_predicted_outcomes_table, predicted_outcomes_from_fit, predicted_outcomes_by_stratum_from_fit, export_predicted_outcomes_table
-)
-from analysis.lib.estimators import (fit_ppml_conley, fit_ppml_firth, fit_ppml_firth_conley, fit_logit_firth_conley)
+from analysis.lib.marginal_effects import Comparison, Sweep, Strata, predicted_outcomes, export_predicted_outcomes_table
+from analysis.lib.estimators import fit_logit_firth_conley
 from data_code.candidates import get_candidate_dict
-from helpers.latex_formatting import export_single_regression, export_multiple_regressions, format_regression_results, export_single_regression
+from helpers.latex_formatting import export_multiple_regressions, format_regression_results, export_single_regression
+from analysis.lib.figures import plot_effect_curves, plot_comparison, export_figure_tex
 
 cell_width = 150
 df = load_sample(cell_width, impute = False)
@@ -28,14 +25,12 @@ df = compute_characteristic_access(df, 'hwy_40', 'hwy_access', decay_m = 500, ma
 df = compute_characteristic_access(df, 'hwy_40', 'hwy_access_wide', decay_m = 1500, max_dist_m = 3000)
 
 df_disc = restrict_to_discretionary(df)
-df_disc = compute_characteristic_access(df_disc, 'share_black', 'dem_access', decay_m = 300, max_dist_m = 3000)
+df_disc = compute_characteristic_access(df_disc, 'share_black', 'dem_access', decay_m = 600, max_dist_m = 3000)
 
 candidate_dict = get_candidate_dict(cell_width)
 dir_sample, ind_sample = split_by_candidates(df_disc, candidate_dict)
-ind_sample = compute_shares(ind_sample)
-
+SUIT_SWEEP = Sweep(SUIT, percentile_levels([10, 25, 50, 75, 90], where=lambda d: d['hwy'] == 1))
 knot = ind_sample.loc[ind_sample['hwy'] == 1, 'logit_normalized'].quantile(0.75)
-ind_sample['logit_above_knot'] = np.maximum(0, ind_sample['logit_normalized'] - knot)
 
 ind_sample = compute_shares(ind_sample)
 ### Black == proximity to Black residents
@@ -45,43 +40,59 @@ for city in ind_sample['city'].unique():
     city_std = ind_sample.loc[ind_sample['city'] == city, 'dem_access'].std()
     ind_sample.loc[ind_sample['city'] == city, 'dem_access'] = (ind_sample.loc[ind_sample['city'] == city, 'dem_access'] - city_mean)/ city_std
 
-CORE = core_spec(ind_sample, 'dem_access')
-LOGIT_INTERACTIONS = sweep_interactions_spec(ind_sample, 'dem_access', 'logit_above_knot', 'High Suitability')
-x_vars, columns = build_spec(ind_sample, CORE, CNN_LOGIT, LOGIT_INTERACTIONS, HOUSING_VARS, LOG_DIST_HWY, HH_CONTROLS, GEO_CONTROLS, HWY_ACCESS, include_city_dummies=False)
-model = fit_logit_firth_conley(ind_sample, x_vars, columns, y_var='hwy', cutoff_m=1500)
+# suitability x Black exposure based on share
+CORE = interact(DEM_ACCESS, SUIT)
+CONTROLS = [HOUSING_VARS, LOG_DIST_HWY, HH_CONTROLS, GEO_CONTROLS, HWY_ACCESS]
 
-keep = [label for _, label in CORE + CNN_LOGIT]
+spec2 = Spec(CORE, PCT_RES, CONTROLS)
+fit2 = fit_logit_firth_conley(ind_sample, spec2, y_var='hwy', cutoff_m=1500)
+keep = labels(CORE, PCT_RES)
 
+effect_levels = {'High Suitability': ind_sample.loc[ind_sample['hwy'] == 1, 'logit_normalized'].quantile(0.75),
+                 'Low Suitability': ind_sample.loc[ind_sample['hwy'] == 1, 'logit_normalized'].quantile(0.25)}
+across_levels = {'White': ind_sample['dem_access'].quantile(0.25),
+                 'Black': ind_sample['dem_access'].quantile(0.75)}
+SUITABILITY = Comparison(effect = SUIT, effect_levels = effect_levels, across = DEM_ACCESS, across_levels = across_levels,
+                         effect_name='Effect of Suitability', difference_name='Effect of Race')
 
-notes = "Predicted outcomes from the PPML in Table \\ref{tab:outside_corridor_black_homeowners}, evaluated separately for Residential/Non-Residential areas and neighborhoods at the 25th/75th percentile of Exposure to Black Homeowners. All other covariates are held constant at their own values and reported values are averaged across observations "\
-"and can be interpreted as average marginal effects. Standard errors are computed via the delta method from the spatial covariance matrix. The Protection Effect is the difference in predicted rates between Residential and Non-Residential areas at each level of exposure to Black Homeowners. *** p < 0.01, ** p < 0.05, * p < 0.1" 
-LO, HI = ind_sample['dem_access'].quantile([0.25, 0.75])
-table = predicted_outcomes_by_stratum_from_fit(model, ind_sample, x_vars, columns, link = 'logit', black_values = [LO, HI], black_labels = ['Low Exposure', 'High Exposure'], sweep_var = 'log_valueh', bins = 5, sweep_label = 'Log(Value)', sweep_interactions = None)
-# export_predicted_outcomes_table(table, caption = 'Predicted Highway Construction by Zoning Designation and Exposure to Black Homeowners', label = 'tab:predicted_outcomes_black_homeowners', notes = notes)
+# sweep across home values
+SWEEP = Sweep(HOUSING_VARS[0], percentile_levels([10, 25, 50, 75, 90]))
+outcomes1 = predicted_outcomes(fit2, ind_sample, SUITABILITY, columns = SWEEP)
+notes = "Predicted outcomes from the Firth's bias-reduced logistic regression in column 1 of Table \\ref{tab:results/suitabilityxblackshare+xpctres}, " \
+"evaluated for areas differing in highway suitability and exposure to Black residents. High Suitability is defined as the 75th percentile of highway suitability" \
+"and Low Suitability is defined as the 25th percentile of highway suitability. White areas are defined as those at the 25th percentile of " \
+"Exposure to Black Residents, and Black areas are defined as those at the 75th percentile of Exposure to Black Residents. " \
+"All other covariates are held constant at their own values. The Effect of Suitability is the difference in predicted rates for High and Low suitability areas." \
+"The Effect of Race is the difference in the Effect of Suitability for White and Black areas. " \
+"Each column contains predicted outcomes and differences calculated for a specific level of the natural log of home values. " \
+"Standard errors are computed via the delta method from the spatial covariance matrix. *** p < 0.01, ** p < 0.05, * p < 0.1"
+export_predicted_outcomes_table(outcomes1, caption = "Predicted Highway Construction Rates by Exposure to Black Residents and Home Value",
+                        label = 'tab:heterogeneity/suitabilityxblacksharexvalueh', notes = notes, widthmultiplier = 1)
+# sweep across ownership levels
+SWEEP = Sweep(HH_CONTROLS[0], percentile_levels([10, 25, 50, 75, 90]))
+outcomes2 = predicted_outcomes(fit2, ind_sample, SUITABILITY, columns = SWEEP)
+notes = "Predicted outcomes from the Firth's bias-reduced logistic regression in column 1 of Table \\ref{tab:results/suitabilityxblackshare+xpctres}, " \
+"evaluated for areas differing in highway suitability and exposure to Black residents. High Suitability is defined as the 75th percentile of highway suitability" \
+"and Low Suitability is defined as the 25th percentile of highway suitability. White areas are defined as those at the 25th percentile of " \
+"Exposure to Black Residents, and Black areas are defined as those at the 75th percentile of Exposure to Black Residents. " \
+"All other covariates are held constant at their own values. The Effect of Suitability is the difference in predicted rates for High and Low suitability areas." \
+"The Effect of Race is the difference in the Effect of Suitability for White and Black areas. " \
+"Each column contains predicted outcomes and differences calculated for a specific level of owner-occupancy. " \
+"Standard errors are computed via the delta method from the spatial covariance matrix. *** p < 0.01, ** p < 0.05, * p < 0.1"
+export_predicted_outcomes_table(outcomes2, caption = "Predicted Highway Construction Rates by Exposure to Black Residents and Owner-Occupancy",
+                        label = 'tab:heterogeneity/suitabilityxblacksharexowner', notes = notes, widthmultiplier = 1)
 
-notes = "Predicted outcomes from the PPML in Table \\ref{tab:outside_corridor_black_homeowners}, evaluated separately for Residential/Non-Residential areas and neighborhoods at the 25th/75th percentile of Exposure to Black Homeowners. All other covariates are held constant at their own values and reported values are averaged across observations "\
-"and can be interpreted as average marginal effects. Standard errors are computed via the delta method from the spatial covariance matrix. The Protection Effect is the difference in predicted rates between Residential and Non-Residential areas at each level of exposure to Black Homeowners. *** p < 0.01, ** p < 0.05, * p < 0.1" 
-LO, HI = ind_sample['dem_access'].quantile([0.25, 0.75])
-table = predicted_outcomes_by_stratum_from_fit(model, ind_sample, x_vars, columns, link = 'logit', black_values = [LO, HI], black_labels = ['Low Exposure', 'High Exposure'], sweep_var = 'log_rent', bins = 5, sweep_label = 'Log(Rent)', sweep_interactions = None)
-# export_predicted_outcomes_table(table, caption = 'Predicted Highway Construction by Zoning Designation and Exposure to Black Homeowners', label = 'tab:predicted_outcomes_black_homeowners', notes = notes)
+# sweep across number of residents
+SWEEP = Sweep(HH_CONTROLS[1], percentile_levels([10, 25, 50, 75, 90]))
+outcomes3 = predicted_outcomes(fit2, ind_sample, SUITABILITY, columns = SWEEP)
+notes = "Predicted outcomes from the Firth's bias-reduced logistic regression in column 1 of Table \\ref{tab:results/suitabilityxblackshare+xpctres}, " \
+"evaluated for areas differing in highway suitability and exposure to Black residents. High Suitability is defined as the 75th percentile of highway suitability" \
+"and Low Suitability is defined as the 25th percentile of highway suitability. White areas are defined as those at the 25th percentile of " \
+"Exposure to Black Residents, and Black areas are defined as those at the 75th percentile of Exposure to Black Residents. " \
+"All other covariates are held constant at their own values. The Effect of Suitability is the difference in predicted rates for High and Low suitability areas." \
+"The Effect of Race is the difference in the Effect of Suitability for White and Black areas. " \
+"Each column contains predicted outcomes and differences calculated for a specific level of population. " \
+"Standard errors are computed via the delta method from the spatial covariance matrix. *** p < 0.01, ** p < 0.05, * p < 0.1"
+export_predicted_outcomes_table(outcomes3, caption = "Predicted Highway Construction Rates by Exposure to Black Residents and Population",
+                        label = 'tab:heterogeneity/suitabilityxblacksharexnumprec', notes = notes, widthmultiplier = 1)
 
-notes = "Predicted outcomes from the PPML in Table \\ref{tab:outside_corridor_black_homeowners}, evaluated separately for Residential/Non-Residential areas and neighborhoods at the 25th/75th percentile of Exposure to Black Homeowners. All other covariates are held constant at their own values and reported values are averaged across observations "\
-"and can be interpreted as average marginal effects. Standard errors are computed via the delta method from the spatial covariance matrix. The Protection Effect is the difference in predicted rates between Residential and Non-Residential areas at each level of exposure to Black Homeowners. *** p < 0.01, ** p < 0.05, * p < 0.1" 
-LO, HI = ind_sample['dem_access'].quantile([0.25, 0.75])
-table = predicted_outcomes_by_stratum_from_fit(model, ind_sample, x_vars, columns, link = 'logit', black_values = [LO, HI], black_labels = ['Low Exposure', 'High Exposure'], sweep_var = 'numprec', bins = 5, sweep_label = 'Number of Residents', sweep_interactions = None)
-# export_predicted_outcomes_table(table, caption = 'Predicted Highway Construction by Zoning Designation and Exposure to Black Homeowners', label = 'tab:predicted_outcomes_black_homeowners', notes = notes)
-
-for city in ind_sample['city'].unique():
-    sub = ind_sample[ind_sample['city'] == city]
-    print(f"\n=== {city} (n={len(sub)}) ===")
-    predicted_outcomes_from_fit(model, sub, x_vars, columns, link='logit', eval_at='ame', sweep_interactions = LOGIT_INTERACTIONS,
-                                 black_values=[LO, HI], black_labels=['Low Exposure', 'High Exposure'])
-
-
-ind_sample_mixed = ind_sample.loc[(ind_sample['pct_res'] != 0) & (ind_sample['pct_res'] != 1)]
-pct_res_bin = pd.qcut(ind_sample_mixed['pct_res'], 4, labels=['Q1', 'Q2', 'Q3', 'Q4'])
-for b in pct_res_bin.cat.categories:
-    sub = ind_sample_mixed[pct_res_bin == b]
-    print(f"\n=== pct_res {b} (n={len(sub)}) ===")
-    predicted_outcomes_from_fit(model, sub, x_vars, columns, link='logit', eval_at='ame', sweep_interactions = LOGIT_INTERACTIONS,
-                                 black_values=[LO, HI], black_labels=['Low Exposure', 'High Exposure'])
