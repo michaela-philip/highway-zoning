@@ -1,0 +1,41 @@
+\begin{table}[h]
+\centering
+\caption{Predicted Highway Construction Rates by Exposure to Black Residents and Home Value}
+\label{tab:heterogeneity/suitabilityxblacksharexvalueh}
+\begin{threeparttable}
+\begin{tabular*}{1\textwidth}{@{\extracolsep{\fill}}lr@{\hspace{1.2em}}r@{\hspace{1.2em}}r@{\hspace{1.2em}}r@{\hspace{1.2em}}r@{\hspace{1.2em}}}
+\toprule
+ & \multicolumn{5}{c}{Log(Value) (Percentile)} \\
+\cmidrule(l){2-6}
+ & 10th & 25th & 50th & 75th & 90th \\
+\midrule
+\textit{Panel A: Predicted Probability} & & & & & \\
+\addlinespace[2pt]
+White & & & & & \\
+\quad High Suitability & 0.040 & 0.117 & 0.127 & 0.134 & 0.141 \\
+ & (0.020) & (0.035) & (0.038) & (0.040) & (0.042) \\[4pt]
+\quad Low Suitability & 0.007 & 0.023 & 0.025 & 0.027 & 0.029 \\
+ & (0.003) & (0.009) & (0.010) & (0.011) & (0.012) \\[4pt]
+Black & & & & & \\
+\quad High Suitability & 0.059 & 0.161 & 0.173 & 0.182 & 0.191 \\
+ & (0.022) & (0.033) & (0.036) & (0.038) & (0.041) \\[4pt]
+\quad Low Suitability & 0.006 & 0.021 & 0.023 & 0.025 & 0.026 \\
+ & (0.002) & (0.006) & (0.007) & (0.008) & (0.009) \\[4pt]
+\midrule
+\textit{Panel B: Effect of Suitability} & & & & & \\
+\addlinespace[2pt]
+White & 0.034\rlap{$^{*}$} & 0.094\rlap{$^{***}$} & 0.102\rlap{$^{***}$} & 0.107\rlap{$^{***}$} & 0.113\rlap{$^{***}$} \\
+ & (0.017) & (0.030) & (0.031) & (0.033) & (0.034) \\[4pt]
+Black & 0.052\rlap{$^{**}$} & 0.140\rlap{$^{***}$} & 0.150\rlap{$^{***}$} & 0.158\rlap{$^{***}$} & 0.165\rlap{$^{***}$} \\
+ & (0.021) & (0.029) & (0.032) & (0.033) & (0.035) \\[4pt]
+\addlinespace[2pt]
+\textbf{Effect of Race} & \textbf{0.019}\rlap{$^{*}$} & \textbf{0.046}\rlap{$^{**}$} & \textbf{0.048}\rlap{$^{**}$} & \textbf{0.050}\rlap{$^{**}$} & \textbf{0.052}\rlap{$^{**}$} \\
+(Black $-$ White) & (0.010) & (0.023) & (0.024) & (0.025) & (0.026) \\
+\bottomrule
+\end{tabular*}
+\begin{tablenotes}[flushleft]
+\footnotesize
+\item Predicted outcomes from the Firth's bias-reduced logistic regression in column 1 of Table \ref{tab:results/suitabilityxblackshare+xpctres}, evaluated for areas differing in highway suitability and exposure to Black residents. High Suitability is defined as the 75th percentile of highway suitabilityand Low Suitability is defined as the 25th percentile of highway suitability. White areas are defined as those at the 25th percentile of Exposure to Black Residents, and Black areas are defined as those at the 75th percentile of Exposure to Black Residents. All other covariates are held constant at their own values. The Effect of Suitability is the difference in predicted rates for High and Low suitability areas.The Effect of Race is the difference in the Effect of Suitability for White and Black areas. Each column contains predicted outcomes and differences calculated for a specific level of the natural log of home values. Standard errors are computed via the delta method from the spatial covariance matrix. *** p < 0.01, ** p < 0.05, * p < 0.1
+\end{tablenotes}
+\end{threeparttable}
+\end{table}
