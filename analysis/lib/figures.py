@@ -9,7 +9,9 @@ from matplotlib.lines import Line2D
 from matplotlib.patches import Patch
 from matplotlib.ticker import PercentFormatter
 
-from analysis.lib.marginal_effects import Sweep, predicted_outcomes
+from analysis.lib.marginal_effects import (Sweep, _check_in_spec, _estimate_column,
+                                           predicted_outcomes)
+from analysis.lib.specs import resolve_level
 
 # Paul Tol's sequential YlOrBr scheme (https://personal.sron.nl/~pault/) -- color-blind
 # safe, prints well in grayscale, and matches the Tol colors used in the paper.
@@ -217,6 +219,96 @@ def plot_effect_curves(fit, df, comparison, sweep_var, values=None, hold=None, e
         bot.set_ylabel('Difference')
         bot.set_xlabel(xlabel or sweep_var.label)
         fig.align_ylabels([top, bot])
+
+        if path is None:
+            return fig
+        os.makedirs(os.path.dirname(path) or '.', exist_ok=True)
+        fig.savefig(path, bbox_inches='tight', dpi=300)
+        plt.close(fig)
+
+
+def plot_effect_gap(fit, df, effect, sweep_var, effect_levels=None, values=None, hold=None,
+                    eval_at='ame', path=None, xlabel=None, ylabel=None, title=None,
+                    show_levels=False, percent_x=False, figsize=None):
+    """
+    Plot how the gap between two levels of `effect` (first level minus second) changes
+    as a continuous `sweep_var` moves along the x-axis -- e.g. P(highway | high
+    suitability) - P(highway | low suitability) as Exposure to Black Population rises:
+
+        plot_effect_gap(fit, df, SUIT, DEM_ACCESS,
+                        effect_levels={'High Suitability': Q(0.75, hwy), 'Low Suitability': Q(0.25, hwy)})
+
+    Unlike plot_effect_curves (which needs a two-level `across` and sweeps a third
+    variable), the swept variable here *is* the one the gap varies across. At each x every
+    row's sweep_var is set to x and its effect var to each level in turn; the gap and its
+    95% CI (bootstrap if fit.boot, else delta method) are drawn as a line + shaded band.
+    show_levels=True adds a top panel with the two predicted levels themselves.
+
+    effect_levels  {name: value} (numbers or specs.Q), default effect.levels.
+    values         x grid (default 41 points from the 2nd to 98th percentile of sweep_var).
+    hold / eval_at as in predicted_outcomes. Saves to `path` and closes the figure if
+    given; otherwise returns the figure.
+    """
+    _check_in_spec(fit.spec, effect, 'effect')
+    _check_in_spec(fit.spec, sweep_var, 'sweep variable')
+    if effect.var == sweep_var.var:
+        raise ValueError("effect and sweep_var must be different variables")
+    levels = effect_levels or getattr(effect, 'levels', None)
+    if levels is None or len(levels) != 2:
+        raise ValueError(f"effect ({effect.label}) needs exactly 2 levels -- pass "
+                         "effect_levels={name: value, name: value}")
+    (n0, v0), (n1, v1) = [(n, resolve_level(v, df, effect.var)) for n, v in levels.items()]
+    base = {v.var: resolve_level(val, df, v.var) for v, val in (hold or {}).items()}
+    if values is None:
+        values = np.linspace(*df[sweep_var.var].quantile([0.02, 0.98]), 41)
+    values = np.asarray(values, dtype=float)
+
+    estimands = [(np.array([1.0, 0.0]), {'kind': 'cell', 'label': n0}),
+                 (np.array([0.0, 1.0]), {'kind': 'cell', 'label': n1}),
+                 (np.array([1.0, -1.0]), {'kind': 'effect', 'label': 'gap'})]
+    out = {k: np.empty((len(values), 3)) for k in (n0, n1, 'gap')}
+    for i, x in enumerate(values):
+        cells = [({**base, sweep_var.var: x, effect.var: v}, None) for v in (v0, v1)]
+        for r in _estimate_column(fit, df, cells, estimands, eval_at):
+            out[r['label']][i] = r['estimate'], r['ci_lo'], r['ci_hi']
+
+    def style(ax):
+        ax.set_xlim(values[0], values[-1])
+        ax.grid(axis='y', color='#EEEEEE', lw=0.6)
+        ax.set_axisbelow(True)
+        for side in ('top', 'right'):
+            ax.spines[side].set_visible(False)
+        if percent_x:
+            ax.xaxis.set_major_formatter(PercentFormatter(1, decimals=0))
+
+    with matplotlib.rc_context(FIG_RC):
+        if show_levels:
+            fig, (top, bot) = plt.subplots(2, 1, figsize=figsize or (5.5, 4.6), sharex=True,
+                                           gridspec_kw={'height_ratios': [1.4, 1], 'hspace': 0.25})
+            for color, n in zip(ACROSS_COLORS, (n0, n1)):
+                est, lo, hi = out[n].T
+                if np.isfinite(lo).any():
+                    top.fill_between(values, lo, hi, color=color, alpha=0.15, lw=0)
+                top.plot(values, est, color=color, lw=2, zorder=3, label=n)
+            top.legend(frameon=False, fontsize=9)
+            style(top)
+            top.set_ylabel('Predicted Probability' if fit.link == 'logit' else 'Predicted Outcome')
+            if title:
+                top.set_title(title, fontsize=10, loc='left')
+        else:
+            fig, bot = plt.subplots(figsize=figsize or (5.5, 3.2))
+
+        est, lo, hi = out['gap'].T
+        if np.isfinite(lo).any():
+            bot.fill_between(values, lo, hi, color=DIFF_COLOR, alpha=0.2, lw=0)
+        bot.plot(values, est, color=DIFF_COLOR, lw=2, zorder=3)
+        bot.axhline(0, color='#888888', lw=0.8, ls='--', zorder=1.5)
+        style(bot)
+        bot.set_ylabel(ylabel or 'Gap')
+        bot.set_title(title if title and not show_levels else f'{n0} − {n1}', fontsize=10, loc='left')
+        bot.set_xlabel(xlabel or sweep_var.label)
+        if show_levels:
+            fig.align_ylabels([top, bot])
 
         if path is None:
             return fig
