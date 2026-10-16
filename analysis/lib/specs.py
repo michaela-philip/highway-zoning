@@ -298,12 +298,12 @@ HOUSING_VARS = [
 ]
 
 GEO_CONTROLS = [
-    Var('log_dist_to_rr', 'dist(RR)'),
-    Var('log_dist_to_rr_sq', 'dist(RR^2)'),
-    Var('distance_to_cbd', 'dist(CBD)'),
-    Var('distance_to_cbd_sq', 'dist(CBD^2)'),
+    Var('log_dist_to_rr', 'Dist(RR)'),
+    Var('log_dist_to_rr_sq', 'Dist(RR)^2'),
+    Var('distance_to_cbd', 'Dist(CBD)'),
+    Var('distance_to_cbd_sq', 'Dist(CBD)^2'),
     Var('flood_risk', 'Flood Risk'),
-    Var('dist_water', 'dist(Water)'),
+    Var('dist_water', 'Dist(Water)'),
     Var('slope', 'Slope'),
     Var('elevation', 'Elevation'),
 ]
@@ -318,8 +318,8 @@ HH_CONTROLS = [
 HH_RACE_CONTROLS = HH_CONTROLS + [Var('log_black_residents', 'Log(Black Residents)')]
 
 LOG_DIST_HWY = [
-    Var('dist_to_hwy', 'Distance to Highway'),
-    Var('dist_to_hwy_sq', 'Distance to Highway^2'),
+    Var('dist_to_hwy', 'Dist(Pre-1940 Highway)'),
+    Var('dist_to_hwy_sq', 'Dist(Pre-1940 Highway)^2'),
 ]
 
 HWY_ACCESS = [
