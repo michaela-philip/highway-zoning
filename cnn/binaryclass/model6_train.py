@@ -914,7 +914,8 @@ for epoch in range(curr_epoch, bound_epochs):
                 eval_labels_all = []
 
                 with torch.no_grad():
-                    for eval_i in range(100):
+                    n_eval_batches = 100
+                    for eval_i in range(n_eval_batches):
                         eval_inputs, eval_labels = create_batch(sample_ids_real=sample_eval_real,
                                                                 sample_ids_random=sample_eval_random,
                                                                 sample_ids_uniform=sample_eval_uniform)
@@ -958,7 +959,7 @@ for epoch in range(curr_epoch, bound_epochs):
                     p90 = np.percentile(eval_probs_np, 90)
 
                     print('Held out eval |'
-                        f'loss: {eval_running_loss/eval_interval:.4f} | '
+                        f'loss: {eval_running_loss/n_eval_batches:.4f} | '
                         f'mean prob (hwy=1): {eval_mean_prob_pos:.3f}, (hwy=0): {eval_mean_prob_neg:.3f} | '
                         f'overlap coeff: {overlap:.3f} | '
                         f'recall@0.3: {recall_batch:.3f}'

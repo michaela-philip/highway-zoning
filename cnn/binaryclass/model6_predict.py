@@ -446,7 +446,7 @@ for gid, scores in grid_scores.items():
 
 # save
 date = (datetime.now(timezone.utc) + timedelta(hours=-7)).strftime('%Y-%m-%d--%H-%M')
-filename_out = f'predicted_activation-model5_{cell_width}_{date}.csv'
+filename_out = f'predicted_activation-model6_{cell_width}_{date}.csv'
 
 with open(dataroot + filename_out, 'w') as f:
     f.write('grid_id,logit_hwy,prob_hwy\n')
