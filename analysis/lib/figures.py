@@ -145,6 +145,9 @@ def plot_effect_curves(fit, df, comparison, sweep_var, values=None, hold=None, e
     """
     assert effect_ci in (None, 'whiskers')
     cmp = comparison
+    if cmp.across is None:
+        raise ValueError("needs a two-way Comparison (with `across`) -- for a one-way "
+                         "comparison over a continuous variable use plot_predicted_curves")
     if sweep_var.var in (cmp.effect.var, cmp.across.var):
         raise ValueError(f"sweep_var {sweep_var.label!r} is the comparison's effect/across variable -- "
                          "the comparison overrides it, so every point would be identical")
@@ -342,6 +345,9 @@ def plot_comparison(result, path=None, figsize=(5, 3.4), ylabel=None):
         raise ValueError(f"plot_comparison takes a single-column result (got {len(result.columns)} "
                          "columns) -- for a sweep use plot_effect_curves")
     cmp = result.comparison
+    if cmp.across is None:
+        raise ValueError("needs a two-way Comparison (with `across`) -- for a one-way "
+                         "comparison over a continuous variable use plot_predicted_curves")
     col = result.columns[0]
     rows = result.frame[result.frame['column'] == col].set_index('label')
     across, effect = list(cmp.across_levels), list(cmp.effect_levels)

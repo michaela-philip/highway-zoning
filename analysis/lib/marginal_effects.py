@@ -21,6 +21,13 @@ from analysis.lib.specs import Interaction, Transform, Var, resolve_level
 # consistently -- there are no interaction lists to pass in. Any Var not assigned by the
 # comparison, the columns, or `hold` stays at each row's own value.
 #
+# Leave out `across` for a one-way comparison: just the two effect cells and the effect,
+# no difference row -- e.g. the racial gap at several levels of suitability:
+#
+#   RACE = Comparison(effect=DEM_ACCESS, effect_name='Racial Gap',
+#                     effect_levels={'Black': Q(0.75), 'White': Q(0.25)})
+#   res = predicted_outcomes(fit, df, RACE, columns=Sweep(SUIT, percentile_levels([25, 50, 75])))
+#
 # Levels are {name: value} dicts in order; a value can be a number or a specs.Q quantile,
 # resolved on the full `df` passed to predicted_outcomes (before any Strata split). A
 # continuous Var can be reported at two representative levels this way (e.g. the 25th/75th
@@ -32,7 +39,7 @@ from analysis.lib.specs import Interaction, Transform, Var, resolve_level
 @dataclass
 class Comparison:
     effect: Var
-    across: Var
+    across: Var = None            # None: one-way comparison (no difference row)
     effect_levels: dict = None    # default: effect.levels
     across_levels: dict = None    # default: across.levels
     effect_name: str = 'Effect'
@@ -41,15 +48,17 @@ class Comparison:
     def __post_init__(self):
         self.effect_levels = self.effect_levels or getattr(self.effect, 'levels', None)
         self.across_levels = self.across_levels or getattr(self.across, 'levels', None)
-        for role, var, levels in (('effect', self.effect, self.effect_levels),
-                                  ('across', self.across, self.across_levels)):
+        roles = [('effect', self.effect, self.effect_levels)]
+        if self.across is not None:
+            roles.append(('across', self.across, self.across_levels))
+        for role, var, levels in roles:
             if not isinstance(var, Var):
                 raise TypeError(f"{role} must be a Var (a base column) -- got {var!r}. To compare "
                                 "levels of a transformed variable, use its parent Var.")
             if levels is None or len(levels) != 2:
                 raise ValueError(f"{role} ({var.label}) needs exactly 2 levels -- pass "
                                  f"{role}_levels={{name: value, name: value}}")
-        if self.effect.var == self.across.var:
+        if self.across is not None and self.effect.var == self.across.var:
             raise ValueError("effect and across must be different variables")
 
 
@@ -238,17 +247,22 @@ def predicted_outcomes(fit, df, comparison, columns=None, hold=None, eval_at='am
     assert eval_at in ('ame', 'mean', 'median')
     spec, cmp = fit.spec, comparison
     _check_in_spec(spec, cmp.effect, 'effect')
-    _check_in_spec(spec, cmp.across, 'across')
+    if cmp.across is not None:
+        _check_in_spec(spec, cmp.across, 'across')
 
     base = {v.var: resolve_level(val, df, v.var) for v, val in (hold or {}).items()}
     effect = [(name, resolve_level(v, df, cmp.effect.var)) for name, v in cmp.effect_levels.items()]
-    across = [(name, resolve_level(v, df, cmp.across.var)) for name, v in cmp.across_levels.items()]
+    across = ([(name, resolve_level(v, df, cmp.across.var)) for name, v in cmp.across_levels.items()]
+              if cmp.across is not None else [(None, None)])
 
     # (column name, rows, extra assignment) for each table column
     if columns is None:
         col_specs, title = [('Estimate', df, {})], None
     elif isinstance(columns, Sweep):
         _check_in_spec(spec, columns.var, 'sweep variable')
+        if columns.var.var in (cmp.effect.var, getattr(cmp.across, 'var', None)):
+            raise ValueError(f"sweep variable {columns.var.label!r} is the comparison's effect/across "
+                             "variable -- the comparison overrides it, so every column would be identical")
         col_specs = [(name, df, {columns.var.var: resolve_level(v, df, columns.var.var)})
                      for name, v in columns.levels.items()]
         title = columns.title or columns.var.label
@@ -263,7 +277,6 @@ def predicted_outcomes(fit, df, comparison, columns=None, hold=None, eval_at='am
 
     # cells and the estimands built from them (weights over cells), in display order
     (e0, _), (e1, _) = effect
-    (a0, _), (a1, _) = across
     cell_keys = [(a, e) for a, _ in across for e, _ in effect]
     n_cells = len(cell_keys) + reference_row
 
@@ -272,7 +285,10 @@ def predicted_outcomes(fit, df, comparison, columns=None, hold=None, eval_at='am
         w[i] = 1.0
         return w
 
-    estimands = [(unit(i), {'kind': 'cell', 'across': a, 'effect': e, 'label': f'{a} {e}'})
+    def name(a, rest):
+        return rest if a is None else f'{a} {rest}'
+
+    estimands = [(unit(i), {'kind': 'cell', 'across': a, 'effect': e, 'label': name(a, e)})
                  for i, (a, e) in enumerate(cell_keys)]
     if reference_row:
         estimands.append((unit(len(cell_keys)), {'kind': 'reference', 'across': None,
@@ -281,14 +297,17 @@ def predicted_outcomes(fit, df, comparison, columns=None, hold=None, eval_at='am
     for a, _ in across:
         effect_w[a] = unit(cell_keys.index((a, e0))) - unit(cell_keys.index((a, e1)))
         estimands.append((effect_w[a], {'kind': 'effect', 'across': a, 'effect': None,
-                                        'label': f'{a} {cmp.effect_name}'}))
-    estimands.append((effect_w[a1] - effect_w[a0], {'kind': 'difference', 'across': None,
-                                                    'effect': None, 'label': cmp.difference_name}))
+                                        'label': name(a, cmp.effect_name)}))
+    if cmp.across is not None:
+        (a0, _), (a1, _) = across
+        estimands.append((effect_w[a1] - effect_w[a0], {'kind': 'difference', 'across': None,
+                                                        'effect': None, 'label': cmp.difference_name}))
 
     records = []
     for col_name, rows, col_assign in col_specs:
         assign0 = {**base, **col_assign}
-        cells = [({**assign0, cmp.across.var: av, cmp.effect.var: ev}, (a, e))
+        cells = [({**assign0, **({cmp.across.var: av} if cmp.across is not None else {}),
+                   cmp.effect.var: ev}, (a, e))
                  for a, av in across for e, ev in effect]
         if reference_row:
             cells.append((assign0, None))
@@ -339,7 +358,8 @@ def export_predicted_outcomes_table(result, caption, label, widthmultiplier=1, n
 
     Layout: Panel A reports the predicted rate for each cell, grouped under the two
     `across` levels; Panel B the effect (first effect level minus second) at each `across`
-    level and, in bold, their difference. SEs sit on their own line below each estimate,
+    level and, in bold, their difference. A one-way comparison (no `across`) lists the two
+    effect levels in Panel A and the effect, in bold, in Panel B. SEs sit on their own line below each estimate,
     and significance stars are \\rlap'd so decimal points stay aligned.
 
     column_group is the spanning header over the columns (default: the Sweep/Strata title;
@@ -385,20 +405,29 @@ def export_predicted_outcomes_table(result, caption, label, widthmultiplier=1, n
     def panel(title):
         return [f'\\textit{{{title}}}' + ' &' * ncol + ' \\\\', '\\addlinespace[2pt]']
 
-    across, effect = list(cmp.across_levels), list(cmp.effect_levels)
+    effect = list(cmp.effect_levels)
     body = panel('Panel A: Predicted Probability')
-    for a in across:
-        body.append(a + ' &' * ncol + ' \\\\')
+    if cmp.across is None:
         for e in effect:
-            body += rows(e, f'{a} {e}')
+            body += rows(e, e, indent=False)
+    else:
+        across = list(cmp.across_levels)
+        for a in across:
+            body.append(a + ' &' * ncol + ' \\\\')
+            for e in effect:
+                body += rows(e, f'{a} {e}')
     if (f['kind'] == 'reference').any():
         body += rows('Sample Average', 'Sample Average', indent=False)
     body += ['\\midrule'] + panel(f'Panel B: {cmp.effect_name}')
-    for a in across:
-        body += rows(a, f'{a} {cmp.effect_name}', indent=False)
-    body.append('\\addlinespace[2pt]')
-    body += rows(cmp.difference_name, cmp.difference_name, bold=True, indent=False,
-                 sublabel=f'({across[1]} $-$ {across[0]})')
+    if cmp.across is None:
+        body += rows(cmp.effect_name, cmp.effect_name, bold=True, indent=False,
+                     sublabel=f'({effect[0]} $-$ {effect[1]})')
+    else:
+        for a in across:
+            body += rows(a, f'{a} {cmp.effect_name}', indent=False)
+        body.append('\\addlinespace[2pt]')
+        body += rows(cmp.difference_name, cmp.difference_name, bold=True, indent=False,
+                     sublabel=f'({across[1]} $-$ {across[0]})')
     body[-1] = body[-1].replace('\\\\[4pt]', '\\\\')
 
     head = []
