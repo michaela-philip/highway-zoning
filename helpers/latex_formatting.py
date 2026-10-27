@@ -119,16 +119,33 @@ def _wrap_threeparttable(text, widthmultiplier, notes=None, long=False):
     return text
 
 
-def export_table(df, caption, label, widthmultiplier = 1.0, notes = None):
+def _depvar_row(depvar, num_cols):
+    """LaTeX row naming the dependent variable, inserted just below \\toprule (above the
+    column titles). `depvar` is either a string -- one label spanning every regression
+    column -- or a list with one label per column (for tables whose columns have
+    different outcomes). Labels are passed through as raw LaTeX."""
+    if isinstance(depvar, str):
+        cells = f'\\multicolumn{{{num_cols}}}{{c}}{{{depvar}}}'
+    else:
+        depvar = list(depvar)
+        assert len(depvar) == num_cols, f"{len(depvar)} depvar labels for {num_cols} columns"
+        cells = ' & '.join(depvar)
+    return f'Dependent variable: & {cells} \\\\\n\\cmidrule(lr){{2-{num_cols + 1}}}\n'
+
+
+def export_table(df, caption, label, widthmultiplier = 1.0, notes = None, depvar = None):
     """Export an arbitrary already-formatted DataFrame (any columns, not just regression
     results) as a threeparttable/tabular* LaTeX table -- the same formatting/export
     machinery export_single_regression/export_multiple_regressions use internally, exposed
     directly for tables that aren't per-variable regression coefficients (e.g. descriptive
-    summary statistics)."""
+    summary statistics). `depvar`, if given, adds a 'Dependent variable:' row at the top
+    of the table (see _depvar_row)."""
     num_cols = df.shape[1]
     col_format = '@{\\extracolsep{\\fill}}l*' + f'{{{num_cols}}}' + '{r}'
     text = df.style.format(precision=2, na_rep = '').to_latex(position_float = 'centering',
                 caption=caption, position = 'h', label=label, hrules=True, column_format = col_format)
+    if depvar is not None:
+        text = text.replace('\\toprule\n', '\\toprule\n' + _depvar_row(depvar, num_cols), 1)
     text = _wrap_threeparttable(text, widthmultiplier, notes)
     filename = label.split(':')[-1] + '.tex'
     with open('tables/' + filename, 'w') as f:
@@ -136,15 +153,15 @@ def export_table(df, caption, label, widthmultiplier = 1.0, notes = None):
 
 
 # table with one regression - no concatenating
-def export_single_regression(df, caption, label, widthmultiplier = 1.0, leaveout = None, notes = None):
+def export_single_regression(df, caption, label, widthmultiplier = 1.0, leaveout = None, notes = None, depvar = None):
     df = df.drop(index=leaveout, errors='ignore') if leaveout is not None else df
-    export_table(df, caption, label, widthmultiplier, notes)
+    export_table(df, caption, label, widthmultiplier, notes, depvar)
 
 
 # table with multiple regressions - definition of 'Black' as column title
-def export_multiple_regressions(df_dict, caption, label, leaveout = None, widthmultiplier = 1.0, notes = None):
+def export_multiple_regressions(df_dict, caption, label, leaveout = None, widthmultiplier = 1.0, notes = None, depvar = None):
     renamed_list = [df.rename(columns = {'Coefficient': title}) for title, df in df_dict.items()]
     df = pd.concat(renamed_list, axis = 1)
     df = df.reindex([i for i in df.index if i not in ('R-squared', 'Observations')] + ['R-squared', 'Observations'])
     df = df.drop(index=leaveout, errors='ignore') if leaveout is not None else df
-    export_table(df, caption, label, widthmultiplier, notes)
+    export_table(df, caption, label, widthmultiplier, notes, depvar)
