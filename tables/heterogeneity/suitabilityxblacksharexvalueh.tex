@@ -1,6 +1,6 @@
 \begin{table}[h]
 \centering
-\caption{Heterogeneity by Home Value}
+\caption{Predicted Probabilities: Heterogeneity by Home Value}
 \label{tab:heterogeneity/suitabilityxblacksharexvalueh}
 \begin{threeparttable}
 \begin{tabular*}{1\textwidth}{@{\extracolsep{\fill}}lr@{\hspace{1.2em}}r@{\hspace{1.2em}}r@{\hspace{1.2em}}r@{\hspace{1.2em}}r@{\hspace{1.2em}}}
@@ -11,31 +11,31 @@
 \midrule
 \textit{Panel A: Predicted Probability} & & & & & \\
 \addlinespace[2pt]
-White & & & & & \\
-\quad High Suitability & 0.115 & 0.122 & 0.129 & 0.135 & 0.142 \\
- & (0.034) & (0.036) & (0.038) & (0.040) & (0.042) \\[4pt]
-\quad Low Suitability & 0.022 & 0.024 & 0.026 & 0.027 & 0.029 \\
- & (0.008) & (0.009) & (0.010) & (0.011) & (0.012) \\[4pt]
-Black & & & & & \\
-\quad High Suitability & 0.158 & 0.166 & 0.175 & 0.183 & 0.192 \\
+High Suitability & & & & & \\
+\quad Black & 0.158 & 0.166 & 0.175 & 0.183 & 0.192 \\
  & (0.032) & (0.034) & (0.036) & (0.038) & (0.041) \\[4pt]
-\quad Low Suitability & 0.020 & 0.022 & 0.023 & 0.025 & 0.026 \\
+\quad White & 0.115 & 0.122 & 0.129 & 0.135 & 0.142 \\
+ & (0.034) & (0.036) & (0.038) & (0.040) & (0.042) \\[4pt]
+Low Suitability & & & & & \\
+\quad Black & 0.020 & 0.022 & 0.023 & 0.025 & 0.026 \\
  & (0.006) & (0.006) & (0.007) & (0.008) & (0.009) \\[4pt]
+\quad White & 0.022 & 0.024 & 0.026 & 0.027 & 0.029 \\
+ & (0.008) & (0.009) & (0.010) & (0.011) & (0.012) \\[4pt]
 \midrule
-\textit{Panel B: Effect of Suitability} & & & & & \\
+\textit{Panel B: Difference in Highway Placement by Race} & & & & & \\
 \addlinespace[2pt]
-White & 0.092\rlap{$^{***}$} & 0.098\rlap{$^{***}$} & 0.103\rlap{$^{***}$} & 0.108\rlap{$^{***}$} & 0.113\rlap{$^{***}$} \\
- & (0.029) & (0.030) & (0.032) & (0.033) & (0.034) \\[4pt]
-Black & 0.137\rlap{$^{***}$} & 0.145\rlap{$^{***}$} & 0.152\rlap{$^{***}$} & 0.158\rlap{$^{***}$} & 0.166\rlap{$^{***}$} \\
- & (0.029) & (0.030) & (0.032) & (0.034) & (0.035) \\[4pt]
+High Suitability & 0.043 & 0.045 & 0.047 & 0.048 & 0.050 \\
+ & (0.027) & (0.029) & (0.030) & (0.031) & (0.033) \\[4pt]
+Low Suitability & $-$0.002 & $-$0.002 & $-$0.002 & $-$0.003 & $-$0.003 \\
+ & (0.008) & (0.008) & (0.009) & (0.009) & (0.010) \\[4pt]
 \addlinespace[2pt]
-\textbf{Racial Gap in Suitability Effect} & \textbf{0.045}\rlap{$^{**}$} & \textbf{0.047}\rlap{$^{**}$} & \textbf{0.049}\rlap{$^{**}$} & \textbf{0.051}\rlap{$^{**}$} & \textbf{0.053}\rlap{$^{**}$} \\
-(Black $-$ White) & (0.022) & (0.023) & (0.024) & (0.025) & (0.026) \\
+\textbf{Relative Effect of High Suitability on Black Neighborhoods} & \textbf{0.045}\rlap{$^{**}$} & \textbf{0.047}\rlap{$^{**}$} & \textbf{0.049}\rlap{$^{**}$} & \textbf{0.051}\rlap{$^{**}$} & \textbf{0.053}\rlap{$^{**}$} \\
+(Low Suitability $-$ High Suitability) & (0.022) & (0.023) & (0.024) & (0.025) & (0.026) \\
 \bottomrule
 \end{tabular*}
 \begin{tablenotes}[flushleft]
 \footnotesize
-\item Average predicted probabilities of highway placement from the Firth's bias-reduced logistic regression in Table \ref{tab:results/suitabilityxblackshare}. For each cell, Highway Suitability and Exposure to Black Residents are set to the values below for every observation, Log(Value) is set to the value noted in the column header, and all other covariates are held at their observed values. Predicted probabilities are averaged across observations. High (Low) Suitability sets Highway Suitability to its 75th (25th) percentile; Black (White) areas set Exposure to Black Residents to its 75th (25th) percentile. Effect of Suitability is the difference in predicted probability between High and Low Suitability areas.Racial Difference in Suitability Effect is the difference in the Effect of Suitability between Black and White areas. Standard errors are computed via the delta method from the spatial variance-covariance matrix and reported in parenthesis. P-values are only denoted for the differences reported in Panel B. *** p < 0.01, ** p < 0.05, * p < 0.1
+\item Average predicted probabilities of highway placement from the Firth's bias-reduced logistic regression in Table \ref{tab:results/suitabilityxblackshare}. These probabilities are calculated by holding all covariates except for Highway Suitability, Exposure to Black Residents, and Log(Home Value) at their observed values. Twenty sets of counterfactuals are performed as follows:  High (Low) Suitability sets Highway Suitability to its 75th (25th) percentile; Black (White) areas set Exposure to Black Residents to its 75th (25th) percentile; Log(Home Value) is set to the percentile value noted in each column. Predicted probabilities are averaged across observations for each counterfactual. Effect of Suitability is the difference in predicted probability between High and Low Suitability areas. Racial Difference in Suitability Effect is the difference in the Effect of Suitability between Black and White areas. Standard errors are computed via the delta method from the spatial variance-covariance matrix and reported in parenthesis. P-values are only denoted for the differences reported in Panel B. *** p < 0.01, ** p < 0.05, * p < 0.1
 \end{tablenotes}
 \end{threeparttable}
 \end{table}

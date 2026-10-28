@@ -1,19 +1,21 @@
 \begin{table}[h]
 \centering
-\caption{Highway Suitability, Exposure to Black Residents, and Highway Placement: Interaction with Residential Zoning}
+\caption{Logistic Regression: Triple Interaction of Highway Suitability, Exposure to Black Residents, and Percent Residential}
 \label{tab:results/suitabilityxblacksharexpctres}
 \begin{threeparttable}
 \begin{tabular*}{1.0\textwidth}{@{\extracolsep{\fill}}l*{1}{r}}
 \toprule
+Dependent variable: & \multicolumn{1}{c}{Highway Placement} \\
+\cmidrule(lr){2-2}
  & Coefficient \\
 \midrule
-Exposure to Black Population & \makecell[tr]{0.256 \\ (0.282)} \\
 Est. Highway Suitability & \makecell[tr]{1.049{**} \\ (0.354)} \\
-Exposure to Black Population x Est. Highway Suitability & \makecell[tr]{0.469{*} \\ (0.201)} \\
-Exposure to Black Population x Percent Residential & \makecell[tr]{-1.945{*} \\ (0.761)} \\
-Est. Highway Suitability x Percent Residential & \makecell[tr]{0.835 \\ (0.474)} \\
-Exposure to Black Population x Est. Highway Suitability x Percent Residential & \makecell[tr]{0.297 \\ (0.363)} \\
+Exposure to Black Population & \makecell[tr]{0.256 \\ (0.282)} \\
+Est. Highway Suitability x Exposure to Black Population & \makecell[tr]{0.469{*} \\ (0.201)} \\
 Percent Residential & \makecell[tr]{-1.349{*} \\ (0.618)} \\
+Est. Highway Suitability x Percent Residential & \makecell[tr]{0.835 \\ (0.474)} \\
+Exposure to Black Population x Percent Residential & \makecell[tr]{-1.945{*} \\ (0.761)} \\
+Est. Highway Suitability x Exposure to Black Population x Percent Residential & \makecell[tr]{0.297 \\ (0.363)} \\
 R-squared & 0.303 \\
 Observations & 5236 \\
 \bottomrule

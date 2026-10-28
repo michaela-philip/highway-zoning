@@ -1,0 +1,30 @@
+\begin{table}[h]
+\centering
+\caption{Predicted Probabilities across Highway Suitability Percentiles}
+\label{tab:predicted_outcomes/blackshare_suitabilitysweep}
+\begin{threeparttable}
+\begin{tabular*}{1\textwidth}{@{\extracolsep{\fill}}lr@{\hspace{1.2em}}r@{\hspace{1.2em}}r@{\hspace{1.2em}}r@{\hspace{1.2em}}r@{\hspace{1.2em}}r@{\hspace{1.2em}}r@{\hspace{1.2em}}}
+\toprule
+ & \multicolumn{7}{c}{Est. Highway Suitability (Percentile)} \\
+\cmidrule(l){2-8}
+ & 25th & 50th & 75th & 80th & 85th & 90th & 95th \\
+\midrule
+\textit{Panel A: Predicted Probability} & & & & & & & \\
+\addlinespace[2pt]
+Black & 0.017 & 0.073 & 0.143 & 0.166 & 0.205 & 0.257 & 0.337 \\
+ & (0.004) & (0.015) & (0.031) & (0.036) & (0.045) & (0.056) & (0.071) \\[4pt]
+White & 0.019 & 0.059 & 0.102 & 0.116 & 0.139 & 0.169 & 0.217 \\
+ & (0.007) & (0.019) & (0.033) & (0.037) & (0.045) & (0.055) & (0.071) \\[4pt]
+\midrule
+\textit{Panel B: Effect} & & & & & & & \\
+\addlinespace[2pt]
+\textbf{Effect} & \textbf{$-$0.002} & \textbf{0.014} & \textbf{0.041} & \textbf{0.051}\rlap{$^{*}$} & \textbf{0.067}\rlap{$^{*}$} & \textbf{0.088}\rlap{$^{**}$} & \textbf{0.120}\rlap{$^{**}$} \\
+(Black $-$ White) & (0.006) & (0.016) & (0.026) & (0.029) & (0.034) & (0.041) & (0.050) \\
+\bottomrule
+\end{tabular*}
+\begin{tablenotes}[flushleft]
+\footnotesize
+\item Average predicted probabilities of highway placement from the Firth's bias-reduced logistic regression in Table \ref{tab:results/suitabilityxblackshare+pctres}. These probabilities are calculated by holding all covariates except for Highway Suitability and Exposure to Black Residents at their observed values. Fourteen sets of counterfactuals are performed as follows: Black (White) areas set Exposure to Black Residents to its 75th (25th) percentile; Suitability is set to the percentile values noted in each column. Predicted probabilities are averaged across observations for each counterfactual. Standard errors are computed via the delta method from the spatial variance-covariance matrix and reported in parenthesis. P-values are only denoted for the differences reported in Panel B. *** p < 0.01, ** p < 0.05, * p < 0.1
+\end{tablenotes}
+\end{threeparttable}
+\end{table}

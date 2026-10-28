@@ -48,60 +48,62 @@ spec2 = Spec(CORE, PCT_RES, CONTROLS)
 fit2 = fit_logit_firth_conley(ind_sample, spec2, y_var='hwy', cutoff_m=1500)
 keep = labels(CORE, PCT_RES)
 
-effect_levels = {'High Suitability': ind_sample.loc[ind_sample['hwy'] == 1, 'logit_normalized'].quantile(0.75),
+suit_levels = {'High Suitability': ind_sample.loc[ind_sample['hwy'] == 1, 'logit_normalized'].quantile(0.75),
                  'Low Suitability': ind_sample.loc[ind_sample['hwy'] == 1, 'logit_normalized'].quantile(0.25)}
-across_levels = {'White': ind_sample['dem_access'].quantile(0.25),
-                 'Black': ind_sample['dem_access'].quantile(0.75)}
-SUITABILITY = Comparison(effect = SUIT, effect_levels = effect_levels, across = DEM_ACCESS, across_levels = across_levels,
+race_levels = {'Black': ind_sample['dem_access'].quantile(0.75), 
+                 'White': ind_sample['dem_access'].quantile(0.25)}
+SUITABILITY = Comparison(effect = SUIT, effect_levels = suit_levels, across = DEM_ACCESS, across_levels = race_levels,
                          effect_name='Effect of Suitability', difference_name='Racial Gap in Suitability Effect')
+RACE = Comparison(effect = DEM_ACCESS, effect_levels = race_levels, across = SUIT, across_levels = suit_levels, 
+                  effect_name='Difference in Highway Placement by Race', difference_name='Relative Effect of High Suitability on Black Neighborhoods')
 
 # sweep across home values
 SWEEP = Sweep(HOUSING_VARS[0], percentile_levels([10, 25, 50, 75, 90], where = lambda d: d['valueh_avail'] == 1))
 outcomes1 = predicted_outcomes(fit2, ind_sample, SUITABILITY, columns = SWEEP)
-notes = "Average predicted probabilities of highway placement from the Firth's bias-reduced logistic regression in " \
-"Table \\ref{tab:results/suitabilityxblackshare}. For each cell, Highway Suitability and Exposure to Black Residents are set to the values " \
-"below for every observation, Log(Value) is set to the value noted in the column header, and all other covariates are held at their observed values. " \
-"Predicted probabilities are averaged across observations. " \
-"High (Low) Suitability sets Highway Suitability to its 75th (25th) percentile; Black (White) areas set Exposure to Black Residents to its 75th (25th) percentile. " \
-"Effect of Suitability is the difference in predicted probability between High and Low Suitability areas." \
+notes = "Average predicted probabilities of highway placement from the Firth's bias-reduced logistic regression in Table \\ref{tab:results/suitabilityxblackshare}. " \
+"These probabilities are calculated by holding all covariates except for Highway Suitability, Exposure to Black Residents, and Log(Home Value) at their observed values. " \
+"Twenty sets of counterfactuals are performed as follows:  High (Low) Suitability sets Highway Suitability to its 75th (25th) percentile; " \
+"Black (White) areas set Exposure to Black Residents to its 75th (25th) percentile; Log(Home Value) is set to the percentile value noted in each column. " \
+"Predicted probabilities are averaged across observations for each counterfactual. " \
+"Effect of Suitability is the difference in predicted probability between High and Low Suitability areas. " \
 "Racial Difference in Suitability Effect is the difference in the Effect of Suitability between Black and White areas. " \
 "Standard errors are computed via the delta method from the spatial variance-covariance matrix and reported in parenthesis. " \
 "P-values are only denoted for the differences reported in Panel B. *** p < 0.01, ** p < 0.05, * p < 0.1"
-export_predicted_outcomes_table(outcomes1, caption = "Heterogeneity by Home Value",
+export_predicted_outcomes_table(outcomes1, caption = "Predicted Probabilities: Heterogeneity by Home Value",
                         label = 'tab:heterogeneity/suitabilityxblacksharexvalueh', notes = notes, widthmultiplier = 1)
 
 # sweep across black home values
 SWEEP = Sweep(HOUSING_VARS[0], percentile_levels([10, 25, 50, 75, 90], where = lambda d: (d['valueh_avail'] == 1) & (d['black_homeowners_indicator'] == 1)))
 outcomes1b = predicted_outcomes(fit2, ind_sample, SUITABILITY, columns = SWEEP)
 
-
 # sweep across ownership levels
-SWEEP = Sweep(HH_CONTROLS[0], percentile_levels([10, 25, 50, 75, 90]))
+SWEEP = Sweep(HH_CONTROLS[0], {'0\\% Owner Occupied': 0, '25\\% Owner Occupied': 0.25, '50\\% Owner Occupied': 0.5, '75\\% Owner Occupied': 0.75, '100\\% Owner Occupied': 1.0})
 outcomes2 = predicted_outcomes(fit2, ind_sample, SUITABILITY, columns = SWEEP)
-notes = "Average predicted probabilities of highway placement from the Firth's bias-reduced logistic regression in " \
-"Table \\ref{tab:results/suitabilityxblackshare}. For each cell, Highway Suitability and Exposure to Black Residents are set to the values " \
-"below for every observation, Percent Owner-Occupied is set to the value noted in the column header, and all other covariates are held at their observed values. " \
-"Predicted probabilities are averaged across observations. " \
-"High (Low) Suitability sets Highway Suitability to its 75th (25th) percentile; Black (White) areas set Exposure to Black Residents to its 75th (25th) percentile. " \
-"Effect of Suitability is the difference in predicted probability between High and Low Suitability areas." \
+notes = "Average predicted probabilities of highway placement from the Firth's bias-reduced logistic regression in Table \\ref{tab:results/suitabilityxblackshare}. " \
+"These probabilities are calculated by holding all covariates except for Highway Suitability, Exposure to Black Residents, " \
+"and Percent Owner-Occupied at their observed values. " \
+"Twenty sets of counterfactuals are performed as follows:  High (Low) Suitability sets Highway Suitability to its 75th (25th) percentile; " \
+"Black (White) areas set Exposure to Black Residents to its 75th (25th) percentile; Percent Owner-Occupied is set to the value noted in each column. " \
+"Predicted probabilities are averaged across observations for each counterfactual. " \
+"Effect of Suitability is the difference in predicted probability between High and Low Suitability areas. " \
 "Racial Difference in Suitability Effect is the difference in the Effect of Suitability between Black and White areas. " \
 "Standard errors are computed via the delta method from the spatial variance-covariance matrix and reported in parenthesis. " \
 "P-values are only denoted for the differences reported in Panel B. *** p < 0.01, ** p < 0.05, * p < 0.1"
-export_predicted_outcomes_table(outcomes2, caption = "Heterogeneity by Owner-Occupancy",
+export_predicted_outcomes_table(outcomes2, caption = "Predicted Probabilites: Heterogeneity by Owner-Occupancy",
                         label = 'tab:heterogeneity/suitabilityxblacksharexowner', notes = notes, widthmultiplier = 1)
 
 # sweep across number of residents
 SWEEP = Sweep(HH_CONTROLS[1], percentile_levels([10, 25, 50, 75, 90]))
 outcomes3 = predicted_outcomes(fit2, ind_sample, SUITABILITY, columns = SWEEP)
-notes = "Average predicted probabilities of highway placement from the Firth's bias-reduced logistic regression in " \
-"Table \\ref{tab:results/suitabilityxblackshare}. For each cell, Highway Suitability and Exposure to Black Residents are set to the values " \
-"below for every observation, Log(Number of Residents) is set to the value noted in the column header, and all other covariates are held at their observed values. " \
-"Predicted probabilities are averaged across observations. " \
-"High (Low) Suitability sets Highway Suitability to its 75th (25th) percentile; Black (White) areas set Exposure to Black Residents to its 75th (25th) percentile. " \
-"Effect of Suitability is the difference in predicted probability between High and Low Suitability areas." \
+notes = "Average predicted probabilities of highway placement from the Firth's bias-reduced logistic regression in Table \\ref{tab:results/suitabilityxblackshare}. " \
+"These probabilities are calculated by holding all covariates except for Highway Suitability, Exposure to Black Residents, " \
+"and Log(Number of Residents) at their observed values. " \
+"Twenty sets of counterfactuals are performed as follows:  High (Low) Suitability sets Highway Suitability to its 75th (25th) percentile; " \
+"Black (White) areas set Exposure to Black Residents to its 75th (25th) percentile; Log(Number of Residents) is set to the percentile value noted in each column. " \
+"Predicted probabilities are averaged across observations for each counterfactual. " \
+"Effect of Suitability is the difference in predicted probability between High and Low Suitability areas. " \
 "Racial Difference in Suitability Effect is the difference in the Effect of Suitability between Black and White areas. " \
 "Standard errors are computed via the delta method from the spatial variance-covariance matrix and reported in parenthesis. " \
 "P-values are only denoted for the differences reported in Panel B. *** p < 0.01, ** p < 0.05, * p < 0.1"
-export_predicted_outcomes_table(outcomes3, caption = "Heterogeneity by Density",
-                        label = 'tab:heterogeneity/suitabilityxblacksharexnumprec', notes = notes, widthmultiplier = 1)
-
+export_predicted_outcomes_table(outcomes3, caption = "Predicted Probabilities: Heterogeneity by Density",
+                        label = 'tab:heterogeneity/suitabilityxblacksharexnumprec', notes = notes, widthmultiplier = 1) 
