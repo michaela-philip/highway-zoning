@@ -300,7 +300,7 @@ def predicted_outcomes(fit, df, comparison, columns=None, hold=None, eval_at='am
                                         'label': name(a, cmp.effect_name)}))
     if cmp.across is not None:
         (a0, _), (a1, _) = across
-        estimands.append((effect_w[a1] - effect_w[a0], {'kind': 'difference', 'across': None,
+        estimands.append((effect_w[a0] - effect_w[a1], {'kind': 'difference', 'across': None,
                                                         'effect': None, 'label': cmp.difference_name}))
 
     records = []
@@ -427,7 +427,7 @@ def export_predicted_outcomes_table(result, caption, label, widthmultiplier=1, n
             body += rows(a, f'{a} {cmp.effect_name}', indent=False)
         body.append('\\addlinespace[2pt]')
         body += rows(cmp.difference_name, cmp.difference_name, bold=True, indent=False,
-                     sublabel=f'({across[1]} $-$ {across[0]})')
+                     sublabel=f'({across[0]} $-$ {across[1]})')
     body[-1] = body[-1].replace('\\\\[4pt]', '\\\\')
 
     head = []
