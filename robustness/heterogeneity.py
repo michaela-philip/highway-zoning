@@ -60,7 +60,7 @@ RACE = Comparison(effect = DEM_ACCESS, effect_levels = race_levels, across = SUI
 # sweep across home values
 SWEEP = Sweep(HOUSING_VARS[0], percentile_levels([10, 25, 50, 75, 90], where = lambda d: d['valueh_avail'] == 1))
 outcomes1 = predicted_outcomes(fit2, ind_sample, SUITABILITY, columns = SWEEP)
-notes = "Average predicted probabilities of highway placement from the Firth's bias-reduced logistic regression in Table \\ref{tab:results/suitabilityxblackshare}. " \
+notes = "Average predicted probabilities of highway placement from the Firth's bias-reduced logistic regression in Table \\ref{tab:results/suitabilityxblackshare+pctres}. " \
 "These probabilities are calculated by holding all covariates except for Highway Suitability, Exposure to Black Residents, and Log(Home Value) at their observed values. " \
 "Twenty sets of counterfactuals are performed as follows:  High (Low) Suitability sets Highway Suitability to its 75th (25th) percentile; " \
 "Black (White) areas set Exposure to Black Residents to its 75th (25th) percentile; Log(Home Value) is set to the percentile value noted in each column. " \
@@ -79,7 +79,7 @@ outcomes1b = predicted_outcomes(fit2, ind_sample, SUITABILITY, columns = SWEEP)
 # sweep across ownership levels
 SWEEP = Sweep(HH_CONTROLS[0], {'0\\% Owner Occupied': 0, '25\\% Owner Occupied': 0.25, '50\\% Owner Occupied': 0.5, '75\\% Owner Occupied': 0.75, '100\\% Owner Occupied': 1.0})
 outcomes2 = predicted_outcomes(fit2, ind_sample, SUITABILITY, columns = SWEEP)
-notes = "Average predicted probabilities of highway placement from the Firth's bias-reduced logistic regression in Table \\ref{tab:results/suitabilityxblackshare}. " \
+notes = "Average predicted probabilities of highway placement from the Firth's bias-reduced logistic regression in Table \\ref{tab:results/suitabilityxblackshare+pctres}. " \
 "These probabilities are calculated by holding all covariates except for Highway Suitability, Exposure to Black Residents, " \
 "and Percent Owner-Occupied at their observed values. " \
 "Twenty sets of counterfactuals are performed as follows:  High (Low) Suitability sets Highway Suitability to its 75th (25th) percentile; " \
@@ -95,7 +95,7 @@ export_predicted_outcomes_table(outcomes2, caption = "Predicted Probabilites: He
 # sweep across number of residents
 SWEEP = Sweep(HH_CONTROLS[1], percentile_levels([10, 25, 50, 75, 90]))
 outcomes3 = predicted_outcomes(fit2, ind_sample, SUITABILITY, columns = SWEEP)
-notes = "Average predicted probabilities of highway placement from the Firth's bias-reduced logistic regression in Table \\ref{tab:results/suitabilityxblackshare}. " \
+notes = "Average predicted probabilities of highway placement from the Firth's bias-reduced logistic regression in Table \\ref{tab:results/suitabilityxblackshare+pctres}. " \
 "These probabilities are calculated by holding all covariates except for Highway Suitability, Exposure to Black Residents, " \
 "and Log(Number of Residents) at their observed values. " \
 "Twenty sets of counterfactuals are performed as follows:  High (Low) Suitability sets Highway Suitability to its 75th (25th) percentile; " \
