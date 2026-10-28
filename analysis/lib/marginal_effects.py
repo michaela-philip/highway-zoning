@@ -1,3 +1,4 @@
+import textwrap
 from dataclasses import dataclass
 
 import numpy as np
@@ -353,7 +354,7 @@ def print_predicted_outcomes(result):
 
 
 def export_predicted_outcomes_table(result, caption, label, widthmultiplier=1, notes=None,
-                                     column_group=None):
+                                     column_group=None, max_label_chars=40):
     """Write a PredictedOutcomes as a LaTeX table to tables/<label suffix>.tex.
 
     Layout: Panel A reports the predicted rate for each cell, grouped under the two
@@ -364,8 +365,10 @@ def export_predicted_outcomes_table(result, caption, label, widthmultiplier=1, n
 
     column_group is the spanning header over the columns (default: the Sweep/Strata title;
     ignored for a single column). widthmultiplier=None keeps the table at its natural
-    width; a number stretches it to that fraction of \\textwidth. Needs booktabs +
-    threeparttable."""
+    width; a number stretches it to that fraction of \\textwidth. Row labels longer than
+    max_label_chars (e.g. a long difference_name) are word-wrapped onto the SE line and,
+    if needed, extra lines below, rather than widening the label column past the page.
+    Needs booktabs + threeparttable."""
     cmp = result.comparison
     f = result.frame
     lookup = {(r['column'], r['label']): r for _, r in f.iterrows()}
@@ -389,21 +392,32 @@ def export_predicted_outcomes_table(result, caption, label, widthmultiplier=1, n
         return f'\\rlap{{$^{{{s}}}$}}' if s else ''
 
     def rows(row_label, key, bold=False, indent=True, sublabel=''):
-        """Estimate line plus (when there are SEs) a parenthesized SE line; `sublabel`
-        goes in the SE line's label cell, to split a long label over both lines."""
+        """Estimate line plus (when there are SEs) a parenthesized SE line. A label
+        longer than max_label_chars is word-wrapped, its continuation lines going in the
+        SE line's label cell and then on label-only lines below; `sublabel` follows the
+        label on the next free line."""
         vals = [lookup[(c, key)] for c in cols]
         pad = '\\quad ' if indent else ''
-        lbl = f'\\textbf{{{row_label}}}' if bold else row_label
-        out = [f'{pad}{lbl} & ' + ' & '.join(num(v['estimate'], bold) + stars(v['p']) for v in vals) + ' \\\\']
+        labels = [f'\\textbf{{{l}}}' if bold else l
+                  for l in textwrap.wrap(row_label, max_label_chars) or ['']]
+        labels = [pad + l for l in labels] + ([sublabel] if sublabel else [])
+        cells = [' & '.join(num(v['estimate'], bold) + stars(v['p']) for v in vals)]
         if any(not np.isnan(v['se']) for v in vals):
-            ses = ' & '.join('' if np.isnan(v['se']) else f"({v['se']:.3f})" for v in vals)
-            out.append(f'{sublabel} & {ses} \\\\[4pt]')
+            cells.append(' & '.join('' if np.isnan(v['se']) else f"({v['se']:.3f})" for v in vals))
+        n = max(len(labels), len(cells))
+        labels += [''] * (n - len(labels))
+        cells += [' &' * (ncol - 1)] * (n - len(cells))
+        out = [f'{l} & {c} \\\\' for l, c in zip(labels, cells)]
+        if n > 1:
+            out[-1] += '[4pt]'
         return out
 
     # panel titles sit in the label column (not a full-width \multicolumn, which would
     # dump any extra width into the last numeric column of a narrow table)
+    # (italic titles set narrower than the bold difference label, so wrap them later)
     def panel(title):
-        return [f'\\textit{{{title}}}' + ' &' * ncol + ' \\\\', '\\addlinespace[2pt]']
+        return [f'\\textit{{{t}}}' + ' &' * ncol + ' \\\\'
+                for t in textwrap.wrap(title, int(max_label_chars * 1.25))] + ['\\addlinespace[2pt]']
 
     effect = list(cmp.effect_levels)
     body = panel('Panel A: Predicted Probability')
