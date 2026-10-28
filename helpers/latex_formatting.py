@@ -141,10 +141,17 @@ def export_table(df, caption, label, widthmultiplier = 1.0, notes = None, depvar
     summary statistics). `depvar`, if given, adds a 'Dependent variable:' row at the top
     of the table (see _depvar_row)."""
     num_cols = df.shape[1]
+    # a single column's title (e.g. 'Coefficient') says nothing a depvar row wouldn't, so
+    # the depvar label replaces it outright instead of stacking a second header row on top
+    single_depvar = depvar is not None and num_cols == 1
+    if single_depvar:
+        df = df.set_axis([depvar if isinstance(depvar, str) else list(depvar)[0]], axis=1)
     col_format = '@{\\extracolsep{\\fill}}l*' + f'{{{num_cols}}}' + '{r}'
     text = df.style.format(precision=2, na_rep = '').to_latex(position_float = 'centering',
                 caption=caption, position = 'h', label=label, hrules=True, column_format = col_format)
-    if depvar is not None:
+    if single_depvar:
+        text = text.replace('\\toprule\n & ', '\\toprule\nDependent variable: & ', 1)
+    elif depvar is not None:
         text = text.replace('\\toprule\n', '\\toprule\n' + _depvar_row(depvar, num_cols), 1)
     text = _wrap_threeparttable(text, widthmultiplier, notes)
     filename = label.split(':')[-1] + '.tex'
